@@ -12,8 +12,11 @@
 
 class ZbSetting {
 public:
-  ZbSetting(uint8_t endpoint, const char *nvsKey, const char *model, const char *description,
-            float defaultValue, float minValue, float maxValue, float step, uint32_t applicationType);
+  // The endpoint reports ZB_MANUFACTURER / ZB_MODEL like every other endpoint
+  // of this device; the description is what tells the two settings apart on the
+  // coordinator.
+  ZbSetting(uint8_t endpoint, const char *nvsKey, const char *description, float defaultValue, float minValue,
+            float maxValue, float step, uint32_t applicationType);
 
   // Resolves the effective value: code default unless NVS holds one.
   void load(Preferences &prefs);
@@ -45,7 +48,6 @@ private:
 
   ZigbeeAnalog _ep;
   const char *_nvsKey;
-  const char *_model;
   const char *_description;
   float _default;
   float _min;

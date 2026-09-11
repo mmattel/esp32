@@ -73,6 +73,15 @@ static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   factory r
 // How often to re-scan the bus while at least one slot has no sensor.
 #define ONEWIRE_RESCAN_INTERVAL_MS 60000
 
+// ZCL reporting configuration for the temperature attributes. The deadband
+// above is enforced in software and every publish is reported explicitly, so
+// the stack must not filter on top of it: the reportable change is fixed at 0.
+// The heartbeat is the max_interval, i.e. how often the last published value is
+// repeated while readings stay inside the deadband. It keeps the coordinator
+// from treating the device as unavailable; 0 would disable periodic reports.
+#define TEMP_REPORT_MIN_INTERVAL_S 1
+#define TEMP_REPORT_HEARTBEAT_S 3600
+
 /* ------------------------------------------------------------------
  * Pushbutton
  * ------------------------------------------------------------------ */
@@ -94,9 +103,14 @@ static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   factory r
 #define EP_CONFIG_INTERVAL 13
 #define EP_CONFIG_DELTA 14
 
+// One model identifier for the whole device, reported identically by every
+// endpoint. A coordinator reads it from the first endpoint that has a Basic
+// cluster and treats it as the *product* type - Zigbee2MQTT keys its device
+// definition on it - so it must not contain anything instance specific. The
+// per-sensor ROM code goes into each endpoint's LocationDescription instead.
+// Both strings are limited to 32 characters by the Zigbee library.
 #define ZB_MANUFACTURER "M5Stack"
-#define ZB_MODEL_INTERVAL "NanoH2-Interval"
-#define ZB_MODEL_DELTA "NanoH2-Delta"
+#define ZB_MODEL "NanoH2-DS18B20"
 
 /* ------------------------------------------------------------------
  * NVS

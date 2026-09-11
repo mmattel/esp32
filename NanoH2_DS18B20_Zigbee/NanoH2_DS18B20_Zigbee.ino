@@ -2,8 +2,9 @@
  * M5Stack NanoH2 (ESP32-H2, SKU C149) - three DS18B20 sensors over Zigbee.
  *
  * - Three DS18B20 sensors share one 1-Wire bus on PIN_ONEWIRE. Each gets its
- *   own Zigbee temperature endpoint carrying a stable slot ID, the sensor's
- *   own 64-bit ROM code and its temperature.
+ *   own Zigbee temperature endpoint: the endpoint number is the stable slot ID,
+ *   the endpoint's LocationDescription is the sensor's own 64-bit ROM code, and
+ *   the measured value is its temperature.
  * - The bus is read every "interval" seconds; a reading is only published when
  *   it moves more than "delta" degrees from the last published one. Both are
  *   writable from the coordinator and persisted.
@@ -33,6 +34,7 @@
 #include "config.h"
 #include "ds18b20_bus.h"
 #include "zb_setting.h"
+#include "zb_temp_endpoint.h"
 
 /* ----------------------------- state ------------------------------ */
 
@@ -48,17 +50,16 @@ DS18B20Bus owBus(PIN_ONEWIRE);
 // One endpoint per slot, created unconditionally: the endpoint list is fixed
 // at Zigbee.begin() and cannot grow later without re-pairing the device.
 static_assert(MAX_DS18B20_SENSORS == 3, "adjust the endpoint objects below to match MAX_DS18B20_SENSORS");
-ZigbeeTempSensor zbTemp0(EP_TEMP_BASE + 0);
-ZigbeeTempSensor zbTemp1(EP_TEMP_BASE + 1);
-ZigbeeTempSensor zbTemp2(EP_TEMP_BASE + 2);
-ZigbeeTempSensor *zbTemp[MAX_DS18B20_SENSORS] = {&zbTemp0, &zbTemp1, &zbTemp2};
+TempEndpoint zbTemp0(EP_TEMP_BASE + 0);
+TempEndpoint zbTemp1(EP_TEMP_BASE + 1);
+TempEndpoint zbTemp2(EP_TEMP_BASE + 2);
+TempEndpoint *zbTemp[MAX_DS18B20_SENSORS] = {&zbTemp0, &zbTemp1, &zbTemp2};
 
 // Writable settings, each on its own analog output endpoint.
-ZbSetting cfgInterval(EP_CONFIG_INTERVAL, NVS_KEY_INTERVAL, ZB_MODEL_INTERVAL, "Reading interval (s)",
-                      TEMP_INTERVAL_DEFAULT_S, TEMP_INTERVAL_MIN_S, TEMP_INTERVAL_MAX_S, TEMP_INTERVAL_STEP_S,
-                      ESP_ZB_ZCL_AI_TIME_RELATIVE);
-ZbSetting cfgDelta(EP_CONFIG_DELTA, NVS_KEY_DELTA, ZB_MODEL_DELTA, "Reporting delta (C)", TEMP_DELTA_DEFAULT_C,
-                   TEMP_DELTA_MIN_C, TEMP_DELTA_MAX_C, TEMP_DELTA_STEP_C, ESP_ZB_ZCL_AI_TEMPERATURE_OTHER);
+ZbSetting cfgInterval(EP_CONFIG_INTERVAL, NVS_KEY_INTERVAL, "Reading interval (s)", TEMP_INTERVAL_DEFAULT_S,
+                      TEMP_INTERVAL_MIN_S, TEMP_INTERVAL_MAX_S, TEMP_INTERVAL_STEP_S, ESP_ZB_ZCL_AI_TIME_RELATIVE);
+ZbSetting cfgDelta(EP_CONFIG_DELTA, NVS_KEY_DELTA, "Reporting delta (C)", TEMP_DELTA_DEFAULT_C, TEMP_DELTA_MIN_C,
+                   TEMP_DELTA_MAX_C, TEMP_DELTA_STEP_C, ESP_ZB_ZCL_AI_TEMPERATURE_OTHER);
 
 // onAnalogOutputChange() takes a bare function pointer with no user context,
 // so each setting gets its own one-line trampoline.
@@ -183,6 +184,12 @@ void scanSensors() {
       prefs.putULong64(romKey(slot).c_str(), found[f]);
       Serial.printf("  %s assigned to slot %d (stored)\r\n",
                     DS18B20Bus::romToString(found[f]).c_str(), slot);
+      if (Zigbee.started()) {
+        // Tell the coordinator which sensor this endpoint now reads. Before
+        // Zigbee.begin() there is nothing to update: setupEndpoints() reads the
+        // slot mapping itself.
+        zbTemp[slot]->setSensorId(DS18B20Bus::romToString(found[f]).c_str());
+      }
     }
     slotPresent[slot] = true;
     owBus.setResolution12bit(found[f]);
@@ -207,38 +214,44 @@ bool anySlotMissing() {
 
 /* ----------------------------- Zigbee ---------------------------- */
 
-// Model string carries both identifiers the coordinator needs:
-// "DS18B20-S<slot>-<rom>", e.g. "DS18B20-S0-28FF641E1234ABCD".
-String slotModel(uint8_t slot) {
-  String model = "DS18B20-S" + String(slot) + "-";
-  model += slotRom[slot] ? DS18B20Bus::romToString(slotRom[slot]) : String("UNASSIGNED");
-  return model;
+// The sensor's own identity, as published in the endpoint's
+// LocationDescription: its 16-digit ROM code, or a placeholder while the slot
+// has never seen a sensor. The static id is the endpoint number itself.
+String sensorId(uint8_t slot) {
+  return slotRom[slot] ? DS18B20Bus::romToString(slotRom[slot]) : String("UNASSIGNED");
 }
 
 void applyReporting() {
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
-    // min_interval 1 + max_interval 0: report on a change of at least delta,
-    // never on a timer. The deadband is also enforced in readAndPublish(), so
-    // the behaviour holds even if the coordinator rewrites this configuration.
-    zbTemp[i]->setReporting(1, 0, cfgDelta.value());
+    // Reportable change 0: every attribute write is worth a report. The
+    // deadband lives in readAndPublish() and each publish is reported
+    // explicitly, so the stack must not filter a second time on top of that.
+    // max_interval repeats the last published value as a heartbeat.
+    zbTemp[i]->setReporting(TEMP_REPORT_MIN_INTERVAL_S, TEMP_REPORT_HEARTBEAT_S, 0);
   }
 }
 
 void setupEndpoints() {
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
-    zbTemp[i]->setManufacturerAndModel(ZB_MANUFACTURER, slotModel(i).c_str());
+    // Same manufacturer and model on every endpoint: this identifies the
+    // product. Which sensor an endpoint reads is the sensor id, see above.
+    zbTemp[i]->setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
+    if (!zbTemp[i]->setSensorId(sensorId(i).c_str())) {
+      // Optional attribute: the temperature still works without it, only the
+      // "which sensor is this" information is then missing over the air.
+      Serial.printf("EP %u: sensor id attribute unavailable\r\n", EP_TEMP_BASE + i);
+    }
     zbTemp[i]->setMinMaxValue(-55, 125);  // DS18B20 range
     zbTemp[i]->setTolerance(0.5);
     zbTemp[i]->setDefaultValue(0);
     zbTemp[i]->setPowerSource(ZB_POWER_SOURCE_MAINS);
     Zigbee.addEndpoint(zbTemp[i]);
-    Serial.printf("EP %u -> %s\r\n", EP_TEMP_BASE + i, slotModel(i).c_str());
+    Serial.printf("EP %u -> slot %u, sensor %s\r\n", EP_TEMP_BASE + i, i, sensorId(i).c_str());
   }
 
   cfgInterval.addEndpoint(onIntervalWritten);
   cfgDelta.addEndpoint(onDeltaWritten);
-  Serial.printf("EP %u -> %s\r\nEP %u -> %s\r\n", EP_CONFIG_INTERVAL, ZB_MODEL_INTERVAL, EP_CONFIG_DELTA,
-                ZB_MODEL_DELTA);
+  Serial.printf("EP %u -> reading interval\r\nEP %u -> reporting delta\r\n", EP_CONFIG_INTERVAL, EP_CONFIG_DELTA);
 }
 
 void onZigbeeConnected() {
@@ -284,9 +297,7 @@ void updateLinkState() {
 
 void handleSettingWrites() {
   cfgInterval.applyPending(prefs);  // takes effect on the next sample
-  if (cfgDelta.applyPending(prefs)) {
-    applyReporting();  // the delta is part of the ZCL reporting configuration
-  }
+  cfgDelta.applyPending(prefs);     // takes effect on the next reading
 }
 
 /* --------------------------- temperature -------------------------- */
@@ -316,6 +327,15 @@ void readAndPublish() {
 
     if (publish) {
       zbTemp[i]->setTemperature(r.celsius);
+      if (Zigbee.connected()) {
+        // Report explicitly instead of leaving it to the stack's own change
+        // detection: that would apply the reportable change from the ZCL
+        // reporting configuration on top of our deadband, and the coordinator
+        // is free to rewrite it (Zigbee2MQTT sets 1 °C), which would silently
+        // override the configured delta. Off the air there is nobody to report
+        // to, and a rejoin resets lastPublished anyway.
+        zbTemp[i]->reportTemperature();
+      }
       lastPublished[i] = r.celsius;
     }
 

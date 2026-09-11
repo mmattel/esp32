@@ -20,12 +20,12 @@ static void check(const char *what, float got, float want) {
 }
 
 ZbSetting makeInterval() {
-  return ZbSetting(13, NVS_KEY_INTERVAL, ZB_MODEL_INTERVAL, "Reading interval (s)", TEMP_INTERVAL_DEFAULT_S,
-                   TEMP_INTERVAL_MIN_S, TEMP_INTERVAL_MAX_S, TEMP_INTERVAL_STEP_S, ESP_ZB_ZCL_AI_TIME_RELATIVE);
+  return ZbSetting(13, NVS_KEY_INTERVAL, "Reading interval (s)", TEMP_INTERVAL_DEFAULT_S, TEMP_INTERVAL_MIN_S,
+                   TEMP_INTERVAL_MAX_S, TEMP_INTERVAL_STEP_S, ESP_ZB_ZCL_AI_TIME_RELATIVE);
 }
 ZbSetting makeDelta() {
-  return ZbSetting(14, NVS_KEY_DELTA, ZB_MODEL_DELTA, "Reporting delta (C)", TEMP_DELTA_DEFAULT_C,
-                   TEMP_DELTA_MIN_C, TEMP_DELTA_MAX_C, TEMP_DELTA_STEP_C, ESP_ZB_ZCL_AI_TEMPERATURE_OTHER);
+  return ZbSetting(14, NVS_KEY_DELTA, "Reporting delta (C)", TEMP_DELTA_DEFAULT_C, TEMP_DELTA_MIN_C,
+                   TEMP_DELTA_MAX_C, TEMP_DELTA_STEP_C, ESP_ZB_ZCL_AI_TEMPERATURE_OTHER);
 }
 
 int main() {

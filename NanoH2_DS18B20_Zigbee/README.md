@@ -12,6 +12,7 @@ the on-board RGB LED as a link-state indicator.
 | `config.h` | Every tunable: pins, colours, flash cycle, interval, delta, hold time |
 | `ds18b20_bus.h/.cpp` | Self-contained 1-Wire master and DS18B20 driver |
 | `zb_setting.h/.cpp` | A setting with a code default, an NVS override and a Zigbee override |
+| `zb_temp_endpoint.h/.cpp` | Temperature endpoint that also publishes its sensor's ROM code |
 
 The pure-logic parts — the 1-Wire driver and the settings — have host tests in
 [`../test/`](../test/); run them with `cd test && make`.
@@ -89,14 +90,20 @@ Each temperature endpoint exposes all three required identifiers:
 - **static ID** — the endpoint number (10 + slot). The slot ↔ sensor mapping is
   stored in NVS, so slot 0 keeps meaning the same physical sensor across
   reboots even if bus enumeration order changes.
-- **sensor internal ID** — the DS18B20's 64-bit ROM code, in the Basic
-  cluster's model identifier: `DS18B20-S0-28FF641E1234ABCD`.
-- **temperature** — the measured value, reported on the configured interval and
-  whenever it moves by `TEMP_REPORT_DELTA_C`.
+- **sensor internal ID** — the DS18B20's 64-bit ROM code as 16 hex digits, in
+  the Basic cluster's **LocationDescription** attribute (0x0010), e.g.
+  `28FF641E1234ABCD`. Unassigned slots read `UNASSIGNED`.
+- **temperature** — the measured value, read on the configured interval and
+  published when it moves by more than the delta.
 
 All three endpoints exist whether or not a sensor is plugged in, because the
 endpoint list is fixed at `Zigbee.begin()` and cannot grow later without
 re-pairing.
+
+Every endpoint reports the *same* manufacturer and model — `ZB_MANUFACTURER` /
+`ZB_MODEL`, `M5Stack` / `NanoH2-DS18B20`. That pair identifies the product, and
+coordinators key their device definition on it, so nothing instance-specific
+(such as a ROM code) may go in there; that is what LocationDescription is for.
 
 ## Reading interval and reporting delta
 
@@ -125,28 +132,61 @@ they survive a reboot; a factory reset restores the code defaults.
 ### How the delta gates reporting
 
 A reading is published only when it differs from the **last published** value by
-**more than** the delta. The gate is the attribute write itself: within the
-deadband the temperature attribute is left untouched, so there is nothing for
-the stack to report. That keeps the behaviour intact even if the coordinator
-rewrites the ZCL reporting configuration during its interview — no attribute
-change means no delta report, whatever it configured.
+**more than** the delta. Within the deadband the temperature attribute is left
+untouched, so there is nothing to report; outside it the attribute is written
+*and reported explicitly* with `reportTemperature()`.
 
-`setReporting(1, 0, delta)` mirrors the same intent into the ZCL configuration:
-report on a change of at least delta, never on a timer.
+The explicit report is the important half. Leaving it to the stack's own change
+detection would apply the reportable change from the ZCL reporting configuration
+on top of our deadband — and the coordinator owns that configuration: Zigbee2MQTT
+sets it to 1.00 °C during `configure`, which would quietly turn any delta below
+1 °C into 1 °C. An explicit report is not subject to it. For the same reason the
+device-side reportable change is fixed at 0 in `applyReporting()` rather than
+tracking the delta.
 
-Two consequences worth knowing:
+`TEMP_REPORT_HEARTBEAT_S` (the ZCL `max_interval`, 1 h by default) repeats the
+last published value even while readings sit inside the deadband, so a quiet
+device still produces traffic; set it to 0 to disable periodic reports entirely.
 
-- Reading the attribute directly returns the last *published* value, not the
-  instantaneous one. By construction it is within the delta of reality.
-- With no change there are no reports at all, by design. Coordinators that infer
-  availability from traffic (Zigbee2MQTT's availability feature, for one) may
-  mark the device offline during a long quiet spell. If that is a problem, ask
-  the coordinator to configure a periodic report, or add a maximum-silence
-  timer to `readAndPublish()`.
+One consequence worth knowing: reading the attribute directly returns the last
+*published* value, not the instantaneous one. By construction it is within the
+delta of reality.
 
 Right after a join or a rejoin the deadband is bypassed once per sensor
 (`lastPublished` is reset to `NAN`), so the coordinator always starts with real
 values instead of waiting for the first threshold crossing.
+
+## Zigbee2MQTT
+
+No external converter is needed: Z2M generates a definition for unknown devices
+(`findByDevice(device, true)`), and its generator covers every cluster used here.
+After pairing you get, under vendor `M5Stack` / model `NanoH2-DS18B20`:
+
+| Expose | Access | Unit | From |
+| --- | --- | --- | --- |
+| `temperature_10`, `temperature_11`, `temperature_12` | read | °C | endpoints 10-12 |
+| `analog_out_duration_13` | read/write | s | endpoint 13, reading interval |
+| `analog_out_temperature_14` | read/write | °C | endpoint 14, reporting delta |
+
+The units and names come from the Analog Output `applicationType` the sketch
+sets, which Z2M maps through the BACnet application type tables:
+`ESP_ZB_ZCL_AI_TIME_RELATIVE` → *duration* / `s`, `ESP_ZB_ZCL_AI_TEMPERATURE_OTHER`
+→ *temperature* / `°C`. The `description` attribute becomes the label, and
+min / max / resolution become the slider bounds and step.
+
+Worth knowing:
+
+- The **ROM codes are not exposed automatically.** Z2M's generator ignores
+  LocationDescription, so read it per endpoint from the dev console (Basic
+  cluster, attribute `locationDesc`) to find out which sensor a slot holds, or
+  add an external converter that exposes it.
+- Z2M **rewrites the temperature reporting configuration** during `configure`
+  (10 s / 1 h / 1.00 °C). That is expected and harmless here, because publishes
+  are reported explicitly — see [above](#how-the-delta-gates-reporting).
+- Z2M also tries to configure reporting on the Analog Output `presentValue`. If
+  the Zigbee stack rejects it, `configure` is logged as failed and retried; the
+  two settings still work, since Z2M reads them on demand and the sketch reports
+  them explicitly whenever they change.
 
 ## Pushbutton
 
@@ -162,16 +202,24 @@ never a surprise.
 
 ## Notes and limits
 
+- **Readings never reach NVS.** Only configuration goes into flash: the
+  commissioning flag, the interval, the delta and the slot ↔ ROM mapping. Each
+  of those is written once, when it changes — the mapping when a new sensor takes
+  a free slot, the flag on the first join, a setting only when the value actually
+  moved. Temperatures live in RAM (`lastPublished[]`) and go out over the air,
+  because a value written every interval would spend the flash's write
+  endurance for nothing. Keep it that way when extending the sketch.
 - **No `OneWire` dependency.** `OneWire`'s direct-GPIO layer only special-cases
   ESP32-C3 and C6; on the H2 it takes the "plain ESP32" branch and references
   `GPIO.in1` / `GPIO.out1_w1ts`, registers this SoC does not have, so it will
   not compile. `ds18b20_bus.cpp` implements reset, read/write slots, the Maxim
   ROM search and CRC-8 directly, masking interrupts only for the parts of each
   time slot that have an upper bound.
-- **Swapping a sensor needs a reboot to re-advertise.** A sensor discovered at
-  runtime starts reporting temperature straight away, but the ROM code in the
-  model string is fixed when the endpoint is built. Reboot to refresh it, and
-  re-interview the device on the coordinator.
+- **Swapping a sensor keeps the endpoint.** A sensor discovered at runtime takes
+  the first free slot, starts reporting temperature straight away, and its ROM
+  code is written into that endpoint's LocationDescription immediately — no
+  reboot and no re-interview. A coordinator that cached the attribute will still
+  show the old value until it reads it again.
 - **Failed reads keep the last value.** A CRC error or a missing sensor is
   logged and the slot is retried on the next rescan (`ONEWIRE_RESCAN_INTERVAL_MS`);
   the endpoint keeps its previous temperature rather than publishing a bogus one.
