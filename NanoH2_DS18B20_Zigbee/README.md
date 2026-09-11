@@ -51,16 +51,27 @@ to work.
 
 ## Arduino IDE settings
 
-| Setting | Value |
-| --- | --- |
-| Board | **ESP32H2 Dev Module** |
-| Zigbee mode | **Zigbee ED (end device)** |
-| Partition Scheme | **Zigbee 4MB with spiffs** |
-| USB CDC On Boot | **Enabled** |
-
-There is no `m5stack_nanoh2` board definition in arduino-esp32 yet, so the
-generic H2 board is the one to pick. Requires arduino-esp32 3.x for the bundled
+Two cores will build this sketch; either needs a 3.x release for the bundled
 `Zigbee` library.
+
+| Setting | M5Stack core | Espressif core |
+| --- | --- | --- |
+| Board Manager URL | [`package_m5stack_index.json`](https://static-cdn.m5stack.com/resource/arduino/package_m5stack_index.json) | [`package_esp32_index.json`](https://espressif.github.io/arduino-esp32/package_esp32_index.json) |
+| Board | **M5Stack → M5NanoH2** | **ESP32H2 Dev Module** |
+| Zigbee mode | **Zigbee ED (end device)** | **Zigbee ED (end device)** |
+| Partition Scheme | **Zigbee 4MB with spiffs** | **Zigbee 4MB with spiffs** |
+| USB CDC On Boot | **Enabled** | **Enabled** |
+
+Prefer `M5NanoH2` — its variant already carries the right clock (96 MHz) and the
+board's own pin names. Follow [Arduino Board
+Management](https://docs.m5stack.com/en/arduino/arduino_board) to install that
+core; note it ships M5Stack boards only, so *ESP32H2 Dev Module* is not in the
+same list. The generic board remains a fine fallback, as the sketch names every
+pin itself in `config.h` and uses nothing from the variant.
+
+Whichever board you pick, **Zigbee mode** and **Partition Scheme** default to
+*Disabled* and *Default 4MB with spiffs*; both have to be changed by hand or the
+sketch will not link.
 
 To enter download mode: hold the on-board `G9` button, *then* plug in USB-C.
 
