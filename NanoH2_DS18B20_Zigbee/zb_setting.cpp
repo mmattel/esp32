@@ -1,10 +1,10 @@
 #include "zb_setting.h"
 #include "config.h"
 
-ZbSetting::ZbSetting(uint8_t endpoint, const char *nvsKey, const char *model, const char *description,
-                     float defaultValue, float minValue, float maxValue, float step, uint32_t applicationType)
-  : _ep(endpoint), _nvsKey(nvsKey), _model(model), _description(description), _default(defaultValue),
-    _min(minValue), _max(maxValue), _step(step), _appType(applicationType), _value(defaultValue) {}
+ZbSetting::ZbSetting(uint8_t endpoint, const char *nvsKey, const char *description, float defaultValue,
+                     float minValue, float maxValue, float step, uint32_t applicationType)
+  : _ep(endpoint), _nvsKey(nvsKey), _description(description), _default(defaultValue), _min(minValue),
+    _max(maxValue), _step(step), _appType(applicationType), _value(defaultValue) {}
 
 float ZbSetting::sanitise(float raw) const {
   if (isnan(raw)) {
@@ -33,7 +33,7 @@ void ZbSetting::load(Preferences &prefs) {
 }
 
 void ZbSetting::addEndpoint(void (*cb)(float)) {
-  _ep.setManufacturerAndModel(ZB_MANUFACTURER, _model);
+  _ep.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
   _ep.addAnalogOutput();
   _ep.setAnalogOutputApplication(_appType);
   _ep.setAnalogOutputDescription(_description);
