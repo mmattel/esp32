@@ -4,12 +4,15 @@ Three DS18B20 temperature sensors on one 1-Wire bus, published over Zigbee from
 an M5Stack NanoH2 (ESP32-H2, SKU C149), with a pushbutton for factory reset and
 the on-board RGB LED as a link-state indicator.
 
+Three is only the default; see [Changing the sensor
+count](#changing-the-sensor-count).
+
 ## Files
 
 | File | Contents |
 | --- | --- |
 | `NanoH2_DS18B20_Zigbee.ino` | Application: link state machine, LED, sampling, button |
-| `config.h` | Every tunable: pins, colours, flash cycle, interval, delta, hold time |
+| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, hold time |
 | `ds18b20_bus.h/.cpp` | Self-contained 1-Wire master and DS18B20 driver |
 | `zb_setting.h/.cpp` | A setting with a code default, an NVS override and a Zigbee override |
 | `zb_temp_endpoint.h/.cpp` | Temperature endpoint that also publishes its sensor's ROM code |
@@ -24,7 +27,7 @@ The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G2` (yellow) and
 
 | Signal | Pin | Notes |
 | --- | --- | --- |
-| DS18B20 data | `G2` (Grove yellow) | all three sensors in parallel, 4.7 kΩ pull-up to their supply rail |
+| DS18B20 data | `G2` (Grove yellow) | all sensors in parallel, one 4.7 kΩ pull-up to their supply rail |
 | Pushbutton | `G1` (Grove white) | to `GND`; internal pull-up is enabled in software |
 | RGB LED | `G11` | on-board WS2812 |
 | RGB power | `G10` | on-board, must be driven high or the LED stays dark |
@@ -48,16 +51,27 @@ to work.
 
 ## Arduino IDE settings
 
-| Setting | Value |
-| --- | --- |
-| Board | **ESP32H2 Dev Module** |
-| Zigbee mode | **Zigbee ED (end device)** |
-| Partition Scheme | **Zigbee 4MB with spiffs** |
-| USB CDC On Boot | **Enabled** |
-
-There is no `m5stack_nanoh2` board definition in arduino-esp32 yet, so the
-generic H2 board is the one to pick. Requires arduino-esp32 3.x for the bundled
+Two cores will build this sketch; either needs a 3.x release for the bundled
 `Zigbee` library.
+
+| Setting | M5Stack core | Espressif core |
+| --- | --- | --- |
+| Board Manager URL | [`package_m5stack_index.json`](https://static-cdn.m5stack.com/resource/arduino/package_m5stack_index.json) | [`package_esp32_index.json`](https://espressif.github.io/arduino-esp32/package_esp32_index.json) |
+| Board | **M5Stack → M5NanoH2** | **ESP32H2 Dev Module** |
+| Zigbee mode | **Zigbee ED (end device)** | **Zigbee ED (end device)** |
+| Partition Scheme | **Zigbee 4MB with spiffs** | **Zigbee 4MB with spiffs** |
+| USB CDC On Boot | **Enabled** | **Enabled** |
+
+Prefer `M5NanoH2` — its variant already carries the right clock (96 MHz) and the
+board's own pin names. Follow [Arduino Board
+Management](https://docs.m5stack.com/en/arduino/arduino_board) to install that
+core; note it ships M5Stack boards only, so *ESP32H2 Dev Module* is not in the
+same list. The generic board remains a fine fallback, as the sketch names every
+pin itself in `config.h` and uses nothing from the variant.
+
+Whichever board you pick, **Zigbee mode** and **Partition Scheme** default to
+*Disabled* and *Default 4MB with spiffs*; both have to be changed by hand or the
+sketch will not link.
 
 To enter download mode: hold the on-board `G9` button, *then* plug in USB-C.
 
@@ -76,6 +90,8 @@ colours are `LedColor` constants at the top of `config.h`.
 
 ## Zigbee endpoints
 
+With the default of three sensors:
+
 | Endpoint | Cluster | Purpose |
 | --- | --- | --- |
 | 10, 11, 12 | Temperature Measurement | one per sensor slot |
@@ -85,18 +101,23 @@ colours are `LedColor` constants at the top of `config.h`.
 An Analog Output cluster carries a single value, so each writable setting needs
 its own endpoint.
 
+The numbers are all derived from `EP_TEMP_BASE` and `MAX_DS18B20_SENSORS`: slots
+take `EP_TEMP_BASE … EP_TEMP_BASE + MAX_DS18B20_SENSORS - 1`, then the two
+settings follow directly above them, so they can never collide with a
+temperature endpoint.
+
 Each temperature endpoint exposes all three required identifiers:
 
-- **static ID** — the endpoint number (10 + slot). The slot ↔ sensor mapping is
-  stored in NVS, so slot 0 keeps meaning the same physical sensor across
-  reboots even if bus enumeration order changes.
+- **static ID** — the endpoint number (`EP_TEMP_BASE` + slot, so 10 + slot by
+  default). The slot ↔ sensor mapping is stored in NVS, so slot 0 keeps meaning
+  the same physical sensor across reboots even if bus enumeration order changes.
 - **sensor internal ID** — the DS18B20's 64-bit ROM code as 16 hex digits, in
   the Basic cluster's **LocationDescription** attribute (0x0010), e.g.
   `28FF641E1234ABCD`. Unassigned slots read `UNASSIGNED`.
 - **temperature** — the measured value, read on the configured interval and
   published when it moves by more than the delta.
 
-All three endpoints exist whether or not a sensor is plugged in, because the
+Every slot endpoint exists whether or not a sensor is plugged in, because the
 endpoint list is fixed at `Zigbee.begin()` and cannot grow later without
 re-pairing.
 
@@ -104,6 +125,41 @@ Every endpoint reports the *same* manufacturer and model — `ZB_MANUFACTURER` /
 `ZB_MODEL`, `M5Stack` / `NanoH2-DS18B20`. That pair identifies the product, and
 coordinators key their device definition on it, so nothing instance-specific
 (such as a ROM code) may go in there; that is what LocationDescription is for.
+
+## Changing the sensor count
+
+One line in `config.h`:
+
+```c
+#define MAX_DS18B20_SENSORS 3
+```
+
+Everything else follows it — the endpoint objects, the endpoint numbers, the
+`romN` keys in NVS, the slot arrays and every loop over them. Nothing else in the
+sources needs editing, and two `static_assert`s in the sketch catch the two ways
+of getting it wrong: a count below 1, and a count so large that the settings
+endpoints would run past the Zigbee maximum of 240.
+
+What changes on the air:
+
+- **The settings endpoints move.** They sit directly above the last temperature
+  slot, so with four sensors they become 14 and 15 rather than 13 and 14. In
+  Zigbee2MQTT the expose names follow (`analog_out_duration_14`,
+  `analog_out_temperature_15`), which breaks automations and dashboards that
+  reference the old names.
+- **The device has to be re-paired.** The endpoint list is fixed at
+  `Zigbee.begin()`. After flashing, hold the button for 5 s to factory reset, then
+  join again. In Zigbee2MQTT, delete the device first and let it re-interview;
+  otherwise Z2M keeps serving the cached definition with the old endpoint set.
+
+Two smaller things:
+
+- **Reducing the count leaves stale `romN` keys** in NVS for the slots that no
+  longer exist. They are never read again, and the factory reset that the re-pair
+  needs anyway clears them.
+- **The 1-Wire side does not care.** All sensors convert in parallel, so the
+  sampling time is the same for one sensor as for ten. The practical ceiling is
+  the bus itself — total cable length and the single pull-up — not the firmware.
 
 ## Reading interval and reporting delta
 
@@ -116,6 +172,9 @@ is how much a reading has to move before it is published.
 | Range | 10 … 3600 s | 0 … 20 °C |
 | Step | 1 s | 0.1 °C |
 | Endpoint | 13 | 14 |
+
+(Endpoints 13 and 14 with the default of three sensors; see [Changing the sensor
+count](#changing-the-sensor-count).)
 
 Both resolve the same way, each source overriding the one above it:
 
@@ -160,13 +219,18 @@ values instead of waiting for the first threshold crossing.
 
 No external converter is needed: Z2M generates a definition for unknown devices
 (`findByDevice(device, true)`), and its generator covers every cluster used here.
-After pairing you get, under vendor `M5Stack` / model `NanoH2-DS18B20`:
+After pairing you get, under vendor `M5Stack` / model `NanoH2-DS18B20`, with the
+default of three sensors:
 
 | Expose | Access | Unit | From |
 | --- | --- | --- | --- |
 | `temperature_10`, `temperature_11`, `temperature_12` | read | °C | endpoints 10-12 |
 | `analog_out_duration_13` | read/write | s | endpoint 13, reading interval |
 | `analog_out_temperature_14` | read/write | °C | endpoint 14, reporting delta |
+
+The endpoint number is part of every name, so a different sensor count renames
+these exposes — see [Changing the sensor
+count](#changing-the-sensor-count).
 
 The units and names come from the Analog Output `applicationType` the sketch
 sets, which Z2M maps through the BACnet application type tables:

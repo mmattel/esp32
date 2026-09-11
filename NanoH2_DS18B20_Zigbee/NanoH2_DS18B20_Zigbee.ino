@@ -1,10 +1,10 @@
 /**
- * M5Stack NanoH2 (ESP32-H2, SKU C149) - three DS18B20 sensors over Zigbee.
+ * M5Stack NanoH2 (ESP32-H2, SKU C149) - DS18B20 sensors over Zigbee.
  *
- * - Three DS18B20 sensors share one 1-Wire bus on PIN_ONEWIRE. Each gets its
- *   own Zigbee temperature endpoint: the endpoint number is the stable slot ID,
- *   the endpoint's LocationDescription is the sensor's own 64-bit ROM code, and
- *   the measured value is its temperature.
+ * - MAX_DS18B20_SENSORS DS18B20 sensors, three by default, share one 1-Wire bus
+ *   on PIN_ONEWIRE. Each gets its own Zigbee temperature endpoint: the endpoint
+ *   number is the stable slot ID, the endpoint's LocationDescription is the
+ *   sensor's own 64-bit ROM code, and the measured value is its temperature.
  * - The bus is read every "interval" seconds; a reading is only published when
  *   it moves more than "delta" degrees from the last published one. Both are
  *   writable from the coordinator and persisted.
@@ -49,11 +49,12 @@ DS18B20Bus owBus(PIN_ONEWIRE);
 
 // One endpoint per slot, created unconditionally: the endpoint list is fixed
 // at Zigbee.begin() and cannot grow later without re-pairing the device.
-static_assert(MAX_DS18B20_SENSORS == 3, "adjust the endpoint objects below to match MAX_DS18B20_SENSORS");
-TempEndpoint zbTemp0(EP_TEMP_BASE + 0);
-TempEndpoint zbTemp1(EP_TEMP_BASE + 1);
-TempEndpoint zbTemp2(EP_TEMP_BASE + 2);
-TempEndpoint *zbTemp[MAX_DS18B20_SENSORS] = {&zbTemp0, &zbTemp1, &zbTemp2};
+// Filled by createEndpoints() rather than being a plain array of objects,
+// because TempEndpoint takes its endpoint number in the constructor and there
+// is no way to spell "one per slot" for a count that is a macro.
+static_assert(MAX_DS18B20_SENSORS >= 1, "at least one sensor slot is required");
+static_assert(EP_CONFIG_DELTA <= 240, "Zigbee endpoint numbers have to stay within 1..240");
+TempEndpoint *zbTemp[MAX_DS18B20_SENSORS] = {nullptr};
 
 // Writable settings, each on its own analog output endpoint.
 ZbSetting cfgInterval(EP_CONFIG_INTERVAL, NVS_KEY_INTERVAL, "Reading interval (s)", TEMP_INTERVAL_DEFAULT_S,
@@ -76,8 +77,17 @@ uint64_t slotRom[MAX_DS18B20_SENSORS] = {0};
 bool slotPresent[MAX_DS18B20_SENSORS] = {false};
 
 // Last temperature actually published per slot, which is what the coordinator
-// believes. NAN forces the next reading through regardless of the deadband.
-float lastPublished[MAX_DS18B20_SENSORS] = {NAN, NAN, NAN};
+// believes. NAN forces the next reading through regardless of the deadband, and
+// is what every slot starts out as - see resetPublished().
+float lastPublished[MAX_DS18B20_SENSORS];
+
+// Forget what the coordinator has: the next valid reading of every slot is
+// published whatever the deadband says.
+void resetPublished() {
+  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+    lastPublished[i] = NAN;
+  }
+}
 
 LinkState linkState = LINK_UNCOMMISSIONED;
 bool commissioned = false;
@@ -231,6 +241,14 @@ void applyReporting() {
   }
 }
 
+// Allocated once and never freed: the endpoints live for the whole run, and
+// this has to happen before anything touches zbTemp[].
+void createEndpoints() {
+  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+    zbTemp[i] = new TempEndpoint(EP_TEMP_BASE + i);
+  }
+}
+
 void setupEndpoints() {
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     // Same manufacturer and model on every endpoint: this identifies the
@@ -272,9 +290,7 @@ void onZigbeeConnected() {
 
   // Seed the coordinator with fresh values: after a join or a rejoin it has no
   // temperatures at all, and the deadband would otherwise hold them back.
-  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
-    lastPublished[i] = NAN;
-  }
+  resetPublished();
   sampleNow = true;
 }
 
@@ -448,6 +464,8 @@ void setup() {
 
   ledBegin();
   pinMode(PIN_BUTTON, INPUT_PULLUP);
+  createEndpoints();
+  resetPublished();
 
   if (!prefs.begin(NVS_NAMESPACE, false)) {
     Serial.println("NVS open failed, running with code defaults");

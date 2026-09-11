@@ -49,6 +49,11 @@ static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   factory r
 // Number of DS18B20 slots. One Zigbee endpoint is created per slot,
 // whether or not a sensor is actually present, because the endpoint
 // list is fixed once the device is commissioned.
+//
+// This is the only place the count is written down; the endpoint numbers
+// below and the endpoint objects follow it. Changing it does require a
+// factory reset and a re-pair though, see "Changing the sensor count" in
+// README.md.
 #define MAX_DS18B20_SENSORS 3
 
 // How often the bus is read. TEMP_INTERVAL_DEFAULT_S applies on a
@@ -99,9 +104,11 @@ static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   factory r
 // Temperature sensors occupy EP_TEMP_BASE .. EP_TEMP_BASE+MAX-1.
 #define EP_TEMP_BASE 10
 // One analog output endpoint per writable setting. An Analog Output cluster
-// carries a single value, so each setting needs its own endpoint.
-#define EP_CONFIG_INTERVAL 13
-#define EP_CONFIG_DELTA 14
+// carries a single value, so each setting needs its own endpoint. They are
+// derived from the sensor count so they can never collide with a temperature
+// endpoint; with three sensors this is 13 and 14 as before.
+#define EP_CONFIG_INTERVAL (EP_TEMP_BASE + MAX_DS18B20_SENSORS)
+#define EP_CONFIG_DELTA (EP_TEMP_BASE + MAX_DS18B20_SENSORS + 1)
 
 // One model identifier for the whole device, reported identically by every
 // endpoint. A coordinator reads it from the first endpoint that has a Basic
@@ -122,4 +129,4 @@ static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   factory r
 #define NVS_KEY_COMMISSIONED "joined"
 #define NVS_KEY_INTERVAL "interval"
 #define NVS_KEY_DELTA "delta"
-#define NVS_KEY_ROM_PREFIX "rom"  // rom0, rom1, rom2
+#define NVS_KEY_ROM_PREFIX "rom"  // rom0, rom1, ... one key per slot
