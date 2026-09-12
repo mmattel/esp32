@@ -3,8 +3,8 @@
 
 ZbSetting::ZbSetting(uint8_t endpoint, const char *nvsKey, const char *description, float defaultValue,
                      float minValue, float maxValue, float step, uint32_t applicationType)
-  : _ep(endpoint), _nvsKey(nvsKey), _description(description), _default(defaultValue), _min(minValue),
-    _max(maxValue), _step(step), _appType(applicationType), _value(defaultValue) {}
+  : _ep(endpoint), _nvsKey(nvsKey), _description(description), _default(defaultValue), _minValue(minValue),
+    _maxValue(maxValue), _step(step), _appType(applicationType), _value(defaultValue) {}
 
 float ZbSetting::sanitise(float raw) const {
   if (isnan(raw)) {
@@ -14,11 +14,11 @@ float ZbSetting::sanitise(float raw) const {
   if (_step > 0) {
     value = roundf(value / _step) * _step;
   }
-  if (value < _min) {
-    value = _min;
+  if (value < _minValue) {
+    value = _minValue;
   }
-  if (value > _max) {
-    value = _max;
+  if (value > _maxValue) {
+    value = _maxValue;
   }
   return value;
 }
@@ -38,7 +38,7 @@ void ZbSetting::addEndpoint(void (*cb)(float)) {
   _ep.setAnalogOutputApplication(_appType);
   _ep.setAnalogOutputDescription(_description);
   _ep.setAnalogOutputResolution(_step);
-  _ep.setAnalogOutputMinMax(_min, _max);
+  _ep.setAnalogOutputMinMax(_minValue, _maxValue);
   _ep.onAnalogOutputChange(cb);
   _ep.setPowerSource(ZB_POWER_SOURCE_MAINS);
   Zigbee.addEndpoint(&_ep);
