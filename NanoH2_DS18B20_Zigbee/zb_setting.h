@@ -50,8 +50,9 @@ private:
   const char *_nvsKey;
   const char *_description;
   float _default;
-  float _min;
-  float _max;
+  // Not _min / _max: the ESP32 core's Arduino.h defines those as macros.
+  float _minValue;
+  float _maxValue;
   float _step;
   uint32_t _appType;
   float _value;
