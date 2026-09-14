@@ -31,6 +31,7 @@
 #endif
 
 #include <Preferences.h>
+#include <esp_partition.h>
 #include "Zigbee.h"
 
 #include "config.h"
@@ -141,6 +142,17 @@ void updateLed() {
   }
 }
 
+// Dead end for a condition no amount of retrying fixes. Rebooting would only
+// bury the explanation in a boot loop, so flash red and keep the message on the
+// console until the board is reflashed.
+void haltFatal(const char *what) {
+  Serial.printf("FATAL: %s\r\n", what);
+  while (true) {
+    ledWrite(flashOn() ? COLOR_FATAL : COLOR_OFF);
+    delay(10);
+  }
+}
+
 /* ------------------------- stored settings ------------------------ */
 
 String romKey(uint8_t slot) {
@@ -231,6 +243,25 @@ bool anySlotMissing() {
 // has never seen a sensor. The static id is the endpoint number itself.
 String sensorId(uint8_t slot) {
   return slotRom[slot] ? DS18B20Bus::romToString(slotRom[slot]) : String("UNASSIGNED");
+}
+
+// The Zigbee stack keeps its network credentials and factory data in two flash
+// partitions of its own, which only the "Zigbee ..." partition schemes provide.
+// Zigbee mode is a separate setting and does not imply them, so a build with the
+// default scheme links fine and then aborts inside Zigbee.begin() with
+// "ZB_ESP_NVRAM: Failed to find zb_storage partition" - a stack assertion with
+// no hint at what to change. Check for the partitions first instead.
+bool zigbeePartitionsPresent() {
+  static const char *const required[] = {"zb_storage", "zb_fct"};
+  bool ok = true;
+
+  for (const char *name : required) {
+    if (!esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, name)) {
+      Serial.printf("Flash partition '%s' is missing\r\n", name);
+      ok = false;
+    }
+  }
+  return ok;
 }
 
 void applyReporting() {
@@ -481,6 +512,10 @@ void setup() {
   lastRescanMs = millis();
 
   setupEndpoints();
+
+  if (!zigbeePartitionsPresent()) {
+    haltFatal("set Tools -> Partition Scheme to \"Zigbee 4MB with spiffs\" and flash again");
+  }
 
   // A sleepy end device could not receive the setting writes, so keep the
   // receiver on. The board is USB powered anyway.

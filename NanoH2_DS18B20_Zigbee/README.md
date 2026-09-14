@@ -91,8 +91,17 @@ same list. The generic board remains a fine fallback, as the sketch names every
 pin itself in `config.h` and uses nothing from the variant.
 
 Whichever board you pick, **Zigbee mode** and **Partition Scheme** default to
-*Disabled* and *Default 4MB with spiffs*; both have to be changed by hand or the
-sketch will not link.
+*Disabled* and *Default 4MB with spiffs*, and both have to be changed by hand.
+They fail differently, and neither implies the other:
+
+- Wrong **Zigbee mode** and the sketch does not compile — the `#error` at the top
+  of the `.ino` catches it.
+- Wrong **Partition Scheme** and it compiles, links and flashes; the two
+  partitions the Zigbee stack keeps its network credentials in (`zb_storage`,
+  `zb_fct`) are simply not there. The sketch checks for them before
+  `Zigbee.begin()`, prints which one is missing and flashes red rather than
+  letting the stack abort with `ZB_ESP_NVRAM: Failed to find zb_storage
+  partition` in a reboot loop.
 
 To enter download mode: hold the on-board `G9` button, *then* plug in USB-C.
 
@@ -105,6 +114,7 @@ To enter download mode: hold the on-board `G9` button, *then* plug in USB-C.
 | Joined before, radio lost | yellow, flashing on a 3 s cycle |
 | Factory-reset hold in progress | solid red |
 | Factory reset accepted | solid white, then reboot |
+| Cannot run at all | red, flashing on a 3 s cycle; reason on the serial console |
 
 Cycle length and duty are `LED_FLASH_CYCLE_MS` / `LED_FLASH_DUTY_PCT`; all
 colours are `LedColor` constants at the top of `config.h`.

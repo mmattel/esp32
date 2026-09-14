@@ -39,6 +39,7 @@ static const LedColor COLOR_CONNECTED = {0, 40, 0};        // green:   joined an
 static const LedColor COLOR_LINK_LOST = {40, 30, 0};       // yellow:  joined once, radio lost
 static const LedColor COLOR_RESET_ARMED = {40, 0, 0};      // red:     factory-reset hold in progress
 static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   factory reset accepted
+static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: cannot run, see serial
 
 // Length of one on/off period for the flashing states, and how much of
 // that period the LED is lit.
