@@ -168,8 +168,23 @@ One line in `config.h`:
 Everything else follows it — the endpoint objects, the endpoint numbers, the
 `romN` keys in NVS, the slot arrays and every loop over them. Nothing else in the
 sources needs editing, and two `static_assert`s in the sketch catch the two ways
-of getting it wrong: a count below 1, and a count so large that the settings
+of getting it wrong: a negative count, and a count so large that the settings
 endpoints would run past the Zigbee maximum of 240.
+
+**Zero is a valid count.** With `MAX_DS18B20_SENSORS 0` there are no temperature
+endpoints, the settings move down to 10 and 11, and `PIN_ONEWIRE` is never
+driven at all — no bus scan, no conversions. What is left is the Zigbee side, the
+two settings, the LED and the button, which is a useful way to bring up a board
+before any sensor is wired. The reading interval keeps ticking and finds nothing
+to do. (With *Compiler warnings: All* the per-slot loops then warn
+`comparison is always false` — they are the loops that must not run; the default
+warning level says nothing.)
+
+That is a different thing from **no sensor being plugged in**, which is fine at
+any count and needs no configuration: every slot endpoint exists regardless,
+reads `UNASSIGNED` until a sensor claims it, and the bus is re-scanned every
+`ONEWIRE_RESCAN_INTERVAL_MS` so a sensor connected later is picked up without a
+reboot.
 
 What changes on the air:
 
@@ -315,6 +330,11 @@ never a surprise.
   code is written into that endpoint's LocationDescription immediately — no
   reboot and no re-interview. A coordinator that cached the attribute will still
   show the old value until it reads it again.
+- **An empty bus is silent.** When no slot holds a sensor — nothing connected
+  yet, or no slots configured — the interval passes without starting a
+  conversion, so there is no failed-conversion line every interval. The periodic
+  rescan (`1-Wire scan: 0 DS18B20 found`) is the only output until a sensor turns
+  up, and the device stays joined and answers reads the whole time.
 - **Failed reads keep the last value.** A CRC error or a missing sensor is
   logged and the slot is retried on the next rescan (`ONEWIRE_RESCAN_INTERVAL_MS`);
   the endpoint keeps its previous temperature rather than publishing a bogus one.

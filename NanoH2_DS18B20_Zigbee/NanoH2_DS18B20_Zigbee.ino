@@ -5,6 +5,7 @@
  *   on PIN_ONEWIRE. Each gets its own Zigbee temperature endpoint: the endpoint
  *   number is the stable slot ID, the endpoint's LocationDescription is the
  *   sensor's own 64-bit ROM code, and the measured value is its temperature.
+ *   Slots without a sensor, and a count of 0, are both fine - see config.h.
  * - The bus is read every "interval" seconds; a reading is only published when
  *   it moves more than "delta" degrees from the last published one. Both are
  *   writable from the coordinator and persisted.
@@ -55,9 +56,12 @@ DS18B20Bus owBus(PIN_ONEWIRE);
 // Filled by createEndpoints() rather than being a plain array of objects,
 // because TempEndpoint takes its endpoint number in the constructor and there
 // is no way to spell "one per slot" for a count that is a macro.
-static_assert(MAX_DS18B20_SENSORS >= 1, "at least one sensor slot is required");
+// 0 slots is a valid configuration - no temperature endpoints, no 1-Wire - so
+// the only bad count is a negative one, which would otherwise pass silently as
+// "no slots" instead of as the typo it is.
+static_assert(MAX_DS18B20_SENSORS >= 0, "the sensor count cannot be negative");
 static_assert(EP_CONFIG_DELTA <= 240, "Zigbee endpoint numbers have to stay within 1..240");
-TempEndpoint *zbTemp[MAX_DS18B20_SENSORS] = {nullptr};
+TempEndpoint *zbTemp[DS18B20_SLOT_ARRAY_LEN] = {nullptr};
 
 // Writable settings, each on its own analog output endpoint.
 ZbSetting cfgInterval(EP_CONFIG_INTERVAL, NVS_KEY_INTERVAL, "Reading interval (s)", TEMP_INTERVAL_DEFAULT_S,
@@ -76,13 +80,13 @@ void onDeltaWritten(float value) {
 
 // Slot -> sensor mapping. Persisted, so slot 0 keeps meaning the same physical
 // sensor across reboots and across changes in bus enumeration order.
-uint64_t slotRom[MAX_DS18B20_SENSORS] = {0};
-bool slotPresent[MAX_DS18B20_SENSORS] = {false};
+uint64_t slotRom[DS18B20_SLOT_ARRAY_LEN] = {0};
+bool slotPresent[DS18B20_SLOT_ARRAY_LEN] = {false};
 
 // Last temperature actually published per slot, which is what the coordinator
 // believes. NAN forces the next reading through regardless of the deadband, and
 // is what every slot starts out as - see resetPublished().
-float lastPublished[MAX_DS18B20_SENSORS];
+float lastPublished[DS18B20_SLOT_ARRAY_LEN];
 
 // Forget what the coordinator has: the next valid reading of every slot is
 // published whatever the deadband says.
@@ -230,6 +234,17 @@ void scanSensors() {
 bool anySlotMissing() {
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     if (!slotPresent[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// False for an empty bus, and for a build with no slots at all. Both are
+// legitimate states, they just leave nothing to convert.
+bool anySlotPresent() {
+  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+    if (slotPresent[i]) {
       return true;
     }
   }
@@ -407,6 +422,13 @@ void handleTemperature() {
         lastRescanMs = now;
         scanSensors();
       }
+      if (!anySlotPresent()) {
+        // Nothing on the bus, or no slots configured at all. The rescan above
+        // already reports what it finds, so stay quiet and try again next
+        // interval rather than logging a failed conversion every time.
+        lastSampleMs = now;
+        return;
+      }
       if (!owBus.startConversionAll()) {
         Serial.println("1-Wire: no device responded to CONVERT T");
         lastSampleMs = now;
@@ -507,9 +529,15 @@ void setup() {
   }
   loadSettings();
 
-  owBus.begin();
-  scanSensors();
-  lastRescanMs = millis();
+  // With no slots the 1-Wire side has nothing to map onto, so the pin is left
+  // alone entirely rather than being driven for a scan whose result is unusable.
+  if (MAX_DS18B20_SENSORS > 0) {
+    owBus.begin();
+    scanSensors();
+    lastRescanMs = millis();
+  } else {
+    Serial.println("No sensor slots configured, 1-Wire bus unused");
+  }
 
   setupEndpoints();
 
