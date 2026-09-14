@@ -1,6 +1,6 @@
 # NanoH2 pushbutton indicator
 
-A pushbutton on `G1` of an M5Stack NanoH2 (ESP32-H2, SKU C149) shown on the
+A pushbutton on `G2` of an M5Stack NanoH2 (ESP32-H2, SKU C149) shown on the
 on-board RGB LED: **green** while the button feeds 3.3 V into the pin, **yellow**
 while the contact is open. No Zigbee, no radio, no stored state.
 
@@ -13,16 +13,15 @@ while the contact is open. No Zigbee, no radio, no stored state.
 
 ## Wiring
 
-The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G2` (yellow) and
-`G1` (white).
+The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G1` (white) and `G2` (yellow).
 
 | Signal | Pin | Notes |
 | --- | --- | --- |
-| Pushbutton | `G1` (Grove white) | one side to 3.3 V, other side to `G1`; internal pull-down enabled in software |
+| Pushbutton | `G2` (Grove white) | one side to 3.3 V; internal pull-down enabled in software |
 | RGB LED | `G11` | on-board WS2812 |
 | RGB power | `G10` | on-board, must be driven high or the LED stays dark |
 
-Change `PIN_BUTTON` in `config.h` to move the button to `G2` (Grove yellow).
+Change `PIN_BUTTON` in `config.h` to move the button to `G1` (Grove yellow).
 
 ### Where the 3.3 V comes from — check this before powering up
 
@@ -34,17 +33,15 @@ substitute the Grove 5 V rail, and do not rely on a resistive divider from it �
 use 3.3 V.
 
 The internal pull-down is weak (tens of kΩ), which is fine for a button on short
-wiring. For a long run to the button, add an external 10 kΩ pull-down from `G1`
+wiring. For a long run to the button, add an external 10 kΩ pull-down from `G2`
 to `GND` so induced noise cannot register as a press.
 
 ### Inverting the wiring
 
-A button that closes to `GND` instead — the more common arrangement, and the one
-the [DS18B20 sketch](../NanoH2_DS18B20_Zigbee/) uses — needs one line in
-`config.h`:
+A button that closes to `GND` instead — needs one line in `config.h`:
 
 ```c
-#define BUTTON_ACTIVE_LOW 1
+#define BUTTON_ACTIVE_HIGH 1
 ```
 
 That switches the pin to `INPUT_PULLUP` and inverts the level test, so a closed
@@ -72,8 +69,8 @@ To enter download mode: hold the on-board `G9` button, *then* plug in USB-C.
 
 | State | LED |
 | --- | --- |
-| 3.3 V on `G1` (button closed) | solid green |
-| `G1` low (button open) | solid yellow |
+| 3.3 V on `G2` (button closed) | solid green |
+| `G2` low (button open) | solid yellow |
 
 Both colours are `LedColor` constants in `config.h`. The LED is written on every
 pass through `loop()`, but `ledWrite()` skips the WS2812 update when the colour
@@ -85,8 +82,8 @@ Every accepted transition is logged at 115200 baud, plus one line at startup so
 the initial state is visible:
 
 ```
-G1 open -> yellow
-G1 3.3 V -> green
+G2 open -> yellow
+G2 3.3 V -> green
 ```
 
 ## Notes and limits

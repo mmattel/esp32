@@ -12,19 +12,19 @@
  * and G1 (white). The button sits on G1 (white); change PIN_BUTTON to
  * move it to G2.
  * ------------------------------------------------------------------ */
-#define PIN_BUTTON    1   // Grove white / G1 - pushbutton, feeds 3.3 V when closed
+#define PIN_BUTTON    2   // Grove white / G2 - pushbutton, feeds 3.3 V when closed
 #define PIN_RGB      11   // on-board WS2812 data
 #define PIN_RGB_POWER 10  // on-board WS2812 power enable, HIGH = LED powered
 #define PIN_LED_BLUE  4   // on-board blue LED, unused here
 
-// The button feeds 3.3 V into G1 when closed, so a closed contact reads HIGH
+// The button feeds 3.3 V into G2 when closed, so a closed contact reads HIGH
 // and the internal pull-down holds the pin low while the contact is open.
-// Set this to 1 for the other common wiring, a button that closes to GND.
-#define BUTTON_ACTIVE_LOW 0
+// Set this to 0 for the other common wiring, a button that opens to GND.
+#define BUTTON_ACTIVE_HIGH 1
 
 // The raw level has to hold this long before it is accepted, which swallows
 // contact bounce on both close and release.
-#define BUTTON_DEBOUNCE_MS 50
+#define BUTTON_DEBOUNCE_MS 20
 
 /* ------------------------------------------------------------------
  * LED

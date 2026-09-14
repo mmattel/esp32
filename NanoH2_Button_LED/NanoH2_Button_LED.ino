@@ -1,7 +1,7 @@
 /**
  * M5Stack NanoH2 (ESP32-H2, SKU C149) - pushbutton shown on the RGB LED.
  *
- * - A pushbutton on PIN_BUTTON (G1) feeds 3.3 V into the pin when closed. The
+ * - A pushbutton on PIN_BUTTON (G2) feeds 3.3 V into the pin when closed. The
  *   pin's internal pull-down holds it low while the contact is open.
  * - The on-board RGB LED is green while that signal is present and yellow while
  *   it is absent. There is no other state: the LED always shows one of the two.
@@ -46,7 +46,7 @@ void ledBegin() {
 
 bool buttonClosed() {
   int level = digitalRead(PIN_BUTTON);
-  return BUTTON_ACTIVE_LOW ? (level == LOW) : (level == HIGH);
+  return BUTTON_ACTIVE_HIGH ? (level == LOW) : (level == HIGH);
 }
 
 // Debounced contact state: a new level is only accepted once it has held for
@@ -79,7 +79,7 @@ void setup() {
   ledBegin();
   // Pull the pin to the level the open contact should read, so a disconnected
   // or open button is a defined state rather than a floating one.
-  pinMode(PIN_BUTTON, BUTTON_ACTIVE_LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
+  pinMode(PIN_BUTTON, BUTTON_ACTIVE_HIGH ? INPUT_PULLUP : INPUT_PULLDOWN);
 }
 
 void loop() {
