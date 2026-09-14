@@ -8,7 +8,9 @@
  * - The bus is read every "interval" seconds; a reading is only published when
  *   it moves more than "delta" degrees from the last published one. Both are
  *   writable from the coordinator and persisted.
- * - A pushbutton on PIN_BUTTON wipes all stored configuration when held.
+ * - A pushbutton on PIN_BUTTON (G2) feeds 3.3 V into the pin when closed; the
+ *   pin's internal pull-down holds it low while the contact is open. A short
+ *   press takes a reading, holding it wipes all stored configuration.
  * - The on-board RGB LED shows the Zigbee link state.
  *
  * Arduino IDE settings:
@@ -398,7 +400,7 @@ void handleTemperature() {
 
 bool buttonPressed() {
   int level = digitalRead(PIN_BUTTON);
-  return BUTTON_ACTIVE_LOW ? (level == LOW) : (level == HIGH);
+  return BUTTON_ACTIVE_HIGH ? (level == HIGH) : (level == LOW);
 }
 
 void factoryReset() {
@@ -463,7 +465,9 @@ void setup() {
   Serial.println("\r\nM5Stack NanoH2 - DS18B20 over Zigbee");
 
   ledBegin();
-  pinMode(PIN_BUTTON, INPUT_PULLUP);
+  // Pull the pin to the level the open contact should read, so a disconnected
+  // or open button is a defined state rather than a floating one.
+  pinMode(PIN_BUTTON, BUTTON_ACTIVE_HIGH ? INPUT_PULLDOWN : INPUT_PULLUP);
   createEndpoints();
   resetPublished();
 

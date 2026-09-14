@@ -13,15 +13,23 @@ while the contact is open. No Zigbee, no radio, no stored state.
 
 ## Wiring
 
-The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G1` (white) and `G2` (yellow).
+The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G1` (white) and `G2`
+(yellow).
 
 | Signal | Pin | Notes |
 | --- | --- | --- |
-| Pushbutton | `G2` (Grove white) | one side to 3.3 V; internal pull-down enabled in software |
+| Pushbutton | `G2` (Grove yellow) | one side to 3.3 V; internal pull-down enabled in software |
 | RGB LED | `G11` | on-board WS2812 |
 | RGB power | `G10` | on-board, must be driven high or the LED stays dark |
 
-Change `PIN_BUTTON` in `config.h` to move the button to `G1` (Grove yellow).
+Change `PIN_BUTTON` in `config.h` to move the button to `G1` (Grove white).
+
+> **The cable colours are not reliable.** `G1` = white and `G2` = yellow is what
+> the NanoH2 prints next to its Grove port, but the cable you plug in may well be
+> the other way round: white on `G2` and yellow on `G1`. Only `5V` = red and
+> `GND` = black are dependable. Ring the cable out with a multimeter, or just try
+> it — the sketch logs `G2 3.3 V -> green` on every accepted press, so a button
+> that does nothing usually means the two signal wires are swapped.
 
 ### Where the 3.3 V comes from — check this before powering up
 

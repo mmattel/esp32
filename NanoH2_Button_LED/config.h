@@ -9,10 +9,13 @@
  * Pins - M5Stack NanoH2 (SKU C149)
  *
  * The Grove HY2.0-4P port carries GND (black), 5V (red), G2 (yellow)
- * and G1 (white). The button sits on G1 (white); change PIN_BUTTON to
- * move it to G2.
+ * and G1 (white). The button sits on G2 (yellow); change PIN_BUTTON to
+ * move it to G1.
+ *
+ * The cable colours are the board's silkscreen, not a guarantee about
+ * the cable in your hand - see README.md.
  * ------------------------------------------------------------------ */
-#define PIN_BUTTON    2   // Grove white / G2 - pushbutton, feeds 3.3 V when closed
+#define PIN_BUTTON    2   // Grove yellow / G2 - pushbutton, feeds 3.3 V when closed
 #define PIN_RGB      11   // on-board WS2812 data
 #define PIN_RGB_POWER 10  // on-board WS2812 power enable, HIGH = LED powered
 #define PIN_LED_BLUE  4   // on-board blue LED, unused here
