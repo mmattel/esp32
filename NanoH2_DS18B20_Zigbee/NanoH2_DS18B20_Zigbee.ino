@@ -109,6 +109,12 @@ bool sampleNow = true;  // take one reading as soon as we are up
 
 bool resetArmed = false;  // pushbutton held long enough to show LED feedback
 
+// Set when the button already reads pressed at startup, which no real press can
+// be: it means the pin is stuck at the active level. Ignoring the button until
+// it goes idle once is what keeps that from becoming a factory-reset loop, see
+// checkButtonIdleAtBoot().
+bool buttonInhibited = false;
+
 /* ------------------------------ LED ------------------------------- */
 
 void ledWrite(const LedColor &c) {
@@ -456,6 +462,22 @@ bool buttonPressed() {
   return BUTTON_ACTIVE_HIGH ? (level == HIGH) : (level == LOW);
 }
 
+// Nobody can have been holding the button since before power-on, so a pin that
+// already reads pressed here is stuck at the active level - a shorted contact,
+// or the 1-Wire pull-up sitting on the button pin because the Grove pair is
+// swapped. Taken at face value it would run the factory-reset hold a few
+// seconds into the first loop and reboot into exactly the same state, wiping
+// the network credentials on every boot and never staying up long enough to
+// join. So say what is wrong and ignore the button until it goes idle once.
+void checkButtonIdleAtBoot() {
+  buttonInhibited = buttonPressed();
+  if (!buttonInhibited) {
+    return;
+  }
+  Serial.printf("Button on pin %d already reads pressed - ignoring it until it goes idle\r\n", PIN_BUTTON);
+  Serial.printf("  a stuck button, or PIN_BUTTON/PIN_ONEWIRE swapped against the wiring (see README)\r\n");
+}
+
 void factoryReset() {
   Serial.println("Factory reset: clearing NVS and re-pairing");
   ledWrite(COLOR_RESET_DONE);
@@ -489,6 +511,10 @@ void handleButton() {
     stable = now;
     if (stable) {
       pressedSinceMs = ms;
+    } else if (buttonInhibited) {
+      // The idle level we were waiting for: the button is real after all.
+      buttonInhibited = false;
+      Serial.println("Button: idle now, back in use");
     } else {
       if (!resetArmed) {
         // Short press: take a reading now instead of waiting out the interval.
@@ -499,7 +525,7 @@ void handleButton() {
     }
   }
 
-  if (stable) {
+  if (stable && !buttonInhibited) {
     uint32_t held = ms - pressedSinceMs;
     if (held >= FACTORY_RESET_HINT_MS) {
       resetArmed = true;
@@ -521,6 +547,8 @@ void setup() {
   // Pull the pin to the level the open contact should read, so a disconnected
   // or open button is a defined state rather than a floating one.
   pinMode(PIN_BUTTON, BUTTON_ACTIVE_HIGH ? INPUT_PULLDOWN : INPUT_PULLUP);
+  delay(1);  // let the internal pull win over the pin's boot state
+  checkButtonIdleAtBoot();
   createEndpoints();
   resetPublished();
 
