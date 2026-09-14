@@ -46,7 +46,7 @@ void ledBegin() {
 
 bool buttonClosed() {
   int level = digitalRead(PIN_BUTTON);
-  return BUTTON_ACTIVE_HIGH ? (level == LOW) : (level == HIGH);
+  return BUTTON_ACTIVE_HIGH ? (level == HIGH) : (level == LOW);
 }
 
 // Debounced contact state: a new level is only accepted once it has held for
@@ -79,7 +79,7 @@ void setup() {
   ledBegin();
   // Pull the pin to the level the open contact should read, so a disconnected
   // or open button is a defined state rather than a floating one.
-  pinMode(PIN_BUTTON, BUTTON_ACTIVE_HIGH ? INPUT_PULLUP : INPUT_PULLDOWN);
+  pinMode(PIN_BUTTON, BUTTON_ACTIVE_HIGH ? INPUT_PULLDOWN : INPUT_PULLUP);
 }
 
 void loop() {
