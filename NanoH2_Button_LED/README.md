@@ -49,7 +49,7 @@ to `GND` so induced noise cannot register as a press.
 A button that closes to `GND` instead — needs one line in `config.h`:
 
 ```c
-#define BUTTON_ACTIVE_HIGH 1
+#define BUTTON_ACTIVE_HIGH 0
 ```
 
 That switches the pin to `INPUT_PULLUP` and inverts the level test, so a closed
@@ -97,12 +97,12 @@ G2 3.3 V -> green
 ## Notes and limits
 
 - **Debounced, not interrupt-driven.** `loop()` samples the pin every 10 ms and a
-  level has to hold for `BUTTON_DEBOUNCE_MS` (50 ms) before it counts. Contact
+  level has to hold for `BUTTON_DEBOUNCE_MS` (20 ms) before it counts. Contact
   bounce therefore never reaches the LED, at the cost of a press shorter than
-  ~50 ms being ignored. Raise the debounce for a noisier switch, lower it for a
+  ~20 ms being ignored. Raise the debounce for a noisier switch, lower it for a
   clean one.
 - **The open contact is never floating.** The internal pull-down (or pull-up, with
-  `BUTTON_ACTIVE_LOW`) is what makes "no signal" a defined level. Disabling it
+  `BUTTON_ACTIVE_HIGH 0`) is what makes "no signal" a defined level. Disabling it
   would leave the LED flickering between green and yellow with nothing connected.
 - **Nothing is stored.** There is no NVS use at all, so the sketch always starts in
   whatever state the button is actually in.

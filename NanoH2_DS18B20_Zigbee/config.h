@@ -98,7 +98,9 @@ static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   factory r
 // Hold this long before the LED starts showing that a reset is armed.
 #define FACTORY_RESET_HINT_MS 500
 
-#define BUTTON_DEBOUNCE_MS 50
+// The raw level has to hold this long before it is accepted, which swallows
+// contact bounce on both press and release.
+#define BUTTON_DEBOUNCE_MS 20
 
 /* ------------------------------------------------------------------
  * Zigbee
