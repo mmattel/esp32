@@ -57,7 +57,18 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // below and the endpoint objects follow it. Changing it does require a
 // factory reset and a re-pair though, see "Changing the sensor count" in
 // README.md.
+//
+// 0 is allowed. The device then has no temperature endpoints and never
+// touches PIN_ONEWIRE, leaving the two settings endpoints, the LED and the
+// button - a Zigbee-only build. How many sensors are actually plugged in is
+// a separate question and never a problem: a slot without its sensor stays
+// UNASSIGNED, and an empty bus is a defined state, not an error.
 #define MAX_DS18B20_SENSORS 3
+
+// Length of the sketch's per-slot arrays. C++ has no zero-length array, so a
+// build with no slots still carries a single unused element; every loop over
+// the slots is bounded by MAX_DS18B20_SENSORS, which is what keeps it unused.
+#define DS18B20_SLOT_ARRAY_LEN (MAX_DS18B20_SENSORS > 0 ? MAX_DS18B20_SENSORS : 1)
 
 // How often the bus is read. TEMP_INTERVAL_DEFAULT_S applies on a
 // factory-fresh device; a value stored in NVS wins over it, and a value
