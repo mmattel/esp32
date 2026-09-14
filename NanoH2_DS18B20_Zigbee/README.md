@@ -27,13 +27,34 @@ The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G2` (yellow) and
 
 | Signal | Pin | Notes |
 | --- | --- | --- |
-| DS18B20 data | `G2` (Grove yellow) | all sensors in parallel, one 4.7 kΩ pull-up to their supply rail |
-| Pushbutton | `G1` (Grove white) | to `GND`; internal pull-up is enabled in software |
+| DS18B20 data | `G1` (Grove white) | all sensors in parallel, one 4.7 kΩ pull-up to their supply rail |
+| Pushbutton | `G2` (Grove yellow) | one side to 3.3 V, other side to `G2`; internal pull-down enabled in software |
 | RGB LED | `G11` | on-board WS2812 |
 | RGB power | `G10` | on-board, must be driven high or the LED stays dark |
 
 Swap `PIN_ONEWIRE` and `PIN_BUTTON` in `config.h` if your wiring is the other
 way round.
+
+> **The cable colours are not reliable.** `G1` = white and `G2` = yellow is what
+> the NanoH2 prints next to its Grove port, but the cable you plug in may well be
+> the other way round: white on `G2` and yellow on `G1`. Only `5V` = red and
+> `GND` = black are dependable. Ring the cable out with a multimeter, or go by the
+> serial log — `1-Wire scan: 0 DS18B20 found` together with a button that never
+> reacts means the two signal wires are swapped, so swap the two defines.
+
+The button is wired the same way as in the [pushbutton
+sketch](../NanoH2_Button_LED/): it feeds 3.3 V into the pin when closed, and the
+weak internal pull-down (tens of kΩ) holds the pin low while the contact is open.
+Take the 3.3 V from a 3V3 pad, not from the Grove 5 V rail — see below. For a
+long run to the button, add an external 10 kΩ pull-down from `G2` to `GND` so
+induced noise cannot register as a press. A button that closes to `GND` instead
+needs one line in `config.h`:
+
+```c
+#define BUTTON_ACTIVE_HIGH 0
+```
+
+That switches the pin to `INPUT_PULLUP` and inverts the level test.
 
 ### Supply voltage — check this before powering up
 

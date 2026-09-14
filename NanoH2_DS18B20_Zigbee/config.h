@@ -9,17 +9,19 @@
  * Pins - M5Stack NanoH2 (SKU C149)
  *
  * The Grove HY2.0-4P port carries GND (black), 5V (red), G2 (yellow)
- * and G1 (white). "First" external pin is taken to be G2 (yellow),
- * "second" is G1 (white); swap the two defines to reverse that.
+ * and G1 (white). The pushbutton sits on G2, the 1-Wire bus on G1;
+ * swap the two defines to reverse that.
  * ------------------------------------------------------------------ */
-#define PIN_ONEWIRE   2   // Grove yellow / G2 - DS18B20 data line
-#define PIN_BUTTON    1   // Grove white  / G1 - pushbutton to GND
+#define PIN_ONEWIRE   1   // Grove white  / G1 - DS18B20 data line
+#define PIN_BUTTON    2   // Grove yellow / G2 - pushbutton, feeds 3.3 V when closed
 #define PIN_RGB      11   // on-board WS2812 data
 #define PIN_RGB_POWER 10  // on-board WS2812 power enable, HIGH = LED powered
 #define PIN_LED_BLUE  4   // on-board blue LED, unused here
 
-// Pushbutton is open by default and closes to GND when pushed.
-#define BUTTON_ACTIVE_LOW 1
+// The button feeds 3.3 V into G2 when closed, so a closed contact reads HIGH
+// and the internal pull-down holds the pin low while the contact is open.
+// Set this to 0 for the other common wiring, a button that closes to GND.
+#define BUTTON_ACTIVE_HIGH 1
 
 /* ------------------------------------------------------------------
  * LED
