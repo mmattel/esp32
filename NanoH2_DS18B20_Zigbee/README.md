@@ -39,8 +39,16 @@ way round.
 > the NanoH2 prints next to its Grove port, but the cable you plug in may well be
 > the other way round: white on `G2` and yellow on `G1`. Only `5V` = red and
 > `GND` = black are dependable. Ring the cable out with a multimeter, or go by the
-> serial log — `1-Wire scan: 0 DS18B20 found` together with a button that never
-> reacts means the two signal wires are swapped, so swap the two defines.
+> serial log. A swapped pair puts the sensors' 4.7 kΩ pull-up on the button pin
+> and the button on the bus, which reads as:
+>
+> ```
+> Button on pin 2 already reads pressed - ignoring it until it goes idle
+> 1-Wire scan: 0 DS18B20 found
+> ```
+>
+> Either line on its own is enough; swap `PIN_ONEWIRE` and `PIN_BUTTON` in
+> `config.h`.
 
 The button is wired the same way as in the [pushbutton
 sketch](../NanoH2_Button_LED/): it feeds 3.3 V into the pin when closed, and the
@@ -309,6 +317,15 @@ Worth knowing:
 
 The LED turns red once the hold passes `FACTORY_RESET_HINT_MS`, so the reset is
 never a surprise.
+
+A pin that already reads *pressed* during `setup()` cannot be a real press —
+nobody was holding the button before power-on — so the button is ignored until it
+goes idle once, and the reason is printed. Without that, a stuck or miswired pin
+would run the 5 s hold a few seconds into the first `loop()`, factory reset, and
+come back up to do it again: a device that wipes its credentials on every boot
+and never stays joined long enough to be paired. The message names the pin, and
+the button starts working the moment the level goes idle (`Button: idle now, back
+in use`) — no reboot needed.
 
 ## Notes and limits
 
