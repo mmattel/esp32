@@ -23,6 +23,18 @@
 // Set this to 0 for the other common wiring, a button that closes to GND.
 #define BUTTON_ACTIVE_HIGH 1
 
+// For the diagnostic that runs when the button pin looks stuck at the active
+// level. The internal pulls are 45 kOhm typical and the input thresholds are
+// 0.25/0.75 x VDD (ESP32-H2 datasheet, Table 5-3), so a pin held at the wrong
+// end has tens of microamps flowing in - far more than the 50 nA of input
+// leakage. That is enough to tell a wiring fault from a floating pin.
+#define BUTTON_PULL_KOHM 45
+#define BUTTON_PIN_VDD_MV 3300
+
+// GPIO1..GPIO5 are ADC1_CH0..CH4 on the ESP32-H2, so on those the diagnostic can
+// report the actual voltage on the pin instead of just the logic level.
+#define BUTTON_PIN_HAS_ADC (PIN_BUTTON >= 1 && PIN_BUTTON <= 5)
+
 /* ------------------------------------------------------------------
  * LED
  *
@@ -38,7 +50,7 @@ static const LedColor COLOR_UNCOMMISSIONED = {40, 0, 40};  // magenta: never joi
 static const LedColor COLOR_CONNECTED = {0, 40, 0};        // green:   joined and on the air
 static const LedColor COLOR_LINK_LOST = {40, 30, 0};       // yellow:  joined once, radio lost
 static const LedColor COLOR_RESET_ARMED = {40, 0, 0};      // red:     factory-reset hold in progress
-static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   factory reset accepted
+static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   held long enough, release to reset
 static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: cannot run, see serial
 
 // Length of one on/off period for the flashing states, and how much of
@@ -103,12 +115,26 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 
 /* ------------------------------------------------------------------
  * Pushbutton
+ *
+ * The button has exactly one job: the factory reset, which clears the
+ * stored configuration and the Zigbee credentials and is therefore how
+ * the device leaves a network. Nothing else is bound to it, and joining
+ * a network never involves it - the device does that by itself.
  * ------------------------------------------------------------------ */
-// Hold this long to wipe all stored configuration and re-pair.
+// Hold this long and then release to wipe all stored configuration and re-pair.
+// The reset fires on the release, not during the hold: a pin that never reads
+// idle - a shorted contact, or BUTTON_ACTIVE_HIGH set the wrong way round -
+// then cannot wipe the network by itself.
 #define FACTORY_RESET_HOLD_MS 5000
 
 // Hold this long before the LED starts showing that a reset is armed.
 #define FACTORY_RESET_HINT_MS 500
+
+// A press that lasts this long is not a person holding a button, it is a pin
+// stuck at the active level, and the button is ignored until it reads idle
+// again. Keep it well above FACTORY_RESET_HOLD_MS so a slow hand is not
+// mistaken for a fault.
+#define BUTTON_STUCK_MS 30000
 
 // The raw level has to hold this long before it is accepted, which swallows
 // contact bounce on both press and release.
