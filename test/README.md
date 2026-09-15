@@ -55,10 +55,27 @@ Covers, for both the interval and the delta:
   write, persistence to NVS, and mirror-back of the effective value after a
   clamped write.
 
+### `zb_link` — parent link quality
+
+The `Zigbee.h` stub declares the neighbour-table types and prototypes verbatim as
+the Arduino core's Zigbee headers do, so a change in how `zb_link.cpp` spells them
+fails to compile here rather than only on the board. The table itself is an array
+the test fills, and the stack lock is counted.
+
+Covers:
+
+- The parent is picked by `relationship`, not by position: an entry behind a child
+  and a sibling is still found.
+- Nothing to report — stack not started, empty table, no parent entry, lock
+  unavailable — returns `valid=false`, and never leaves the lock held.
+- `lqi` 255 and `rssi` -128 pass through untruncated, with the sign kept.
+
 ## What these tests do not cover
 
 They are host tests with stubs, so anything that only exists on the device is out
-of scope: real 1-Wire timing and interrupt masking, the Zigbee stack, NVS itself,
-the RGB LED, and the sketch's own state machines (link state, sampling phases,
-button handling) which live in the `.ino` and are not compiled here. A green run
+of scope: real 1-Wire timing and interrupt masking, the Zigbee stack (including
+whether the neighbour table actually holds a parent entry when we look), the cluster
+attribute plumbing in `zb_link_endpoint.cpp`, NVS itself, the RGB LED, and the
+sketch's own state machines (link state, joining, sampling phases, button handling)
+which live in the `.ino` and are not compiled here. A green run
 is not a substitute for flashing the board.
