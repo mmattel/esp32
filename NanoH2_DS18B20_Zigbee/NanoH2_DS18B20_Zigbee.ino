@@ -9,6 +9,13 @@
  * - The bus is read every "interval" seconds; a reading is only published when
  *   it moves more than "delta" degrees from the last published one. Both are
  *   writable from the coordinator and persisted.
+ * - The quality (LQI) and the strength (RSSI, in dBm) of the link to the parent
+ *   are read on their own interval, logged, and each published on its own analog
+ *   input endpoint. This is the device's own view of the link, the opposite
+ *   direction to the "linkquality" a coordinator reports.
+ * - While the device has no network it reports the wait and periodically lists
+ *   the networks in range with their channel and whether joining is open, which
+ *   the stack itself only does at Core Debug Level "Info".
  * - A pushbutton on PIN_BUTTON (G2) feeds 3.3 V into the pin when closed; the
  *   pin's internal pull-down holds it low while the contact is open. A short
  *   press takes a reading, holding it wipes all stored configuration.
@@ -37,6 +44,8 @@
 
 #include "config.h"
 #include "ds18b20_bus.h"
+#include "zb_link.h"
+#include "zb_link_endpoint.h"
 #include "zb_setting.h"
 #include "zb_temp_endpoint.h"
 
@@ -60,7 +69,27 @@ DS18B20Bus owBus(PIN_ONEWIRE);
 // the only bad count is a negative one, which would otherwise pass silently as
 // "no slots" instead of as the typo it is.
 static_assert(MAX_DS18B20_SENSORS >= 0, "the sensor count cannot be negative");
-static_assert(EP_CONFIG_DELTA <= 240, "Zigbee endpoint numbers have to stay within 1..240");
+
+// The temperature block is the one that grows with the sensor count, so it is the
+// one that can run off the end of the endpoint range.
+static_assert(EP_CONFIG_INTERVAL >= 1 && EP_CONFIG_DELTA >= 1 && EP_LINK_LQI >= 1 && EP_LINK_RSSI >= 1
+                && EP_TEMP_BASE >= 1 && EP_TEMP_BASE + MAX_DS18B20_SENSORS - 1 <= 240,
+              "Zigbee endpoint numbers have to stay within 1..240");
+
+// The temperature slots sit above the settings and the link, and every endpoint
+// number has to be unique: a collision would register two endpoints as one.
+static_assert(EP_TEMP_BASE > EP_CONFIG_INTERVAL && EP_TEMP_BASE > EP_CONFIG_DELTA && EP_TEMP_BASE > EP_LINK_LQI
+                && EP_TEMP_BASE > EP_LINK_RSSI,
+              "the temperature endpoints have to stay above the settings and the link endpoints");
+static_assert(EP_CONFIG_INTERVAL != EP_CONFIG_DELTA && EP_CONFIG_INTERVAL != EP_LINK_LQI
+                && EP_CONFIG_INTERVAL != EP_LINK_RSSI && EP_CONFIG_DELTA != EP_LINK_LQI
+                && EP_CONFIG_DELTA != EP_LINK_RSSI && EP_LINK_LQI != EP_LINK_RSSI,
+              "every Zigbee endpoint number has to be used only once");
+
+// The retry shortens the wait for the next link reading, so a value above the
+// interval it shortens would mean "retry every loop" instead.
+static_assert(LINK_RETRY_MS <= LINK_INTERVAL_S * 1000L, "the link retry has to be shorter than the link interval");
+
 TempEndpoint *zbTemp[DS18B20_SLOT_ARRAY_LEN] = {nullptr};
 
 // Writable settings, each on its own analog output endpoint.
@@ -68,6 +97,17 @@ ZbSetting cfgInterval(EP_CONFIG_INTERVAL, NVS_KEY_INTERVAL, "Reading interval (s
                       TEMP_INTERVAL_MIN_S, TEMP_INTERVAL_MAX_S, TEMP_INTERVAL_STEP_S, ESP_ZB_ZCL_AI_TIME_RELATIVE);
 ZbSetting cfgDelta(EP_CONFIG_DELTA, NVS_KEY_DELTA, "Reporting delta (C)", TEMP_DELTA_DEFAULT_C, TEMP_DELTA_MIN_C,
                    TEMP_DELTA_MAX_C, TEMP_DELTA_STEP_C, ESP_ZB_ZCL_AI_TEMPERATURE_OTHER);
+
+// The link towards the parent: quality as an LQI, strength as an RSSI in dBm,
+// one analog input endpoint each because an Analog Input cluster carries a
+// single value. The coordinator only reads these; nothing writes them, so they
+// need none of the clamp / persist machinery a ZbSetting has.
+LinkAnalog zbLqi(EP_LINK_LQI);
+LinkAnalog zbRssi(EP_LINK_RSSI);
+
+// The ZCL application types have no dBm in the list, so the RSSI endpoint uses
+// the "other" group and states its unit in EngineeringUnits instead.
+static constexpr uint32_t AI_APP_TYPE_OTHER = ESP_ZB_ZCL_AI_SET_APP_TYPE_WITH_ID(ESP_ZB_ZCL_AI_APP_TYPE_OTHER, 0xffff);
 
 // onAnalogOutputChange() takes a bare function pointer with no user context,
 // so each setting gets its own one-line trampoline.
@@ -106,6 +146,17 @@ uint32_t lastSampleMs = 0;
 uint32_t convertStartMs = 0;
 uint32_t lastRescanMs = 0;
 bool sampleNow = true;  // take one reading as soon as we are up
+
+// What the coordinator has for the link. linkPublished false is the same idea as
+// the temperatures' NAN: nothing published yet, so the next reading goes out
+// whatever the deadbands say. An RSSI is negative, which rules out a sentinel
+// value of its own.
+bool linkPublished = false;
+int16_t lqiPublished = 0;
+int16_t rssiPublished = 0;
+uint32_t lastLinkMs = 0;
+bool linkNow = false;         // read the link as soon as there is one
+bool linkWaitLogged = false;  // "no parent entry yet" already said once this join
 
 bool resetArmed = false;  // pushbutton held long enough to show LED feedback
 
@@ -293,6 +344,14 @@ void applyReporting() {
     // max_interval repeats the last published value as a heartbeat.
     zbTemp[i]->setReporting(TEMP_REPORT_MIN_INTERVAL_S, TEMP_REPORT_HEARTBEAT_S, 0);
   }
+  // Same reasoning as above for the link endpoints: the deadbands are ours, so
+  // the stack reports whatever it is given and only adds the heartbeat.
+  if (ZB_LQI_ENDPOINT) {
+    zbLqi.setAnalogInputReporting(LINK_REPORT_MIN_INTERVAL_S, LINK_REPORT_HEARTBEAT_S, 0);
+  }
+  if (ZB_RSSI_ENDPOINT) {
+    zbRssi.setAnalogInputReporting(LINK_REPORT_MIN_INTERVAL_S, LINK_REPORT_HEARTBEAT_S, 0);
+  }
 }
 
 // Allocated once and never freed: the endpoints live for the whole run, and
@@ -303,7 +362,43 @@ void createEndpoints() {
   }
 }
 
+// The endpoints are registered in the order they should be read in: settings,
+// link, then the temperature slots. The stack reports its endpoints in the order
+// they were added here, and a coordinator that lists what it found - Zigbee2MQTT
+// among them - follows that order rather than sorting by number.
 void setupEndpoints() {
+  cfgInterval.addEndpoint(onIntervalWritten);
+  cfgDelta.addEndpoint(onDeltaWritten);
+  Serial.printf("EP %u -> reading interval\r\nEP %u -> reporting delta\r\n", EP_CONFIG_INTERVAL, EP_CONFIG_DELTA);
+
+  if (ZB_LQI_ENDPOINT) {
+    zbLqi.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
+    zbLqi.addAnalogInput();
+    // Unitless count is what an LQI is: a 0..255 number with no dimension.
+    zbLqi.setAnalogInputApplication(ESP_ZB_ZCL_AI_COUNT_UNITLESS_COUNT);
+    zbLqi.setAnalogInputDescription("Parent link LQI");
+    zbLqi.setAnalogInputResolution(1);
+    zbLqi.setAnalogInputMinMax(0, 255);
+    zbLqi.setPowerSource(ZB_POWER_SOURCE_MAINS);
+    Zigbee.addEndpoint(&zbLqi);
+    Serial.printf("EP %u -> parent link LQI\r\n", EP_LINK_LQI);
+  }
+
+  if (ZB_RSSI_ENDPOINT) {
+    zbRssi.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
+    zbRssi.addAnalogInput();
+    zbRssi.setAnalogInputApplication(AI_APP_TYPE_OTHER);
+    zbRssi.setAnalogInputUnits(BACNET_UNIT_DBM);
+    zbRssi.setAnalogInputDescription("Parent link RSSI");
+    zbRssi.setAnalogInputResolution(1);
+    // An 802.15.4 receiver bottoms out around -100 dBm and cannot see a signal
+    // stronger than 0; the int8_t the stack reports spans -128..127.
+    zbRssi.setAnalogInputMinMax(-128, 0);
+    zbRssi.setPowerSource(ZB_POWER_SOURCE_MAINS);
+    Zigbee.addEndpoint(&zbRssi);
+    Serial.printf("EP %u -> parent link RSSI, dBm\r\n", EP_LINK_RSSI);
+  }
+
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     // Same manufacturer and model on every endpoint: this identifies the
     // product. Which sensor an endpoint reads is the sensor id, see above.
@@ -320,10 +415,6 @@ void setupEndpoints() {
     Zigbee.addEndpoint(zbTemp[i]);
     Serial.printf("EP %u -> slot %u, sensor %s\r\n", EP_TEMP_BASE + i, i, sensorId(i).c_str());
   }
-
-  cfgInterval.addEndpoint(onIntervalWritten);
-  cfgDelta.addEndpoint(onDeltaWritten);
-  Serial.printf("EP %u -> reading interval\r\nEP %u -> reporting delta\r\n", EP_CONFIG_INTERVAL, EP_CONFIG_DELTA);
 }
 
 void onZigbeeConnected() {
@@ -346,7 +437,106 @@ void onZigbeeConnected() {
   // temperatures at all, and the deadband would otherwise hold them back.
   resetPublished();
   sampleNow = true;
+
+  // Same for the link: a rejoin may well be through a different parent, so the
+  // old value says nothing about the new one.
+  linkPublished = false;
+  linkNow = true;
+  linkWaitLogged = false;
 }
+
+/* ----------------------------- joining ---------------------------- */
+
+// The stack retries network steering once a second for as long as it takes, but
+// it only says so at Core Debug Level "Info" - at the default "None" a device
+// that cannot find a network looks exactly like one that is not even trying. So
+// the sketch reports the wait itself, and every so often scans for what is
+// actually on the air, which answers the two questions that matter: is there a
+// network in range at all, and is it letting anyone in?
+uint32_t joinWaitStartMs = 0;
+uint32_t lastJoinHintMs = 0;
+uint32_t lastJoinScanMs = 0;
+bool joinScanRunning = false;
+
+// Restarts the reporting, so the printed wait is the current one rather than the
+// time since boot.
+void resetJoinWait() {
+  uint32_t now = millis();
+  joinWaitStartMs = now;
+  lastJoinHintMs = now;
+  // Backdated so the first hint brings a scan with it, instead of the wait
+  // having to reach JOIN_SCAN_INTERVAL_S first.
+  lastJoinScanMs = now - (uint32_t)JOIN_SCAN_INTERVAL_S * 1000UL;
+}
+
+void printNetworksFound(uint16_t found) {
+  if (found == 0) {
+    Serial.println("scan: no Zigbee network on any channel");
+    return;
+  }
+
+  zigbee_scan_result_t *nets = Zigbee.getScanResult();
+  if (nets == nullptr) {
+    Serial.println("scan: no result to read");
+    return;
+  }
+
+  bool anyOpen = false;
+  Serial.printf("scan: %u network%s in range\r\n", found, found == 1 ? "" : "s");
+  Serial.println("  PAN ID | CH | joining open | room for an end device");
+  for (uint16_t i = 0; i < found; i++) {
+    Serial.printf("  0x%04X | %2u | %-12s | %s\r\n", nets[i].short_pan_id, nets[i].logic_channel, nets[i].permit_joining ? "yes" : "no",
+                  nets[i].end_device_capacity ? "yes" : "no");
+    anyOpen = anyOpen || nets[i].permit_joining;
+  }
+  if (!anyOpen) {
+    Serial.println("  none of them is open - joining has to be enabled on the coordinator");
+  }
+}
+
+void handleJoining() {
+  if (!Zigbee.started()) {
+    return;
+  }
+
+  // A scan of ours is in the air: collect it whenever it lands, joined by then
+  // or not, because the stack allocated the result and we have to free it.
+  if (joinScanRunning) {
+    int16_t status = Zigbee.scanComplete();
+    if (status == ZB_SCAN_RUNNING) {
+      return;
+    }
+    joinScanRunning = false;
+    if (status == ZB_SCAN_FAILED) {
+      Serial.println("scan: failed");
+    } else {
+      printNetworksFound((uint16_t)status);
+    }
+    Zigbee.scanDelete();  // frees the result and re-arms the status
+    return;
+  }
+
+  if (Zigbee.connected() || JOIN_HINT_INTERVAL_S == 0) {
+    return;
+  }
+
+  uint32_t now = millis();
+  if ((now - lastJoinHintMs) < (uint32_t)JOIN_HINT_INTERVAL_S * 1000UL) {
+    return;
+  }
+  lastJoinHintMs = now;
+
+  Serial.printf("Zigbee: %s, %lus so far\r\n", commissioned ? "still looking for its network" : "still waiting to be commissioned",
+                (unsigned long)((now - joinWaitStartMs) / 1000UL));
+
+  if (JOIN_SCAN_INTERVAL_S > 0 && (now - lastJoinScanMs) >= (uint32_t)JOIN_SCAN_INTERVAL_S * 1000UL) {
+    lastJoinScanMs = now;
+    joinScanRunning = true;
+    Zigbee.scanNetworks(ESP_ZB_TRANSCEIVER_ALL_CHANNELS_MASK, JOIN_SCAN_DURATION);
+  }
+}
+
+/* ---------------------------- link state -------------------------- */
 
 void updateLinkState() {
   bool connected = Zigbee.connected();
@@ -355,6 +545,7 @@ void updateLinkState() {
     onZigbeeConnected();
   } else if (!connected && wasConnected) {
     Serial.println("Zigbee link lost");
+    resetJoinWait();  // the wait that starts now is a new one
   }
   wasConnected = connected;
 
@@ -455,6 +646,84 @@ void handleTemperature() {
   }
 }
 
+/* ------------------- link quality and signal strength -------------- */
+
+// Quality (LQI) and strength (RSSI) of the link to the parent, on their own
+// interval: they have nothing to do with the sensors and they move slowly. One
+// read of the neighbour table yields both, and each is published through the
+// same kind of deadband the temperatures use.
+uint32_t linkIntervalMs() {
+  return (uint32_t)LINK_INTERVAL_S * 1000UL;
+}
+
+// True when a value has moved far enough from what the coordinator has.
+bool linkMoved(int16_t value, int16_t published, int16_t deadband) {
+  int drift = (int)value - (int)published;
+  return drift >= deadband || drift <= -deadband;
+}
+
+void handleLinkQuality() {
+  uint32_t now = millis();
+
+  if (!Zigbee.connected()) {
+    return;  // no parent, nothing to measure
+  }
+  if (!linkNow && (now - lastLinkMs) < linkIntervalMs()) {
+    return;
+  }
+  linkNow = false;
+  lastLinkMs = now;
+
+  LinkQuality link = readParentLink();
+  if (!link.valid) {
+    // Connected, but the parent entry is not in the table yet. That lasts a
+    // moment after a join, so come back in a second instead of after a whole
+    // interval - and publishing a 0 here would look like a dead link. Logged
+    // once, or the retries would fill the console.
+    if (!linkWaitLogged) {
+      Serial.println("link: parent not in the neighbour table yet");
+      linkWaitLogged = true;
+    }
+    lastLinkMs = now - linkIntervalMs() + LINK_RETRY_MS;
+    return;
+  }
+  linkWaitLogged = false;
+
+  Serial.printf("link: parent 0x%04X  LQI %u/255  RSSI %d dBm", link.parentAddr, link.lqi, link.rssi);
+
+  if (!ZB_LQI_ENDPOINT && !ZB_RSSI_ENDPOINT) {
+    Serial.println();  // console only, no deadband to speak of
+    return;
+  }
+
+  // Nothing published yet means a join or a rejoin, quite possibly through a
+  // different parent, so both values go out whatever the deadbands say.
+  bool first = !linkPublished;
+  bool sendLqi = ZB_LQI_ENDPOINT && (first || linkMoved(link.lqi, lqiPublished, LQI_DELTA));
+  bool sendRssi = ZB_RSSI_ENDPOINT && (first || linkMoved(link.rssi, rssiPublished, RSSI_DELTA));
+
+  if (!sendLqi && !sendRssi) {
+    Serial.println("  within deadband");
+  } else {
+    Serial.printf("  published %s%s%s%s\r\n", sendLqi ? "LQI" : "", sendLqi && sendRssi ? " and " : "",
+                  sendRssi ? "RSSI" : "", first ? " (first)" : "");
+  }
+
+  if (sendLqi) {
+    zbLqi.setAnalogInput(link.lqi);
+    zbLqi.reportAnalogInput();
+    lqiPublished = link.lqi;
+  }
+  if (sendRssi) {
+    zbRssi.setAnalogInput(link.rssi);
+    zbRssi.reportAnalogInput();
+    rssiPublished = link.rssi;
+  }
+  if (sendLqi || sendRssi) {
+    linkPublished = true;
+  }
+}
+
 /* ---------------------------- pushbutton -------------------------- */
 
 bool buttonPressed() {
@@ -518,8 +787,11 @@ void handleButton() {
     } else {
       if (!resetArmed) {
         // Short press: take a reading now instead of waiting out the interval.
+        // The link is read along with it, which is what makes the button useful
+        // for walking the board around to find a spot with a decent signal.
         Serial.println("Button: manual reading");
         sampleNow = true;
+        linkNow = true;
       }
       resetArmed = false;
     }
@@ -584,12 +856,15 @@ void setup() {
   }
   Serial.println(commissioned ? "Zigbee started, rejoining known network"
                              : "Zigbee started, waiting to be commissioned");
+  resetJoinWait();
 }
 
 void loop() {
   updateLinkState();
+  handleJoining();
   handleSettingWrites();
   handleTemperature();
+  handleLinkQuality();
   handleButton();
   updateLed();
   delay(10);

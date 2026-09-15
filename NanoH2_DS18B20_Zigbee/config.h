@@ -117,14 +117,26 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 /* ------------------------------------------------------------------
  * Zigbee
  * ------------------------------------------------------------------ */
-// Temperature sensors occupy EP_TEMP_BASE .. EP_TEMP_BASE+MAX-1.
-#define EP_TEMP_BASE 10
-// One analog output endpoint per writable setting. An Analog Output cluster
-// carries a single value, so each setting needs its own endpoint. They are
-// derived from the sensor count so they can never collide with a temperature
-// endpoint; with three sensors this is 13 and 14 as before.
-#define EP_CONFIG_INTERVAL (EP_TEMP_BASE + MAX_DS18B20_SENSORS)
-#define EP_CONFIG_DELTA (EP_TEMP_BASE + MAX_DS18B20_SENSORS + 1)
+// Endpoint numbers. Any assignment within 1..240 is legal - the numbers carry no
+// meaning of their own - and this one puts what describes the device first and
+// the measurements last: the two writable settings, then the two link
+// measurements, then one endpoint per temperature slot above them.
+//
+// The block below is fixed rather than derived from the sensor count, so
+// changing MAX_DS18B20_SENSORS no longer moves it. That matters because a
+// coordinator names what it finds after the endpoint number, so a number that
+// moves renames the setting it belongs to.
+//
+// One Analog Output or Analog Input cluster carries a single value, so every
+// setting and every link measurement needs an endpoint of its own.
+#define EP_CONFIG_INTERVAL 10
+#define EP_CONFIG_DELTA 11
+#define EP_LINK_LQI 12
+#define EP_LINK_RSSI 13
+
+// Temperature sensors occupy EP_TEMP_BASE .. EP_TEMP_BASE+MAX-1. The gap above
+// the block leaves room for further settings without moving the sensors.
+#define EP_TEMP_BASE 20
 
 // One model identifier for the whole device, reported identically by every
 // endpoint. A coordinator reads it from the first endpoint that has a Basic
@@ -134,6 +146,67 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // Both strings are limited to 32 characters by the Zigbee library.
 #define ZB_MANUFACTURER "M5Stack"
 #define ZB_MODEL "NanoH2-DS18B20"
+
+/* ------------------------------------------------------------------
+ * Joining
+ *
+ * The stack retries network steering once a second until it succeeds,
+ * but only logs that at Core Debug Level "Info". These control what the
+ * sketch itself prints while it has no network.
+ * ------------------------------------------------------------------ */
+// How often to report that the device is still looking, in seconds.
+// 0 turns the reporting off, scan included.
+#define JOIN_HINT_INTERVAL_S 30
+
+// How often to scan for the networks in range while looking, in seconds.
+// A scan lists every network it hears with its channel and whether joining
+// is open, which is what tells "nothing in range" apart from "in range but
+// closed". It shares the radio with the join attempts, so it is deliberately
+// rarer than the hint; 0 turns scanning off and keeps the hint.
+#define JOIN_SCAN_INTERVAL_S 120
+
+// Time spent listening per channel, 1 (fastest) to 4 (most thorough).
+// One scan covers all 16 channels, so this is what a scan costs.
+#define JOIN_SCAN_DURATION 3
+
+/* ------------------------------------------------------------------
+ * Link quality and signal strength
+ *
+ * Both are measured by this device on the link to its parent, which is
+ * the opposite direction to the "linkquality" a coordinator reports.
+ * They always go to the serial console; each endpoint additionally puts
+ * its value on the air.
+ *
+ *   LQI  0..255, how well frames from the parent decode. Unitless, and
+ *        the number a coordinator would call link quality.
+ *   RSSI dBm, how strong they arrive, roughly -30 (next to the parent)
+ *        to -95 (about to drop out). This is the signal strength.
+ * ------------------------------------------------------------------ */
+// 1 creates the read-only Analog Input endpoint for that value, 0 keeps it
+// on the console only. Turning either on or off changes the endpoint list,
+// which costs a re-pair - see "Changing the sensor count" in README.md, the
+// same applies here.
+#define ZB_LQI_ENDPOINT 1
+#define ZB_RSSI_ENDPOINT 1
+
+// How often the neighbour table is read. One read yields both values.
+#define LINK_INTERVAL_S 300
+
+// How far each value has to move from the last published one before the new
+// one is published. Both wander on a perfectly good link - the LQI by a few
+// counts, the RSSI by a few dB - and a deadband keeps that off the air.
+#define LQI_DELTA 10
+#define RSSI_DELTA 5
+
+// Retry after this long instead of waiting out the whole interval when the
+// stack is connected but has no parent entry yet, which is the state for a
+// moment right after a join. Has to stay below LINK_INTERVAL_S.
+#define LINK_RETRY_MS 1000
+
+// Repeats the last published values even while they stay inside the deadband,
+// like TEMP_REPORT_HEARTBEAT_S does for temperatures. 0 disables it.
+#define LINK_REPORT_MIN_INTERVAL_S 1
+#define LINK_REPORT_HEARTBEAT_S 3600
 
 /* ------------------------------------------------------------------
  * NVS
