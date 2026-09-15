@@ -136,6 +136,10 @@ bool slotPresent[DS18B20_SLOT_ARRAY_LEN] = {false};
 // is what every slot starts out as - see resetPublished().
 float lastPublished[DS18B20_SLOT_ARRAY_LEN];
 
+// When each slot last put a value on the air, for the heartbeat that repeats it
+// while the readings stay inside the deadband.
+uint32_t lastTempReportMs[DS18B20_SLOT_ARRAY_LEN] = {0};
+
 // Forget what the coordinator has: the next valid reading of every slot is
 // published whatever the deadband says.
 void resetPublished() {
@@ -163,8 +167,10 @@ bool linkPublished = false;
 int16_t lqiPublished = 0;
 int16_t rssiPublished = 0;
 uint32_t lastLinkMs = 0;
-bool linkNow = false;         // read the link as soon as there is one
-bool linkWaitLogged = false;  // "no parent entry yet" already said once this join
+uint32_t lastLinkReportMs = 0;   // when a link value last went out, for the heartbeat
+bool linkNow = false;            // read the link as soon as there is one
+bool linkWaitLogged = false;     // "nothing to read" already said once this join
+bool linkAssumedLogged = false;  // so has the note about an unflagged parent
 
 bool resetArmed = false;  // pushbutton held long enough to show LED feedback
 bool resetReady = false;  // held the full time: releasing it now resets
@@ -254,10 +260,30 @@ uint32_t intervalMs() {
 
 // Maps whatever is on the bus onto the persistent slots: a known ROM keeps its
 // slot, an unknown ROM takes the first free one.
+//
+// While a slot is empty this runs every ONEWIRE_RESCAN_INTERVAL_MS, and an empty
+// bus stays empty for as long as nobody plugs a sensor in, so it reports only
+// what differs from the last scan: another number of sensors, or another set of
+// slots filled. The header line is printed by whatever has something to say
+// below it, which keeps the indented lines under a header of their own.
 void scanSensors() {
+  static uint8_t lastCount = 0xFF;      // no real count, so the first scan reports
+  static uint16_t lastPresent = 0xFFFF;
+  uint16_t present = 0;
+
   uint64_t found[MAX_DS18B20_SENSORS + 5];
   uint8_t count = owBus.discover(found, sizeof(found) / sizeof(found[0]));
-  Serial.printf("1-Wire scan: %u DS18B20 found\r\n", count);
+
+  bool headerDone = false;
+  auto header = [&]() {
+    if (!headerDone) {
+      Serial.printf("1-Wire scan: %u DS18B20 found\r\n", count);
+      headerDone = true;
+    }
+  };
+  if (count != lastCount || LOG_EVERY_READING) {
+    header();
+  }
 
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     slotPresent[i] = false;
@@ -277,12 +303,14 @@ void scanSensors() {
         }
       }
       if (slot < 0) {
+        header();
         Serial.printf("  %s ignored, all %u slots taken\r\n",
                       DS18B20Bus::romToString(found[f]).c_str(), MAX_DS18B20_SENSORS);
         continue;
       }
       slotRom[slot] = found[f];
       prefs.putULong64(romKey(slot).c_str(), found[f]);
+      header();
       Serial.printf("  %s assigned to slot %d (stored)\r\n",
                     DS18B20Bus::romToString(found[f]).c_str(), slot);
       if (Zigbee.started()) {
@@ -293,15 +321,24 @@ void scanSensors() {
       }
     }
     slotPresent[slot] = true;
+    present |= (uint16_t)1 << slot;
     owBus.setResolution12bit(found[f]);
   }
 
-  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
-    if (slotRom[i] != 0 && !slotPresent[i]) {
-      Serial.printf("  slot %u (%s) is configured but missing\r\n", i,
-                    DS18B20Bus::romToString(slotRom[i]).c_str());
+  // The missing slots are listed as a set, so they are either all reported or all
+  // held back: one of them turning up changes the answer for the others too.
+  if (present != lastPresent || LOG_EVERY_READING) {
+    for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+      if (slotRom[i] != 0 && !slotPresent[i]) {
+        header();
+        Serial.printf("  slot %u (%s) is configured but missing\r\n", i,
+                      DS18B20Bus::romToString(slotRom[i]).c_str());
+      }
     }
   }
+
+  lastCount = count;
+  lastPresent = present;
 }
 
 bool anySlotMissing() {
@@ -459,6 +496,7 @@ void onZigbeeConnected() {
   linkPublished = false;
   linkNow = true;
   linkWaitLogged = false;
+  linkAssumedLogged = false;
 }
 
 /* ----------------------------- joining ---------------------------- */
@@ -579,6 +617,16 @@ void handleSettingWrites() {
 
 /* --------------------------- temperature -------------------------- */
 
+// True when the last value put on the air for this slot is older than the
+// heartbeat, so it is repeated even though nothing moved. The stack is given the
+// same heartbeat in the reporting configuration, but a coordinator may overwrite
+// that (Zigbee2MQTT does), and a report is only sent to whoever is bound - so the
+// one report a join produces can predate the binding and be the only one there
+// ever was. Repeating on our own schedule is what closes that.
+bool reportOverdue(uint32_t lastMs, uint32_t heartbeatS) {
+  return heartbeatS > 0 && (millis() - lastMs) >= heartbeatS * 1000UL;
+}
+
 void readAndPublish() {
   float delta = cfgDelta.value();
 
@@ -600,7 +648,9 @@ void readAndPublish() {
     // real one by construction.
     bool first = isnan(lastPublished[i]);
     float change = first ? NAN : fabsf(r.celsius - lastPublished[i]);
-    bool publish = first || change > delta;
+    bool moved = !first && change > delta;
+    bool heartbeat = !first && !moved && reportOverdue(lastTempReportMs[i], TEMP_REPORT_HEARTBEAT_S);
+    bool publish = first || moved || heartbeat;
 
     if (publish) {
       zbTemp[i]->setTemperature(r.celsius);
@@ -614,11 +664,18 @@ void readAndPublish() {
         zbTemp[i]->reportTemperature();
       }
       lastPublished[i] = r.celsius;
+      lastTempReportMs[i] = millis();
     }
 
-    Serial.printf("slot %u  EP %u  %s  %.2f C  %s\r\n", i, EP_TEMP_BASE + i,
-                  DS18B20Bus::romToString(slotRom[i]).c_str(), r.celsius,
-                  publish ? (first ? "published (first)" : "published") : "within deadband");
+    // A reading that stayed inside the deadband changed nothing, so it is not
+    // worth a line - see LOG_EVERY_READING, which is what to raise while
+    // choosing the deadband, since it also prints the readings held back.
+    if (publish || LOG_EVERY_READING) {
+      Serial.printf("slot %u  EP %u  %s  %.2f C  %s\r\n", i, EP_TEMP_BASE + i,
+                    DS18B20Bus::romToString(slotRom[i]).c_str(), r.celsius,
+                    !publish ? "within deadband"
+                             : first ? "published (first)" : heartbeat ? "published (heartbeat)" : "published");
+    }
   }
 }
 
@@ -692,12 +749,15 @@ void handleLinkQuality() {
 
   LinkQuality link = readParentLink();
   if (!link.valid) {
-    // Connected, but the parent entry is not in the table yet. That lasts a
-    // moment after a join, so come back in a second instead of after a whole
-    // interval - and publishing a 0 here would look like a dead link. Logged
-    // once, or the retries would fill the console.
+    // Connected, but the neighbour table has nothing to read. Right after a join
+    // that lasts a moment, so come back in a second instead of after a whole
+    // interval - and publishing a 0 here would look like a dead link. Said once
+    // per join, or the retries would fill the console; the entry count is in it
+    // because "empty" and "holds entries, none of them usable" are different
+    // faults and only this line tells them apart.
     if (!linkWaitLogged) {
-      Serial.println("link: parent not in the neighbour table yet");
+      Serial.printf("link: no parent to read, neighbour table holds %u entr%s\r\n", link.entries,
+                    link.entries == 1 ? "y" : "ies");
       linkWaitLogged = true;
     }
     lastLinkMs = now - linkIntervalMs() + LINK_RETRY_MS;
@@ -705,38 +765,58 @@ void handleLinkQuality() {
   }
   linkWaitLogged = false;
 
-  Serial.printf("link: parent 0x%04X  LQI %u/255  RSSI %d dBm", link.parentAddr, link.lqi, link.rssi);
-
-  if (!ZB_LQI_ENDPOINT && !ZB_RSSI_ENDPOINT) {
-    Serial.println();  // console only, no deadband to speak of
-    return;
+  if (link.assumed && !linkAssumedLogged) {
+    Serial.println("link: the one neighbour is not flagged as the parent - reading it as one anyway");
+    linkAssumedLogged = true;
   }
 
-  // Nothing published yet means a join or a rejoin, quite possibly through a
-  // different parent, so both values go out whatever the deadbands say.
+  // Nothing shown yet means a join or a rejoin, quite possibly through a
+  // different parent, so both values count as having moved. So does a heartbeat
+  // that has come round: a link that stays good never leaves its deadbands, and
+  // the report a join produces goes out before a coordinator has bound anything.
   bool first = !linkPublished;
-  bool sendLqi = ZB_LQI_ENDPOINT && (first || linkMoved(link.lqi, lqiPublished, LQI_DELTA));
-  bool sendRssi = ZB_RSSI_ENDPOINT && (first || linkMoved(link.rssi, rssiPublished, RSSI_DELTA));
+  bool heartbeat = !first && reportOverdue(lastLinkReportMs, LINK_REPORT_HEARTBEAT_S);
+  bool due = first || heartbeat;
+  bool lqiMoved = due || linkMoved(link.lqi, lqiPublished, LQI_DELTA);
+  bool rssiMoved = due || linkMoved(link.rssi, rssiPublished, RSSI_DELTA);
+  bool sendLqi = ZB_LQI_ENDPOINT && lqiMoved;
+  bool sendRssi = ZB_RSSI_ENDPOINT && rssiMoved;
 
-  if (!sendLqi && !sendRssi) {
-    Serial.println("  within deadband");
-  } else {
-    Serial.printf("  published %s%s%s%s\r\n", sendLqi ? "LQI" : "", sendLqi && sendRssi ? " and " : "",
-                  sendRssi ? "RSSI" : "", first ? " (first)" : "");
+  // A poll that found both values inside their deadbands changed nothing, on the
+  // air or on the console, so it says nothing either.
+  if (lqiMoved || rssiMoved || LOG_EVERY_READING) {
+    Serial.printf("link: parent 0x%04X  LQI %u/255  RSSI %d dBm", link.parentAddr, link.lqi, link.rssi);
+    if (!ZB_LQI_ENDPOINT && !ZB_RSSI_ENDPOINT) {
+      Serial.println();  // console only, there is nothing to publish to
+    } else if (!sendLqi && !sendRssi) {
+      Serial.println("  within deadband");
+    } else {
+      Serial.printf("  published %s%s%s%s\r\n", sendLqi ? "LQI" : "", sendLqi && sendRssi ? " and " : "",
+                    sendRssi ? "RSSI" : "", first ? " (first)" : heartbeat ? " (heartbeat)" : "");
+    }
   }
 
   if (sendLqi) {
     zbLqi.setAnalogInput(link.lqi);
     zbLqi.reportAnalogInput();
-    lqiPublished = link.lqi;
   }
   if (sendRssi) {
     zbRssi.setAnalogInput(link.rssi);
     zbRssi.reportAnalogInput();
+  }
+
+  // The deadbands are measured against the last value that was shown - published,
+  // or printed where there is no endpoint to publish to - so they move together
+  // with the output rather than with the endpoint configuration.
+  if (lqiMoved) {
+    lqiPublished = link.lqi;
+  }
+  if (rssiMoved) {
     rssiPublished = link.rssi;
   }
-  if (sendLqi || sendRssi) {
+  if (lqiMoved || rssiMoved) {
     linkPublished = true;
+    lastLinkReportMs = now;
   }
 }
 

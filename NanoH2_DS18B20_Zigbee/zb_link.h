@@ -19,8 +19,15 @@ struct LinkQuality {
   uint8_t lqi;         // 0..255, higher is better
   int8_t rssi;         // dBm of the last frame received from the parent
   uint16_t parentAddr; // parent's short address, 0x0000 for the coordinator
+  uint8_t entries;     // how many entries the neighbour table held, parent or not
+  bool assumed;        // nothing was flagged as the parent; the sole entry was taken as one
 };
 
 // Reads the parent's entry from the neighbour table. Safe to call at any time;
 // returns valid=false when the stack is not up or has no parent yet.
+//
+// An end device has exactly one neighbour that can be there at all, the parent it
+// joined through, so a table holding a single entry that is not flagged as the
+// parent is still that link - reported with assumed set, since the relationship
+// is the stack's own bookkeeping and not something to depend on.
 LinkQuality readParentLink();

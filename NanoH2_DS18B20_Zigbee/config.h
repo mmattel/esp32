@@ -111,6 +111,12 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // The heartbeat is the max_interval, i.e. how often the last published value is
 // repeated while readings stay inside the deadband. It keeps the coordinator
 // from treating the device as unavailable; 0 would disable periodic reports.
+//
+// The heartbeat is also kept in software: this value is handed to the stack, but
+// a coordinator is free to overwrite the reporting configuration it just read -
+// Zigbee2MQTT does - so the sketch republishes on its own schedule as well and
+// the number here is what actually happens. It is what fills in a value at the
+// coordinator that has not moved since the two were bound.
 #define TEMP_REPORT_MIN_INTERVAL_S 1
 #define TEMP_REPORT_HEARTBEAT_S 3600
 
@@ -231,9 +237,32 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 #define LINK_RETRY_MS 1000
 
 // Repeats the last published values even while they stay inside the deadband,
-// like TEMP_REPORT_HEARTBEAT_S does for temperatures. 0 disables it.
+// like TEMP_REPORT_HEARTBEAT_S does for temperatures, in software as well as in
+// the reporting configuration handed to the stack. 0 disables it.
+//
+// This matters more here than it does for a temperature: a healthy link sits
+// still, so both values can stay inside their deadbands for days. Without the
+// heartbeat the only report would be the one sent right after the join, which is
+// before a coordinator has bound the cluster and therefore goes nowhere - and the
+// endpoints would then read as unknown for as long as the link stays good.
 #define LINK_REPORT_MIN_INTERVAL_S 1
 #define LINK_REPORT_HEARTBEAT_S 3600
+
+/* ------------------------------------------------------------------
+ * Serial console
+ * ------------------------------------------------------------------ */
+// The periodic work - reading the sensors, polling the link, rescanning the bus -
+// happens whether or not the result differs from the last one, and saying so
+// every time buries the lines that matter. With 0 those three report only when
+// something actually changed: a temperature or a link value that passed its
+// deadband and was published, a failed read, a scan that found something other
+// than last time. Everything that is an event in its own right - joining,
+// losing the link, a factory reset, a fault - is printed either way.
+//
+// 1 restores a line per reading and per link poll, including the ones held back
+// by a deadband and by how much. That is the view to use when choosing
+// TEMP_DELTA_DEFAULT_C, LQI_DELTA or RSSI_DELTA.
+#define LOG_EVERY_READING 0
 
 /* ------------------------------------------------------------------
  * NVS

@@ -335,9 +335,13 @@ sets it to 1.00 °C during `configure`, which would quietly turn any delta below
 device-side reportable change is fixed at 0 in `applyReporting()` rather than
 tracking the delta.
 
-`TEMP_REPORT_HEARTBEAT_S` (the ZCL `max_interval`, 1 h by default) repeats the
-last published value even while readings sit inside the deadband, so a quiet
-device still produces traffic; set it to 0 to disable periodic reports entirely.
+`TEMP_REPORT_HEARTBEAT_S` (1 h by default) repeats the last published value even
+while readings sit inside the deadband, so a quiet device still produces traffic;
+set it to 0 to disable periodic reports entirely. It is handed to the stack as the
+ZCL `max_interval` *and* kept by the sketch itself, for the same reason the delta
+is: the coordinator owns the reporting configuration and Zigbee2MQTT overwrites
+it, so the number in `config.h` is only what actually happens because the sketch
+does not depend on the stack for it. A repeat is printed as `(heartbeat)`.
 
 One consequence worth knowing: reading the attribute directly returns the last
 *published* value, not the instantaneous one. By construction it is within the
@@ -355,9 +359,12 @@ LQI on endpoint 12 (`EP_LINK_LQI`) and the signal strength on endpoint 13
 
 ```
 link: parent 0x0000  LQI 168/255  RSSI -62 dBm  published LQI and RSSI (first)
-link: parent 0x0000  LQI 171/255  RSSI -61 dBm  within deadband
 link: parent 0x0000  LQI 174/255  RSSI -74 dBm  published RSSI
+link: parent 0x0000  LQI 174/255  RSSI -74 dBm  published LQI and RSSI (heartbeat)
 ```
+
+A poll that finds both values inside their deadbands prints nothing — see [Serial
+console](#serial-console).
 
 | | Scale | Says |
 | --- | --- | --- |
@@ -387,6 +394,19 @@ device has just the one). The table belongs to the Zigbee task, so the read take
 `esp_zb_lock_acquire()`, the same lock the Zigbee library takes for every
 attribute access.
 
+A table holding exactly one entry that is *not* flagged as the parent is taken as
+the parent anyway, since an end device has no other neighbour it could be, and
+that is said once per join:
+
+```
+link: the one neighbour is not flagged as the parent - reading it as one anyway
+```
+
+The relationship is the stack's own bookkeeping, so this costs nothing when it is
+right and saves the only link measurement there is when it is not. Two or more
+unflagged entries are a choice the sketch cannot make, and it makes none — the
+values stay unknown rather than being guessed.
+
 | Knob | Default | Meaning |
 | --- | --- | --- |
 | `ZB_LQI_ENDPOINT` | 1 | 0 drops endpoint 12 and keeps the LQI console-only |
@@ -395,7 +415,8 @@ attribute access.
 | `LQI_DELTA` | 10 | how far the LQI has to move from the last published value |
 | `RSSI_DELTA` | 5 | the same for the RSSI, in dB |
 | `LINK_RETRY_MS` | 1000 | shorter wait after a read that found no parent entry |
-| `LINK_REPORT_HEARTBEAT_S` | 3600 | repeats the last published values, `max_interval` |
+| `LINK_REPORT_HEARTBEAT_S` | 3600 | repeats the last published values; 0 disables it |
+| `LOG_EVERY_READING` | 0 | 1 also prints the polls held back by a deadband |
 
 The deadbands work exactly like the temperature one, and for the same reason: a
 healthy link wanders by a few counts and a few dB, and none of that is worth an
@@ -412,11 +433,18 @@ Worth knowing:
   `LINK_INTERVAL_S`. To walk the board around and compare candidate spots, lower
   that interval for the trip — there is no manual trigger, since the button does
   nothing but the factory reset.
-- **`link: parent not in the neighbour table yet`** is normal for a second or two
-  right after a join — the endpoints keep their last value rather than publishing a
-  0 that would look like a dead link. The next attempt then comes after
-  `LINK_RETRY_MS` rather than a whole `LINK_INTERVAL_S`, and the line is printed
-  once per join however many retries it takes.
+- **`link: no parent to read, neighbour table holds 0 entries`** is normal for a
+  second or two right after a join — the endpoints keep their last value rather
+  than publishing a 0 that would look like a dead link. The next attempt then comes
+  after `LINK_RETRY_MS` rather than a whole `LINK_INTERVAL_S`, and the line is
+  printed once per join however many retries it takes. The count is in the line
+  because an empty table and a table whose entries are all unusable are different
+  faults, and nothing else tells them apart.
+- **Both are repeated every `LINK_REPORT_HEARTBEAT_S`** even when neither has
+  moved. That is not cosmetic: a good link sits still for days, so the deadbands
+  would otherwise leave the join-time report as the only one ever sent — and that
+  one goes out before the coordinator has bound the cluster, i.e. nowhere. See
+  [an expose that stays N/A](#an-expose-that-stays-na).
 - **The RSSI endpoint carries a unit, and that took an extra attribute.** The ZCL
   application types have no dBm in the list, so `zb_link_endpoint.cpp` writes the
   BACnet unit number for dBm (200) into the Analog Input cluster's optional
@@ -427,6 +455,36 @@ Worth knowing:
   factory reset and a re-pair like any other endpoint change. It leaves every other
   endpoint number alone, though: 12 and 13 are fixed, and nothing is derived from
   them.
+
+## Serial console
+
+Three things here happen on a timer whether or not the result differs from the
+last one: the sensors are read every interval, the link is polled every
+`LINK_INTERVAL_S`, and the bus is rescanned every `ONEWIRE_RESCAN_INTERVAL_MS`
+while a slot is empty. All three report **only when something changed**, which is
+what keeps the lines that matter visible at 115200 baud:
+
+| Happens every time | Printed |
+| --- | --- |
+| a reading past its deadband, published | yes |
+| a reading inside its deadband | no |
+| a value repeated by its heartbeat | yes, marked `(heartbeat)` |
+| a failed read, a slot going missing | yes |
+| a scan finding the same sensors as last time | no |
+| a scan finding a different number, or a new ROM code | yes |
+| joining, losing the link, a factory reset, a fault | yes |
+
+```c
+#define LOG_EVERY_READING 1
+```
+
+That restores a line per reading and per link poll, the held-back ones included
+(`within deadband`), which is the view to use when choosing `TEMP_DELTA_DEFAULT_C`,
+`LQI_DELTA` or `RSSI_DELTA` — it shows what a given deadband would have suppressed.
+
+While the device has no network the wait is still reported every
+`JOIN_HINT_INTERVAL_S`, since there "nothing changed" is itself the news; see
+[Joining a network](#joining-a-network).
 
 ## Zigbee2MQTT
 
@@ -480,7 +538,44 @@ Worth knowing:
 - Z2M also tries to configure reporting on the Analog Output `presentValue`. If
   the Zigbee stack rejects it, `configure` is logged as failed and retried; the
   two settings still work, since Z2M reads them on demand and the sketch reports
-  them explicitly whenever they change.
+  them explicitly whenever they change. A `configure` that fails part way through
+  does have a cost, though — see below.
+
+### An expose that stays N/A
+
+`N/A` means Z2M has never had a value for that attribute. It says nothing about
+the endpoint being wrong, and the first question is which side is quiet. The
+console answers it:
+
+| Console | Where the gap is |
+| --- | --- |
+| `link: parent 0x0000  LQI 168/255  RSSI -62 dBm  published …` | the device measured it and sent it — the gap is between the device and Z2M |
+| `link: no parent to read, …` and never a `link: parent …` line | the device has nothing to send — the neighbour table is not yielding the parent |
+
+For the second case the endpoints are the messenger, not the problem; there is
+nothing to publish. For the first, the report went out and was dropped on the way,
+and there is one usual reason. **A report is addressed through the binding
+table**: `reportAnalogInput()` sends it with
+`ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT`, so a cluster nothing is bound to
+has its reports discarded at the source. Z2M creates those bindings in
+`configure`, its generated definition asking for reporting on every
+`presentValue`, which means:
+
+- **A `configure` that failed leaves later endpoints unbound.** The steps run in
+  expose order and one throwing ends the run, so a rejected Analog Output
+  reporting configuration on endpoint 10 can cost the bindings for 12, 13 and the
+  temperatures behind it. Look for `failed to configure` in the Z2M log, then press
+  **Reconfigure** on the device page.
+- **A binding can be added by hand.** Device → *Bind*, source endpoint `12` or
+  `13`, cluster `genAnalogInput`, destination *Coordinator*.
+- **A read needs no binding at all**, which makes it the quickest proof that the
+  device holds the value: dev console → endpoint `12` → `genAnalogInput` → read
+  `presentValue`.
+
+After a binding change the value arrives at the next heartbeat at the latest
+(`LINK_REPORT_HEARTBEAT_S`, an hour), without waiting for the link to move — that
+is what the heartbeat is there for. The temperature exposes work exactly the same
+way and only look healthier because a temperature keeps moving.
 
 ## Pushbutton
 
