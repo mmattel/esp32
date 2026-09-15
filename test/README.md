@@ -66,8 +66,13 @@ Covers:
 
 - The parent is picked by `relationship`, not by position: an entry behind a child
   and a sibling is still found.
-- Nothing to report — stack not started, empty table, no parent entry, lock
+- Nothing to report — stack not started, empty table, two unflagged entries, lock
   unavailable — returns `valid=false`, and never leaves the lock held.
+- The fallback: a table with exactly one entry that is not flagged as the parent is
+  read as the parent anyway, with `assumed` set. Two of them are not, since that is
+  a choice the code cannot make. A flagged parent never sets `assumed`.
+- `entries` is the size of the whole table, not how far the search got: 0 when it is
+  empty, 2 for two non-parent entries, and 3 when the parent sits in the middle.
 - `lqi` 255 and `rssi` -128 pass through untruncated, with the sign kept.
 
 ## What these tests do not cover
