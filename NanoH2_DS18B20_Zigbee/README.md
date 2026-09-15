@@ -54,9 +54,9 @@ way round.
 
 The button is wired the same way as in the [pushbutton
 sketch](../NanoH2_Button_LED/): it feeds 3.3 V into the pin when closed, and the
-weak internal pull-down (tens of kΩ) holds the pin low while the contact is open.
-Take the 3.3 V from a 3V3 pad, not from the Grove 5 V rail — see below. For a
-long run to the button, add an external 10 kΩ pull-down from `G2` to `GND` so
+weak internal pull-down — 45 kΩ typical — holds the pin low while the contact is
+open. Take the 3.3 V from a 3V3 pad, not from the Grove 5 V rail — see below. For
+a long run to the button, add an external 10 kΩ pull-down from `G2` to `GND` so
 induced noise cannot register as a press. A button that closes to `GND` instead
 needs one line in `config.h`:
 
@@ -65,6 +65,13 @@ needs one line in `config.h`:
 ```
 
 That switches the pin to `INPUT_PULLUP` and inverts the level test.
+
+Both Grove pins are ordinary GPIOs: on the ESP32-H2 the strapping pins are
+`GPIO8`, `GPIO9` and `GPIO25` (datasheet Table 3-1), so nothing on `G1` or `G2`
+can influence how the chip boots. `G1`…`G5` double as `ADC1_CH0`…`CH4`, which is
+what lets the button diagnostic report an actual voltage. (ESP-IDF's per-chip GPIO
+table lists `GPIO2` and `GPIO3` as strapping pins for the H2 — that contradicts
+the datasheet, and the datasheet is the one to trust here.)
 
 ### Supply voltage — check this before powering up
 
@@ -129,7 +136,7 @@ To enter download mode: hold the on-board `G9` button, *then* plug in USB-C.
 | Joined and on the air | solid green |
 | Joined before, radio lost | yellow, flashing on a 3 s cycle |
 | Factory-reset hold in progress | solid red |
-| Factory reset accepted | solid white, then reboot |
+| Factory-reset hold long enough, release to reset | solid white |
 | Cannot run at all | red, flashing on a 3 s cycle; reason on the serial console |
 
 Cycle length and duty are `LED_FLASH_CYCLE_MS` / `LED_FLASH_DUTY_PCT`; all
@@ -141,6 +148,12 @@ A factory-fresh device flashes magenta and looks for a network to join. The stac
 retries that — *network steering* — once a second, indefinitely, and it logs the
 failures only at **Core Debug Level → Info**; at the default `None` a device that
 can find nothing to join looks exactly like one that is not trying at all.
+
+**No button press is involved.** After a fresh flash the device starts steering in
+`setup()` and keeps at it until it gets in; all that is needed on the other side is
+an open permit-join window. If joining seems to need the button, that is the
+pushbutton pin misbehaving rather than the joining logic — see
+[Pushbutton](#pushbutton).
 
 So the sketch reports the wait itself, and scans for what is on the air:
 
@@ -267,8 +280,8 @@ What changes on the air:
   in Zigbee2MQTT the count of `temperature_2x` exposes changes and the rest of the
   names do not.
 - **The device has to be re-paired.** The endpoint list is fixed at
-  `Zigbee.begin()`. After flashing, hold the button for 5 s to factory reset, then
-  join again. In Zigbee2MQTT, delete the device first and let it re-interview;
+  `Zigbee.begin()`. After flashing, hold the button for 5 s and release to factory
+  reset, then join again. In Zigbee2MQTT, delete the device first and let it re-interview;
   otherwise Z2M keeps serving the cached definition with the old endpoint set.
 
 Two smaller things:
@@ -392,9 +405,10 @@ Worth knowing:
 - **Both only move when frames arrive.** LQI and RSSI are measured on reception,
   so they update when the parent sends something — a poll response, a read, a
   report acknowledgement. `setRxOnWhenIdle(true)` keeps that traffic flowing.
-- **A short button press reads them immediately**, which is the point: you can walk
-  the board around and press the button at each candidate spot instead of waiting
-  out `LINK_INTERVAL_S`.
+- **Both are read once right after a join or rejoin**, and then every
+  `LINK_INTERVAL_S`. To walk the board around and compare candidate spots, lower
+  that interval for the trip — there is no manual trigger, since the button does
+  nothing but the factory reset.
 - **`link: parent not in the neighbour table yet`** is normal for a second or two
   right after a join — the endpoints keep their last value rather than publishing a
   0 that would look like a dead link. The next attempt then comes after
@@ -467,26 +481,71 @@ Worth knowing:
 
 ## Pushbutton
 
-- **Short press** — take a reading immediately instead of waiting out the
-  interval, and read the [link quality and signal
-  strength](#link-quality-and-signal-strength) along with it.
-- **Hold 5 s** (`FACTORY_RESET_HOLD_MS`) — clear everything: the commissioning
-  flag, the interval, the delta and the slot ↔ ROM mapping from our NVS
-  namespace, plus the Zigbee stack's own network credentials via
+The button does **one** thing: the factory reset, which is how the device leaves a
+network. It has no part in joining one — see [Joining a
+network](#joining-a-network) — and nothing at all is bound to a short press.
+
+- **Hold 5 s** (`FACTORY_RESET_HOLD_MS`) **and release** — clear everything: the
+  commissioning flag, the interval, the delta and the slot ↔ ROM mapping from our
+  NVS namespace, plus the Zigbee stack's own network credentials via
   `Zigbee.factoryReset()`. The device reboots into a factory-fresh state and
   flashes magenta again.
+- **Anything shorter** — nothing happens. `Button: released before the hold was
+  over, no reset` if the hold had already been armed.
 
-The LED turns red once the hold passes `FACTORY_RESET_HINT_MS`, so the reset is
-never a surprise.
+The LED follows the hold: red once it passes `FACTORY_RESET_HINT_MS`, then white
+at `FACTORY_RESET_HOLD_MS` to say the reset happens as soon as you let go.
 
-A pin that already reads *pressed* during `setup()` cannot be a real press —
-nobody was holding the button before power-on — so the button is ignored until it
-goes idle once, and the reason is printed. Without that, a stuck or miswired pin
-would run the 5 s hold a few seconds into the first `loop()`, factory reset, and
-come back up to do it again: a device that wipes its credentials on every boot
-and never stays joined long enough to be paired. The message names the pin, and
-the button starts working the moment the level goes idle (`Button: idle now, back
-in use`) — no reboot needed.
+**The reset fires on the release, not during the hold.** That is deliberate, and
+it is what makes a faulty pin harmless: a pin stuck at the active level reads
+pressed and never lets go, so it never produces a release. Firing during the hold
+instead meant such a pin wiped the credentials five seconds into *every* boot and
+rebooted into the same state — a device that never stayed up long enough to join,
+and that looked for all the world as if joining needed the button pressed.
+
+Two guards back that up:
+
+- **A pin that already reads pressed in `setup()`** cannot be a real press —
+  nobody was holding the button before power-on — so the button is ignored until
+  it reads idle once, and the reason is printed.
+- **A press lasting longer than `BUTTON_STUCK_MS`** (30 s) is not a hand either,
+  so it is inhibited the same way, with the same message.
+
+Both then probe the pin instead of guessing, because a logic level on its own
+cannot say *why* it is at the wrong end:
+
+```
+Button on pin 2 already reads pressed - ignoring it until it goes idle
+  the pin reads HIGH, and with BUTTON_ACTIVE_HIGH 1 that counts as pressed
+  probe: pulled towards pressed HIGH, pulled towards idle HIGH
+  probe: 3247 mV on the pin with no internal pull, rail is 3300 mV
+  the 45 kOhm internal pull cannot move the pin, so tens of microamps are flowing
+  in: a conductive path is holding it, not noise and not leakage. With the button
+  open the pin should sit at the idle rail - measure it there. A 4-pin tactile
+  switch shorts the two legs on the same side, which leaves the contact closed
+  for good, and a supply wire in the signal position does the same thing
+  also check that PIN_BUTTON and PIN_ONEWIRE match the Grove wiring (see README)
+```
+
+The pin is read with the pull applied both ways, and — on `G1`…`G5`, which are
+`ADC1_CH0`…`CH4` on this chip — its open-circuit voltage is measured too. That
+separates the causes that look identical from a `digitalRead()`:
+
+| Probe result | Cause |
+| --- | --- |
+| the idle pull moves the level | nothing is holding the pin; the reading was pick-up on a long run, and a 10 kΩ resistor at the button end fixes it far better than the internal 45 kΩ one |
+| the idle pull cannot move it, voltage at the rail | a conductive path: a contact that never opens, or a supply wire in the signal position |
+| the idle pull cannot move it, voltage between the rails | a resistive path, such as the 1-Wire pull-up on the button pin because the Grove pair is swapped |
+
+The arithmetic behind that reading: the internal pulls are 45 kΩ typical and
+`VIH` is 0.75 × VDD, so holding the pin at the wrong end takes about **55 µA**,
+while the pin's own input leakage is at most 50 nA (ESP32-H2 datasheet, Table
+5-3). Three orders of magnitude apart — which is why a level that will not budge
+means a wire, not interference.
+
+An inhibited button starts working the moment the level goes idle (`Button: idle
+now, back in use`) — no reboot needed. If it goes idle only while you *press* it,
+the polarity is inverted: set `BUTTON_ACTIVE_HIGH 0`.
 
 ## Notes and limits
 

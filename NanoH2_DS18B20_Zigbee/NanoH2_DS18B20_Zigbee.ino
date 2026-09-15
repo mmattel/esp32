@@ -16,9 +16,12 @@
  * - While the device has no network it reports the wait and periodically lists
  *   the networks in range with their channel and whether joining is open, which
  *   the stack itself only does at Core Debug Level "Info".
+ * - Joining is automatic and needs no button: the stack retries until it gets in.
  * - A pushbutton on PIN_BUTTON (G2) feeds 3.3 V into the pin when closed; the
- *   pin's internal pull-down holds it low while the contact is open. A short
- *   press takes a reading, holding it wipes all stored configuration.
+ *   pin's internal pull-down holds it low while the contact is open. It does one
+ *   thing: held for FACTORY_RESET_HOLD_MS and released, it wipes all stored
+ *   configuration and the Zigbee credentials, which is how the device is
+ *   excluded from a network. A short press does nothing.
  * - The on-board RGB LED shows the Zigbee link state.
  *
  * Arduino IDE settings:
@@ -90,6 +93,11 @@ static_assert(EP_CONFIG_INTERVAL != EP_CONFIG_DELTA && EP_CONFIG_INTERVAL != EP_
 // interval it shortens would mean "retry every loop" instead.
 static_assert(LINK_RETRY_MS <= LINK_INTERVAL_S * 1000L, "the link retry has to be shorter than the link interval");
 
+// A press is only judged stuck once it has lasted longer than a deliberate hold,
+// otherwise a slow hand would be inhibited instead of resetting.
+static_assert(BUTTON_STUCK_MS > FACTORY_RESET_HOLD_MS, "the stuck threshold has to be above the reset hold");
+static_assert(FACTORY_RESET_HOLD_MS > FACTORY_RESET_HINT_MS, "the reset hold has to be above the hint");
+
 TempEndpoint *zbTemp[DS18B20_SLOT_ARRAY_LEN] = {nullptr};
 
 // Writable settings, each on its own analog output endpoint.
@@ -159,11 +167,13 @@ bool linkNow = false;         // read the link as soon as there is one
 bool linkWaitLogged = false;  // "no parent entry yet" already said once this join
 
 bool resetArmed = false;  // pushbutton held long enough to show LED feedback
+bool resetReady = false;  // held the full time: releasing it now resets
 
-// Set when the button already reads pressed at startup, which no real press can
-// be: it means the pin is stuck at the active level. Ignoring the button until
-// it goes idle once is what keeps that from becoming a factory-reset loop, see
-// checkButtonIdleAtBoot().
+// Set while the button reads pressed with no press that could explain it - at
+// startup, where nobody can have been holding it since before power-on, or for
+// longer than any hand holds a button. Both mean the pin is stuck at the active
+// level, and the button is then ignored until it reads idle once. See
+// inhibitButton().
 bool buttonInhibited = false;
 
 /* ------------------------------ LED ------------------------------- */
@@ -192,6 +202,12 @@ bool flashOn() {
 }
 
 void updateLed() {
+  // White means the hold is long enough and the reset happens on release, red
+  // that it is not there yet. Both outrank the link state.
+  if (resetReady) {
+    ledWrite(COLOR_RESET_DONE);
+    return;
+  }
   if (resetArmed) {
     ledWrite(COLOR_RESET_ARMED);
     return;
@@ -731,25 +747,94 @@ bool buttonPressed() {
   return BUTTON_ACTIVE_HIGH ? (level == HIGH) : (level == LOW);
 }
 
-// Nobody can have been holding the button since before power-on, so a pin that
-// already reads pressed here is stuck at the active level - a shorted contact,
-// or the 1-Wire pull-up sitting on the button pin because the Grove pair is
-// swapped. Taken at face value it would run the factory-reset hold a few
-// seconds into the first loop and reboot into exactly the same state, wiping
-// the network credentials on every boot and never staying up long enough to
-// join. So say what is wrong and ignore the button until it goes idle once.
-void checkButtonIdleAtBoot() {
-  buttonInhibited = buttonPressed();
-  if (!buttonInhibited) {
+// Why the pin sits at the active level, which the logic level alone cannot say.
+// The pin is read with its normal pull, then with the pull removed, then with the
+// opposite pull, and where the pin can do ADC its voltage is measured as well.
+// The three causes that look identical from a digitalRead() then separate:
+//
+//   - a real path to the active rail (a contact that never opens, or the supply
+//     wire on the signal pin): the level does not move whatever pull is applied,
+//     and the voltage sits at the rail. Holding a pin at the wrong end against a
+//     45 kOhm pull needs tens of microamps, which only a conductive path
+//     provides - induced noise and leakage are three orders of magnitude short.
+//   - a resistive path, such as the 1-Wire pull-up on the wrong wire: the
+//     voltage lands between the rails, and the implied resistance says which.
+//   - a genuinely floating pin: it follows whichever pull is applied.
+//
+// Leaves the pin in its configured mode.
+void probeButtonPin() {
+  const int idlePull = BUTTON_ACTIVE_HIGH ? INPUT_PULLDOWN : INPUT_PULLUP;
+  const int activePull = BUTTON_ACTIVE_HIGH ? INPUT_PULLUP : INPUT_PULLDOWN;
+
+  pinMode(PIN_BUTTON, activePull);  // pull it the way a press would
+  delay(2);
+  int towardsPressed = digitalRead(PIN_BUTTON);
+
+  pinMode(PIN_BUTTON, idlePull);  // and back the way an open contact should sit
+  delay(2);
+  int towardsIdle = digitalRead(PIN_BUTTON);
+
+  // Reading the ADC hands the pad to the analog input, which drops the internal
+  // pull, so this is the open-circuit voltage: what is out there on its own.
+  int mv = -1;
+  if (BUTTON_PIN_HAS_ADC) {
+    mv = (int)analogReadMilliVolts(PIN_BUTTON);
+    pinMode(PIN_BUTTON, idlePull);
+    delay(2);
+  }
+
+  Serial.printf("  probe: pulled towards pressed %s, pulled towards idle %s\r\n",
+                towardsPressed == HIGH ? "HIGH" : "LOW", towardsIdle == HIGH ? "HIGH" : "LOW");
+  if (mv >= 0) {
+    Serial.printf("  probe: %d mV on the pin with no internal pull, rail is %d mV\r\n", mv, BUTTON_PIN_VDD_MV);
+  }
+
+  if ((towardsIdle == HIGH) != (bool)BUTTON_ACTIVE_HIGH) {
+    Serial.printf("  the %d kOhm internal pull moves the pin, so nothing conductive is holding it:\r\n",
+                  BUTTON_PULL_KOHM);
+    Serial.println("  the active reading was a transient or pick-up on a long run. A 10 kOhm");
+    Serial.println("  resistor at the button end holds the idle level far better than the internal one");
     return;
   }
-  Serial.printf("Button on pin %d already reads pressed - ignoring it until it goes idle\r\n", PIN_BUTTON);
-  Serial.printf("  a stuck button, or PIN_BUTTON/PIN_ONEWIRE swapped against the wiring (see README)\r\n");
+
+  // V_IH is 0.75 x VDD and the internal pull is 45 kOhm, so ~55 uA has to flow in
+  // to hold the pin at the active end. Input leakage is 50 nA - three orders of
+  // magnitude short - which leaves a conductive path as the only explanation.
+  Serial.printf("  the %d kOhm internal pull cannot move the pin, so tens of microamps are flowing\r\n",
+                BUTTON_PULL_KOHM);
+  Serial.println("  in: a conductive path is holding it, not noise and not leakage. With the button");
+  Serial.println("  open the pin should sit at the idle rail - measure it there. A 4-pin tactile");
+  Serial.println("  switch shorts the two legs on the same side, which leaves the contact closed");
+  Serial.println("  for good, and a supply wire in the signal position does the same thing");
 }
 
+// The pin reads pressed with nothing that could be pressing it. Print the level,
+// the polarity it is judged against and a probe of what is holding it, then ignore
+// the button until it reads idle once so that a fault cannot act as a press.
+void inhibitButton(const char *why) {
+  buttonInhibited = true;
+  resetArmed = false;
+  resetReady = false;
+  Serial.printf("Button on pin %d %s - ignoring it until it goes idle\r\n", PIN_BUTTON, why);
+  Serial.printf("  the pin reads %s, and with BUTTON_ACTIVE_HIGH %d that counts as pressed\r\n",
+                digitalRead(PIN_BUTTON) == HIGH ? "HIGH" : "LOW", BUTTON_ACTIVE_HIGH);
+  probeButtonPin();
+  Serial.printf("  also check that PIN_BUTTON and PIN_ONEWIRE match the Grove wiring (see README)\r\n");
+}
+
+// Nobody can have been holding the button since before power-on, so a pin that
+// already reads pressed here is at the active level for some other reason.
+void checkButtonIdleAtBoot() {
+  if (buttonPressed()) {
+    inhibitButton("already reads pressed at boot");
+  }
+}
+
+// Reached only from a released hold, never from a level that merely reads
+// pressed - see handleButton().
 void factoryReset() {
   Serial.println("Factory reset: clearing NVS and re-pairing");
-  ledWrite(COLOR_RESET_DONE);
+  ledWrite(COLOR_RESET_DONE);  // white already, and stays so through the wipe
 
   prefs.clear();  // slots, interval, delta and the commissioning flag
   prefs.end();
@@ -762,6 +847,15 @@ void factoryReset() {
   }
 }
 
+// Hold for FACTORY_RESET_HOLD_MS and release to factory reset. That is the whole
+// button: nothing is bound to a short press, so a press that was never meant -
+// or never happened - changes nothing.
+//
+// The reset fires on the *release*, which is what makes a faulty pin harmless. An
+// inverted or shorted pin reads pressed and never lets go, so it never produces a
+// release; firing during the hold instead meant such a pin wiped the network
+// FACTORY_RESET_HOLD_MS into every boot and rebooted into the same state, which
+// left no run long enough to join and looked like joining needed the button.
 void handleButton() {
   static bool stable = false;
   static bool candidate = false;
@@ -785,27 +879,33 @@ void handleButton() {
       buttonInhibited = false;
       Serial.println("Button: idle now, back in use");
     } else {
-      if (!resetArmed) {
-        // Short press: take a reading now instead of waiting out the interval.
-        // The link is read along with it, which is what makes the button useful
-        // for walking the board around to find a spot with a decent signal.
-        Serial.println("Button: manual reading");
-        sampleNow = true;
-        linkNow = true;
-      }
+      bool wasArmed = resetArmed;
+      bool wasReady = resetReady;
       resetArmed = false;
+      resetReady = false;
+      if (wasReady) {
+        factoryReset();  // does not return
+      } else if (wasArmed) {
+        Serial.println("Button: released before the hold was over, no reset");
+      }
     }
   }
 
-  if (stable && !buttonInhibited) {
-    uint32_t held = ms - pressedSinceMs;
-    if (held >= FACTORY_RESET_HINT_MS) {
-      resetArmed = true;
-    }
-    if (held >= FACTORY_RESET_HOLD_MS) {
-      factoryReset();  // does not return
-    }
+  if (!stable || buttonInhibited) {
+    return;
   }
+
+  uint32_t held = ms - pressedSinceMs;
+  if (held >= BUTTON_STUCK_MS) {
+    inhibitButton("has read pressed for longer than any hold could last");
+    return;
+  }
+  bool ready = held >= FACTORY_RESET_HOLD_MS;
+  if (ready && !resetReady) {
+    Serial.println("Button: held long enough - release to factory reset");
+  }
+  resetArmed = held >= FACTORY_RESET_HINT_MS;
+  resetReady = ready;
 }
 
 /* ------------------------- Arduino entry -------------------------- */
