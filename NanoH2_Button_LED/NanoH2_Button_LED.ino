@@ -1,10 +1,10 @@
 /**
  * M5Stack NanoH2 (ESP32-H2, SKU C149) - pushbutton shown on the RGB LED.
  *
- * - A pushbutton on PIN_BUTTON (G2) feeds 3.3 V into the pin when closed. The
- *   pin's internal pull-down holds it low while the contact is open.
- * - The on-board RGB LED is green while that signal is present and yellow while
- *   it is absent. There is no other state: the LED always shows one of the two.
+ * - A pushbutton on PIN_BUTTON (G2) pulls the pin down to GND when closed. The
+ *   pin's internal pull-up holds it high while the contact is open.
+ * - The on-board RGB LED is green while the contact is closed and yellow while
+ *   it is open. There is no other state: the LED always shows one of the two.
  * - No Zigbee, no radio, no NVS. Everything happens in loop().
  *
  * Arduino IDE settings:
@@ -15,7 +15,7 @@
  *
  * To flash: hold the on-board G9 button, then plug in USB-C.
  *
- * See README.md for wiring and where the 3.3 V comes from.
+ * See README.md for wiring and for the active level.
  */
 
 #include <Arduino.h>
@@ -89,7 +89,7 @@ void loop() {
   bool signal = signalPresent();
 
   if (!everLogged || signal != lastLogged) {
-    Serial.printf("G%d %s -> %s\r\n", PIN_BUTTON, signal ? "3.3 V" : "open",
+    Serial.printf("G%d %s -> %s\r\n", PIN_BUTTON, signal ? "closed" : "open",
                   signal ? "green" : "yellow");
     lastLogged = signal;
     everLogged = true;

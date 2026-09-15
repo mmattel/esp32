@@ -1,8 +1,8 @@
 # NanoH2 pushbutton indicator
 
 A pushbutton on `G2` of an M5Stack NanoH2 (ESP32-H2, SKU C149) shown on the
-on-board RGB LED: **green** while the button feeds 3.3 V into the pin, **yellow**
-while the contact is open. No Zigbee, no radio, no stored state.
+on-board RGB LED: **green** while the contact is closed, **yellow** while it is
+open. No Zigbee, no radio, no stored state.
 
 ## Files
 
@@ -18,7 +18,7 @@ The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G1` (white) and `G2`
 
 | Signal | Pin | Notes |
 | --- | --- | --- |
-| Pushbutton | `G2` (Grove yellow) | one side to 3.3 V; internal pull-down enabled in software |
+| Pushbutton | `G2` (Grove yellow) | other side to `GND`; internal pull-up enabled in software |
 | RGB LED | `G11` | on-board WS2812 |
 | RGB power | `G10` | on-board, must be driven high or the LED stays dark |
 
@@ -28,32 +28,33 @@ Change `PIN_BUTTON` in `config.h` to move the button to `G1` (Grove white).
 > the NanoH2 prints next to its Grove port, but the cable you plug in may well be
 > the other way round: white on `G2` and yellow on `G1`. Only `5V` = red and
 > `GND` = black are dependable. Ring the cable out with a multimeter, or just try
-> it — the sketch logs `G2 3.3 V -> green` on every accepted press, so a button
+> it — the sketch logs `G2 closed -> green` on every accepted press, so a button
 > that does nothing usually means the two signal wires are swapped.
 
-### Where the 3.3 V comes from — check this before powering up
+The button needs nothing but the contact and `GND`: `INPUT_PULLUP` holds `G2` at
+3.3 V while the contact is open, and closing it takes the pin to 0 V. Measuring
+`G2` against `GND` is the quickest way to confirm the wiring before flashing —
+about 3.3 V with the button open, 0 V with it pressed.
 
-The Grove connector only exposes **5 V**, and 5 V on a GPIO of a 3.3 V MCU
-damages the pin. The 3.3 V the button switches has to come from the board's own
-3V3 rail; confirm against the [NanoH2
-schematic](https://docs.m5stack.com/en/core/NanoH2) which pad exposes it. Do not
-substitute the Grove 5 V rail, and do not rely on a resistive divider from it —
-use 3.3 V.
-
-The internal pull-down is weak (tens of kΩ), which is fine for a button on short
-wiring. For a long run to the button, add an external 10 kΩ pull-down from `G2`
-to `GND` so induced noise cannot register as a press.
+The internal pull-up is weak (45 kΩ typical), which is fine for a button on short
+wiring. For a long run to the button, add an external 10 kΩ pull-up from `G2` to
+3.3 V so induced noise cannot register as a press. A ready-made button breakout
+usually has that resistor on board already, wired to its `VCC` pin.
 
 ### Inverting the wiring
 
-A button that closes to `GND` instead — needs one line in `config.h`:
+A button that feeds 3.3 V into the pin instead — needs one line in `config.h`:
 
 ```c
-#define BUTTON_ACTIVE_HIGH 0
+#define BUTTON_ACTIVE_HIGH 1
 ```
 
-That switches the pin to `INPUT_PULLUP` and inverts the level test, so a closed
-contact still means green. Nothing else changes.
+That switches the pin to `INPUT_PULLDOWN` and inverts the level test, so a closed
+contact still means green. Nothing else changes. Take that 3.3 V from the board's
+own 3V3 rail — the Grove connector only exposes **5 V**, and 5 V on a GPIO of a
+3.3 V MCU damages the pin. Confirm against the [NanoH2
+schematic](https://docs.m5stack.com/en/core/NanoH2) which pad exposes 3.3 V; do
+not substitute the Grove 5 V rail, and do not rely on a resistive divider from it.
 
 ## Arduino IDE settings
 
@@ -77,8 +78,8 @@ To enter download mode: hold the on-board `G9` button, *then* plug in USB-C.
 
 | State | LED |
 | --- | --- |
-| 3.3 V on `G2` (button closed) | solid green |
-| `G2` low (button open) | solid yellow |
+| `G2` low (button closed) | solid green |
+| `G2` high (button open) | solid yellow |
 
 Both colours are `LedColor` constants in `config.h`. The LED is written on every
 pass through `loop()`, but `ledWrite()` skips the WS2812 update when the colour
@@ -91,7 +92,7 @@ the initial state is visible:
 
 ```
 G2 open -> yellow
-G2 3.3 V -> green
+G2 closed -> green
 ```
 
 ## Notes and limits
@@ -101,8 +102,8 @@ G2 3.3 V -> green
   bounce therefore never reaches the LED, at the cost of a press shorter than
   ~20 ms being ignored. Raise the debounce for a noisier switch, lower it for a
   clean one.
-- **The open contact is never floating.** The internal pull-down (or pull-up, with
-  `BUTTON_ACTIVE_HIGH 0`) is what makes "no signal" a defined level. Disabling it
+- **The open contact is never floating.** The internal pull-up (or pull-down, with
+  `BUTTON_ACTIVE_HIGH 1`) is what makes "no signal" a defined level. Disabling it
   would leave the LED flickering between green and yellow with nothing connected.
 - **Nothing is stored.** There is no NVS use at all, so the sketch always starts in
   whatever state the button is actually in.

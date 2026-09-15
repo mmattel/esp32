@@ -17,8 +17,8 @@
  *   the networks in range with their channel and whether joining is open, which
  *   the stack itself only does at Core Debug Level "Info".
  * - Joining is automatic and needs no button: the stack retries until it gets in.
- * - A pushbutton on PIN_BUTTON (G2) feeds 3.3 V into the pin when closed; the
- *   pin's internal pull-down holds it low while the contact is open. It does one
+ * - A pushbutton on PIN_BUTTON (G2) pulls the pin down to GND when closed; the
+ *   pin's internal pull-up holds it high while the contact is open. It does one
  *   thing: held for FACTORY_RESET_HOLD_MS and released, it wipes all stored
  *   configuration and the Zigbee credentials, which is how the device is
  *   excluded from a network. A short press does nothing.
@@ -752,13 +752,14 @@ bool buttonPressed() {
 // opposite pull, and where the pin can do ADC its voltage is measured as well.
 // The three causes that look identical from a digitalRead() then separate:
 //
-//   - a real path to the active rail (a contact that never opens, or the supply
-//     wire on the signal pin): the level does not move whatever pull is applied,
+//   - a real path to the active rail (a contact that never opens, or a rail wire
+//     on the signal pin): the level does not move whatever pull is applied,
 //     and the voltage sits at the rail. Holding a pin at the wrong end against a
 //     45 kOhm pull needs tens of microamps, which only a conductive path
 //     provides - induced noise and leakage are three orders of magnitude short.
-//   - a resistive path, such as the 1-Wire pull-up on the wrong wire: the
-//     voltage lands between the rails, and the implied resistance says which.
+//   - an external pull resistor working against the internal one, which is what
+//     BUTTON_ACTIVE_HIGH set the wrong way round looks like: a 10 kOhm resistor
+//     beats the 45 kOhm internal pull and the level does not move either.
 //   - a genuinely floating pin: it follows whichever pull is applied.
 //
 // Leaves the pin in its configured mode.
@@ -805,7 +806,12 @@ void probeButtonPin() {
   Serial.println("  in: a conductive path is holding it, not noise and not leakage. With the button");
   Serial.println("  open the pin should sit at the idle rail - measure it there. A 4-pin tactile");
   Serial.println("  switch shorts the two legs on the same side, which leaves the contact closed");
-  Serial.println("  for good, and a supply wire in the signal position does the same thing");
+  Serial.println("  for good, and a rail wire in the signal position does the same thing");
+  Serial.printf("  an external pull resistor also does it - ~10 kOhm beats the %d kOhm internal one.\r\n",
+                BUTTON_PULL_KOHM);
+  Serial.println("  If the open button measures a few hundred mV off the rail rather than on it, that");
+  Serial.printf("  is what it is, and BUTTON_ACTIVE_HIGH %d is the wrong way round for this wiring\r\n",
+                BUTTON_ACTIVE_HIGH);
 }
 
 // The pin reads pressed with nothing that could be pressing it. Print the level,
