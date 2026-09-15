@@ -13,15 +13,16 @@
  * swap the two defines to reverse that.
  * ------------------------------------------------------------------ */
 #define PIN_ONEWIRE   1   // Grove white  / G1 - DS18B20 data line
-#define PIN_BUTTON    2   // Grove yellow / G2 - pushbutton, feeds 3.3 V when closed
+#define PIN_BUTTON    2   // Grove yellow / G2 - pushbutton, pulls the pin to GND when closed
 #define PIN_RGB      11   // on-board WS2812 data
 #define PIN_RGB_POWER 10  // on-board WS2812 power enable, HIGH = LED powered
 #define PIN_LED_BLUE  4   // on-board blue LED, unused here
 
-// The button feeds 3.3 V into G2 when closed, so a closed contact reads HIGH
-// and the internal pull-down holds the pin low while the contact is open.
-// Set this to 0 for the other common wiring, a button that closes to GND.
-#define BUTTON_ACTIVE_HIGH 1
+// The button pulls G2 down to GND when closed, so a closed contact reads LOW
+// and the pin is held high while the contact is open - by the internal pull-up
+// this switches on, and on a button breakout by its own pull-up resistor too.
+// Set this to 1 for the other wiring, a button that feeds 3.3 V into the pin.
+#define BUTTON_ACTIVE_HIGH 0
 
 // For the diagnostic that runs when the button pin looks stuck at the active
 // level. The internal pulls are 45 kOhm typical and the input thresholds are

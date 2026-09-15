@@ -30,7 +30,7 @@ The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G2` (yellow) and
 | Signal | Pin | Notes |
 | --- | --- | --- |
 | DS18B20 data | `G1` (Grove white) | all sensors in parallel, one 4.7 kΩ pull-up to their supply rail |
-| Pushbutton | `G2` (Grove yellow) | one side to 3.3 V, other side to `G2`; internal pull-down enabled in software |
+| Pushbutton | `G2` (Grove yellow) | one side to `G2`, other side to `GND`; internal pull-up enabled in software |
 | RGB LED | `G11` | on-board WS2812 |
 | RGB power | `G10` | on-board, must be driven high or the LED stays dark |
 
@@ -45,26 +45,29 @@ way round.
 > and the button on the bus, which reads as:
 >
 > ```
-> Button on pin 2 already reads pressed - ignoring it until it goes idle
 > 1-Wire scan: 0 DS18B20 found
 > ```
 >
-> Either line on its own is enough; swap `PIN_ONEWIRE` and `PIN_BUTTON` in
+> …while the button does nothing at all, because that pull-up holds its pin at the
+> idle level whatever the contact does. Swap `PIN_ONEWIRE` and `PIN_BUTTON` in
 > `config.h`.
 
 The button is wired the same way as in the [pushbutton
-sketch](../NanoH2_Button_LED/): it feeds 3.3 V into the pin when closed, and the
-weak internal pull-down — 45 kΩ typical — holds the pin low while the contact is
-open. Take the 3.3 V from a 3V3 pad, not from the Grove 5 V rail — see below. For
-a long run to the button, add an external 10 kΩ pull-down from `G2` to `GND` so
-induced noise cannot register as a press. A button that closes to `GND` instead
-needs one line in `config.h`:
+sketch](../NanoH2_Button_LED/): it pulls the pin down to `GND` when closed, and
+the internal pull-up — 45 kΩ typical — holds the pin high while the contact is
+open. Nothing but the contact and `GND` is needed; measuring `G2` against `GND`
+confirms it before flashing, about 3.3 V with the button open and 0 V with it
+pressed. For a long run to the button, add an external 10 kΩ pull-up from `G2` to
+3.3 V so induced noise cannot register as a press — a ready-made button breakout
+usually has one on board, wired to its `VCC` pin. A button that feeds 3.3 V into
+the pin instead needs one line in `config.h`:
 
 ```c
-#define BUTTON_ACTIVE_HIGH 0
+#define BUTTON_ACTIVE_HIGH 1
 ```
 
-That switches the pin to `INPUT_PULLUP` and inverts the level test.
+That switches the pin to `INPUT_PULLDOWN` and inverts the level test. Take that
+3.3 V from a 3V3 pad, not from the Grove 5 V rail — see below.
 
 Both Grove pins are ordinary GPIOs: on the ESP32-H2 the strapping pins are
 `GPIO8`, `GPIO9` and `GPIO25` (datasheet Table 3-1), so nothing on `G1` or `G2`
@@ -516,14 +519,17 @@ cannot say *why* it is at the wrong end:
 
 ```
 Button on pin 2 already reads pressed - ignoring it until it goes idle
-  the pin reads HIGH, and with BUTTON_ACTIVE_HIGH 1 that counts as pressed
-  probe: pulled towards pressed HIGH, pulled towards idle HIGH
-  probe: 3247 mV on the pin with no internal pull, rail is 3300 mV
+  the pin reads LOW, and with BUTTON_ACTIVE_HIGH 0 that counts as pressed
+  probe: pulled towards pressed LOW, pulled towards idle LOW
+  probe: 8 mV on the pin with no internal pull, rail is 3300 mV
   the 45 kOhm internal pull cannot move the pin, so tens of microamps are flowing
   in: a conductive path is holding it, not noise and not leakage. With the button
   open the pin should sit at the idle rail - measure it there. A 4-pin tactile
   switch shorts the two legs on the same side, which leaves the contact closed
-  for good, and a supply wire in the signal position does the same thing
+  for good, and a rail wire in the signal position does the same thing
+  an external pull resistor also does it - ~10 kOhm beats the 45 kOhm internal one.
+  If the open button measures a few hundred mV off the rail rather than on it, that
+  is what it is, and BUTTON_ACTIVE_HIGH 0 is the wrong way round for this wiring
   also check that PIN_BUTTON and PIN_ONEWIRE match the Grove wiring (see README)
 ```
 
@@ -534,18 +540,29 @@ separates the causes that look identical from a `digitalRead()`:
 | Probe result | Cause |
 | --- | --- |
 | the idle pull moves the level | nothing is holding the pin; the reading was pick-up on a long run, and a 10 kΩ resistor at the button end fixes it far better than the internal 45 kΩ one |
-| the idle pull cannot move it, voltage at the rail | a conductive path: a contact that never opens, or a supply wire in the signal position |
-| the idle pull cannot move it, voltage between the rails | a resistive path, such as the 1-Wire pull-up on the button pin because the Grove pair is swapped |
+| the idle pull cannot move it, voltage at the *active* rail | a conductive path: a contact that never opens, or a supply rail in the signal position |
+| the idle pull cannot move it, voltage between the rails | a resistive path fighting the internal pull, and one of the two is winning by too little — see below |
 
-The arithmetic behind that reading: the internal pulls are 45 kΩ typical and
-`VIH` is 0.75 × VDD, so holding the pin at the wrong end takes about **55 µA**,
-while the pin's own input leakage is at most 50 nA (ESP32-H2 datasheet, Table
-5-3). Three orders of magnitude apart — which is why a level that will not budge
-means a wire, not interference.
+The arithmetic behind that reading: the internal pulls are 45 kΩ typical, `VIH` is
+0.75 × VDD and `VIL` is 0.25 × VDD, so holding the pin at the wrong end takes
+about **55 µA** through it, while the pin's own input leakage is at most 50 nA
+(ESP32-H2 datasheet, Table 5-3). Three orders of magnitude apart — which is why a
+level that will not budge means a wire, not interference.
+
+The same arithmetic run backwards turns a voltage between the rails into a
+resistance, and that is worth doing rather than guessing: an external resistor
+`R` against the internal 45 kΩ leaves the idle pin at
+`3.3 V × 45 kΩ / (45 kΩ + R)` — a 10 kΩ pull-up fighting the internal pull-down
+of an `BUTTON_ACTIVE_HIGH 1` build lands at ≈ 2.7 V, i.e. just *above* the 2.48 V
+`VIH`, so the open contact reads as a press with only ~200 mV of margin. The cure
+is not a bigger resistor but the right polarity: with `BUTTON_ACTIVE_HIGH 0` the
+internal pull-up and that external one pull the same way, the idle level sits at
+the full 3.3 V, and a closed contact shorts the pin to 0 V. Whenever the two
+pulls oppose each other, the polarity is set the wrong way round.
 
 An inhibited button starts working the moment the level goes idle (`Button: idle
 now, back in use`) — no reboot needed. If it goes idle only while you *press* it,
-the polarity is inverted: set `BUTTON_ACTIVE_HIGH 0`.
+the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
 
 ## Notes and limits
 

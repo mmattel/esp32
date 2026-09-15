@@ -15,15 +15,16 @@
  * The cable colours are the board's silkscreen, not a guarantee about
  * the cable in your hand - see README.md.
  * ------------------------------------------------------------------ */
-#define PIN_BUTTON    2   // Grove yellow / G2 - pushbutton, feeds 3.3 V when closed
+#define PIN_BUTTON    2   // Grove yellow / G2 - pushbutton, pulls the pin to GND when closed
 #define PIN_RGB      11   // on-board WS2812 data
 #define PIN_RGB_POWER 10  // on-board WS2812 power enable, HIGH = LED powered
 #define PIN_LED_BLUE  4   // on-board blue LED, unused here
 
-// The button feeds 3.3 V into G2 when closed, so a closed contact reads HIGH
-// and the internal pull-down holds the pin low while the contact is open.
-// Set this to 0 for the other common wiring, a button that opens to GND.
-#define BUTTON_ACTIVE_HIGH 1
+// The button pulls G2 down to GND when closed, so a closed contact reads LOW
+// and the pin is held high while the contact is open - by the internal pull-up
+// this switches on, and on a button breakout by its own pull-up resistor too.
+// Set this to 1 for the other wiring, a button that feeds 3.3 V into the pin.
+#define BUTTON_ACTIVE_HIGH 0
 
 // The raw level has to hold this long before it is accepted, which swallows
 // contact bounce on both close and release.
@@ -40,5 +41,5 @@ struct LedColor {
 };
 
 static const LedColor COLOR_OFF = {0, 0, 0};
-static const LedColor COLOR_SIGNAL = {0, 40, 0};      // green:  3.3 V seen on PIN_BUTTON
+static const LedColor COLOR_SIGNAL = {0, 40, 0};      // green:  contact closed on PIN_BUTTON
 static const LedColor COLOR_NO_SIGNAL = {40, 30, 0};  // yellow: contact open
