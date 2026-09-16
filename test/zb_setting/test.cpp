@@ -29,7 +29,7 @@ ZbSetting makeDelta() {
 }
 
 int main() {
-  printf("interval sanitise (default 60, 10..3600 step 1)\n");
+  printf("interval sanitise (default 30, 10..3600 step 1)\n");
   ZbSetting iv = makeInterval();
   check("below min -> min",        iv.sanitise(5),      TEMP_INTERVAL_MIN_S);
   check("above max -> max",        iv.sanitise(99999),  TEMP_INTERVAL_MAX_S);
@@ -37,13 +37,17 @@ int main() {
   check("NaN -> code default",     iv.sanitise(NAN),    TEMP_INTERVAL_DEFAULT_S);
   check("in range untouched",      iv.sanitise(300),    300);
 
-  printf("delta sanitise (default 0.5, 0..20 step 0.1)\n");
+  printf("delta sanitise (default 0.2, 0..20 step 0.1)\n");
   ZbSetting dl = makeDelta();
   check("negative -> 0",           dl.sanitise(-3),     0.0f);
   check("0.26 -> 0.3",             dl.sanitise(0.26f),  0.3f);
   check("0.04 -> 0.0",            dl.sanitise(0.04f),  0.0f);
   check("above max -> max",        dl.sanitise(100),    TEMP_DELTA_MAX_C);
   check("NaN -> code default",     dl.sanitise(NAN),    TEMP_DELTA_DEFAULT_C);
+
+  printf("printed decimals follow the step\n");
+  check("1 s step -> whole seconds",  iv.decimals(), 0);
+  check("0.1 C step -> one decimal",  dl.decimals(), 1);
 
   printf("load() precedence\n");
   Preferences p;

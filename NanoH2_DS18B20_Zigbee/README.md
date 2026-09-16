@@ -253,6 +253,17 @@ One line in `config.h`:
 #define MAX_DS18B20_SENSORS 3
 ```
 
+The count is the second line of the boot log, so what a build was compiled with is
+visible without reading `config.h`:
+
+```
+M5Stack NanoH2 - DS18B20 over Zigbee
+Sensor slots: 3
+```
+
+A build with none prints `Sensor slots: no` there — the word rather than a `0`, so
+it reads as the configuration it is and not as a count that failed to print.
+
 Everything else follows it — the endpoint objects, the temperature endpoint
 numbers, the `romN` keys in NVS, the slot arrays and every loop over them. Nothing
 else in the sources needs editing, and `static_assert`s in the sketch catch the
@@ -261,7 +272,8 @@ temperature endpoints would run past the Zigbee maximum of 240.
 
 **Zero is a valid count.** With `MAX_DS18B20_SENSORS 0` there are no temperature
 endpoints, the settings and the two link endpoints stay at 10 … 13, and
-`PIN_ONEWIRE` is never driven at all — no bus scan, no conversions. What is left is
+`PIN_ONEWIRE` is never driven at all — no bus scan, no conversions, and
+`1-Wire bus unused, no slots to map a sensor onto` in place of the scan line. What is left is
 the Zigbee side, the two settings, the
 [link quality](#link-quality-and-signal-strength), the LED and the button,
 which is a useful way to bring up a board before any sensor is wired. The reading interval keeps ticking and finds nothing
@@ -303,10 +315,23 @@ is how much a reading has to move before it is published.
 
 | | Interval | Delta |
 | --- | --- | --- |
-| Code default | `TEMP_INTERVAL_DEFAULT_S` — 60 s | `TEMP_DELTA_DEFAULT_C` — 0.5 °C |
+| Code default | `TEMP_INTERVAL_DEFAULT_S` — 30 s | `TEMP_DELTA_DEFAULT_C` — 0.2 °C |
 | Range | 10 … 3600 s | 0 … 20 °C |
 | Step | 1 s | 0.1 °C |
 | Endpoint | 10 | 11 |
+
+Each is printed as precisely as it can be set — the interval in whole seconds, the
+delta with one decimal — since the step is what rounds a write, so a further digit
+could not differ:
+
+```
+Reading interval (s): 30 (code default)
+Reporting delta (C): 0.2 (code default)
+Reporting delta (C) written from Zigbee: 0.44 -> 0.4
+```
+
+The written value keeps two decimals on purpose: it is what the coordinator asked
+for, and showing it unrounded is what makes the rounding visible.
 
 Both resolve the same way, each source overriding the one above it:
 
@@ -319,6 +344,24 @@ mirrored back to the analog output attribute — so a clamped or rounded write
 shows up on the coordinator rather than silently diverging. The interval minimum
 stays above the 750 ms conversion time of a 12-bit reading. Both live in NVS, so
 they survive a reboot; a factory reset restores the code defaults.
+
+### One decimal, everywhere
+
+A reading is rounded to `TEMP_PUBLISH_DECIMALS` — one decimal — the moment it comes
+off the bus, before the deadband looks at it:
+
+```
+slot 0  EP 20  28FF641E1234ABCD  21.4 C  published
+```
+
+That one number is then what the console prints, what the temperature attribute
+holds, what is reported and what Zigbee2MQTT shows. Rounding only on the way to the
+console would print a value the coordinator never received.
+
+One decimal is the precision the sensor stands behind: a 12-bit DS18B20 resolves
+0.0625 °C but is accurate to ±0.5 °C, so the digits below are noise, and 0.1 °C is
+the same grid `TEMP_DELTA_STEP_C` puts the deadband on. Raising the define brings
+those digits back; 0 rounds to whole degrees.
 
 ### How the delta gates reporting
 
@@ -473,6 +516,7 @@ what keeps the lines that matter visible at 115200 baud:
 | a scan finding the same sensors as last time | no |
 | a scan finding a different number, or a new ROM code | yes |
 | joining, losing the link, a factory reset, a fault | yes |
+| the banner and the configured slot count, once at boot | yes |
 
 ```c
 #define LOG_EVERY_READING 1
