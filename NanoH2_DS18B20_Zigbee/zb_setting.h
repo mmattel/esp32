@@ -26,15 +26,25 @@ public:
   void addEndpoint(void (*cb)(float));
 
   // Called from the Zigbee task on an attribute write: records only.
-  void note(float value) {
+  // Named for where it comes from, so the line below cannot be read as comparing
+  // one variable with itself: written is the coordinator's, _value is ours.
+  void note(float written) {
     // The core's ZigbeeAnalog::setAnalogOutput() runs this same callback, so a
     // mirror-back of our own value comes round looking like a write from the
-    // coordinator. Applying it would mirror it again, which would note it
-    // again - a write, a report and a console line every loop, forever.
-    if (_mirroring) {
+    // coordinator. Applying it would mirror it again, which would note it again -
+    // a write, a report and a console line every loop, forever.
+    //
+    // Told apart by the value rather than by a flag held across the publish: the
+    // core runs this callback before it takes the Zigbee lock to store the
+    // attribute, so a flag would still be set while the main task waits for that
+    // lock - and a genuine write dispatched in that window would be dropped
+    // without a trace. A mirror-back always carries the value already in effect,
+    // and a coordinator writing that same value asks for nothing: applyPending()
+    // would find nothing changed and nothing to correct.
+    if (written == _value) {
       return;
     }
-    _pending = value;
+    _pending = written;
     _hasPending = true;
   }
 
@@ -73,12 +83,11 @@ private:
   float _maxValue;
   float _step;
   uint32_t _appType;
-  float _value;
+  // Written by the main task, read by the Zigbee task in note() to recognise a
+  // mirror-back. A 32-bit aligned load and store, so a read never sees half a
+  // value; volatile keeps the compiler from holding a stale one.
+  volatile float _value;
 
   volatile float _pending = 0;
   volatile bool _hasPending = false;
-  // Set while publish() is inside the core's setter, so the callback it runs
-  // from there can be told apart from a real write. Written from the main task
-  // only, read from the Zigbee task's callback.
-  volatile bool _mirroring = false;
 };

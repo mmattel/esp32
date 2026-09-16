@@ -6,7 +6,8 @@
 class Preferences {
 public:
   std::map<std::string, float> floats;
-  size_t putFloat(const char *key, float v) { floats[key] = v; return sizeof(float); }
+  int writes = 0;  // NVS is finite, so a test can insist a load wrote nothing
+  size_t putFloat(const char *key, float v) { floats[key] = v; writes++; return sizeof(float); }
   float getFloat(const char *key, float def = NAN) {
     auto it = floats.find(key);
     return it == floats.end() ? def : it->second;

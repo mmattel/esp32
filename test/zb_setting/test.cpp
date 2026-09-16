@@ -76,6 +76,23 @@ int main() {
   c.load(p);
   check("NVS value still clamped", c.value(), TEMP_DELTA_MAX_C);
 
+  // A value stored by a build with a finer step - 0.1 was legal before the step
+  // became a quarter - is re-rounded on load and the result stored, so NVS and
+  // the value in use cannot disagree for good. 0.1 rounds to 0, which publishes
+  // every reading that moves at all, which is why load() says so.
+  printf("a stored value that no longer fits the step is re-stored\n");
+  Preferences old_;
+  old_.putFloat(NVS_KEY_DELTA, 0.1f);
+  ZbSetting g = makeDelta();
+  g.load(old_);
+  check("re-rounded to the step", g.value(), 0.0f);
+  check("NVS holds the re-rounded value", old_.getFloat(NVS_KEY_DELTA, NAN), 0.0f);
+  int writesBefore = old_.writes;
+  ZbSetting h = makeDelta();
+  h.load(old_);  // second boot: the stored value fits now, so nothing is written
+  printf("  value that fits -> NVS untouched -> %s\n", old_.writes == writesBefore ? "yes (ok)" : "no (FAIL)");
+  if (old_.writes != writesBefore) fails++;
+
   printf("applyPending()\n");
   Preferences q;
   ZbSetting d = makeDelta();
@@ -89,9 +106,10 @@ int main() {
   if (!changed) fails++;
   check("value applied", d.value(), 2.5f);
   check("persisted to NVS", q.getFloat(NVS_KEY_DELTA, NAN), 2.5f);
-  // Taken as sent, so the attribute the stack already holds is left alone - see
-  // the mirror-back block below.
-  printf("  taken as sent -> attribute left alone -> %s\n", isnan(d._ep.output) ? "yes (ok)" : "no (FAIL)");
+  // Taken as sent, so nothing is pushed to the attribute - this endpoint has had
+  // nothing pushed to it at all, which is what NaN says here. The block further
+  // down checks the same rule against an attribute the write really went through.
+  printf("  taken as sent -> nothing pushed to the attribute -> %s\n", isnan(d._ep.output) ? "yes (ok)" : "no (FAIL)");
   if (!isnan(d._ep.output)) fails++;
 
   d.note(2.5f);
@@ -105,7 +123,11 @@ int main() {
   check("clamped write mirrored",  d._ep.output, TEMP_DELTA_MAX_C);
 
   // A write taken verbatim leaves the attribute alone: the stack already holds
-  // it, and mirroring would only replace the coordinator's digits with ours.
+  // it, and mirroring would only replace the coordinator's digits with ours. The
+  // writes below go in through the stub's injectWrite(), which stores the value in
+  // the attribute before calling back exactly as the stack does - so the attribute
+  // afterwards shows whether the value in use and the value the coordinator can
+  // read still agree.
   printf("mirror-back only for a write that was not taken as sent\n");
   ZbSetting e = makeDelta();
   Preferences r;
@@ -113,15 +135,16 @@ int main() {
   e.addEndpoint(onWritten);  // as the sketch does, so the core's setter can call back
   target = &e;
   int reportsBefore = e._ep.reports;
-  e.note(1.5f);  // on the step, in range
+  e._ep.injectWrite(1.5f);  // on the step, in range
   e.applyPending(r);
-  printf("  verbatim write touched the attribute -> %s\n", isnan(e._ep.output) ? "no (ok)" : "yes (FAIL)");
-  if (!isnan(e._ep.output)) fails++;
+  check("verbatim write left in the attribute", e._ep.output, 1.5f);
+  check("attribute agrees with the value in use", e._ep.output, e.value());
   printf("  verbatim write reported -> %s\n", e._ep.reports == reportsBefore ? "no (ok)" : "yes (FAIL)");
   if (e._ep.reports != reportsBefore) fails++;
-  e.note(1.53f);  // off the step, so it is rounded and has to be corrected
+  e._ep.injectWrite(1.53f);  // off the step, so it is rounded and has to be corrected
   e.applyPending(r);
-  check("rounded write mirrored", e._ep.output, 1.5f);
+  check("rounded write corrected in the attribute", e._ep.output, 1.5f);
+  check("attribute agrees after a correction", e._ep.output, e.value());
 
   // The core's setter runs the change callback, so publishing used to look like a
   // write from the coordinator: applied, mirrored, noted, applied ... every loop.
