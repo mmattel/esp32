@@ -30,6 +30,17 @@ void ZbSetting::load(Preferences &prefs) {
   bool fromNvs = !isnan(stored);
   _value = fromNvs ? sanitise(stored) : _default;
   Serial.printf("%s: %.*f (%s)\r\n", _description, decimals(), _value, fromNvs ? "from NVS" : "code default");
+
+  // A stored value the current build cannot represent - the step or the range
+  // changed between builds - is re-rounded above. Say so and store the result,
+  // otherwise the value in NVS and the value in use disagree for good, and the
+  // difference is silent on every boot. A stored deadband can land on 0 this way,
+  // which publishes every reading that moves at all, so it is worth a line.
+  if (fromNvs && _value != stored) {
+    Serial.printf("%s: stored %.2f does not fit this build's range and step, re-stored as %.*f\r\n", _description,
+                  stored, decimals(), _value);
+    prefs.putFloat(_nvsKey, _value);
+  }
 }
 
 void ZbSetting::addEndpoint(void (*cb)(float)) {
@@ -82,10 +93,8 @@ bool ZbSetting::applyPending(Preferences &prefs) {
 }
 
 void ZbSetting::publish() {
-  // setAnalogOutput() runs the change callback before it touches the attribute,
-  // so this is where note() has to know the value is our own - see note().
-  _mirroring = true;
+  // setAnalogOutput() runs the change callback, which lands in note() - it
+  // recognises the value as the one already in effect and ignores it.
   _ep.setAnalogOutput(_value);
-  _mirroring = false;
   _ep.reportAnalogOutput();
 }

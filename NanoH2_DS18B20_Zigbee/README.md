@@ -353,6 +353,12 @@ the coordinator's own number alone. The interval minimum stays above the 750 ms
 conversion time of a 12-bit reading. Both live in NVS, so they survive a reboot; a
 factory reset restores the code defaults.
 
+That makes these two endpoints pull-only for anyone but the writer: they are
+reported on every join and after a correction, and no ZCL reporting is configured
+for them — `applyReporting()` covers the temperature and link endpoints only. A
+second bound client learns a new interval or delta by reading the attribute, not by
+waiting for a report.
+
 ### Why the delta moves in quarters
 
 An Analog Output `PresentValue` is a single-precision float, and a coordinator
@@ -367,6 +373,19 @@ A quarter of a degree *is* exact in binary, so every settable value — 0.25, 0.
 0.75, 1.0 … — is the same number on both sides and shows as itself. The cost is
 that 0.7 cannot be set at all; 0.75 is the nearest. The interval needs none of
 this: whole seconds are exact anyway.
+
+**Coming from a build with a finer step**, a value in NVS that the current build
+cannot represent is re-rounded on load *and stored*, so what is in NVS and what is
+in use cannot drift apart silently:
+
+```
+Reporting delta (C): 0.00 (from NVS)
+Reporting delta (C): stored 0.10 does not fit this build's range and step, re-stored as 0.00
+```
+
+Watch that first case: the old minimum of 0.1 °C rounds to **0**, which publishes
+every reading that moves at all. Set the delta again after upgrading if the second
+line names a value you cared about.
 
 ### One decimal, everywhere
 
