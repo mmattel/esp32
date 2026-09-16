@@ -46,6 +46,14 @@ public:
 private:
   float sanitise(float raw) const;
 
+  // Decimals to print the effective value with. A value is always a multiple of
+  // the step, so anything finer than the step is a digit that cannot differ:
+  // a 1 s interval prints as 30, a 0.1 °C deadband as 0.2. A step finer than
+  // 0.1 would want more digits than this gives; neither setting has one.
+  int decimals() const {
+    return _step >= 1.0f ? 0 : 1;
+  }
+
   ZigbeeAnalog _ep;
   const char *_nvsKey;
   const char *_description;

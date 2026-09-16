@@ -86,7 +86,7 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // How often the bus is read. TEMP_INTERVAL_DEFAULT_S applies on a
 // factory-fresh device; a value stored in NVS wins over it, and a value
 // written from Zigbee wins over that (and is then stored in NVS).
-#define TEMP_INTERVAL_DEFAULT_S 60
+#define TEMP_INTERVAL_DEFAULT_S 30
 #define TEMP_INTERVAL_MIN_S 10  // must stay above the 750 ms conversion time
 #define TEMP_INTERVAL_MAX_S 3600
 #define TEMP_INTERVAL_STEP_S 1  // writes are rounded to whole seconds
@@ -97,10 +97,18 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // The comparison is strict, so 0 publishes every reading that differs at all
 // from the last published one. The DS18B20's own 12-bit step is 0.0625 °C, so
 // any delta below that behaves the same as 0.
-#define TEMP_DELTA_DEFAULT_C 0.5f
+#define TEMP_DELTA_DEFAULT_C 0.2f
 #define TEMP_DELTA_MIN_C 0.0f
 #define TEMP_DELTA_MAX_C 20.0f
 #define TEMP_DELTA_STEP_C 0.1f  // writes are rounded to this step
+
+// Decimals a reading is rounded to before it is published and printed, so the
+// console, the Zigbee attribute and the deadband all work on the same number.
+// One digit is the useful precision: the sensor's raw step is 0.0625 °C but its
+// accuracy is only ±0.5 °C, so the further digits are noise, and it is the step
+// the deadband above is set in. 0 rounds to whole degrees; raising this only
+// brings back digits the sensor cannot stand behind.
+#define TEMP_PUBLISH_DECIMALS 1
 
 // How often to re-scan the bus while at least one slot has no sensor.
 #define ONEWIRE_RESCAN_INTERVAL_MS 60000

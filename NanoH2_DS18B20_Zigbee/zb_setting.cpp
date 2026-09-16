@@ -29,7 +29,7 @@ void ZbSetting::load(Preferences &prefs) {
   float stored = prefs.getFloat(_nvsKey, NAN);
   bool fromNvs = !isnan(stored);
   _value = fromNvs ? sanitise(stored) : _default;
-  Serial.printf("%s: %.2f (%s)\r\n", _description, _value, fromNvs ? "from NVS" : "code default");
+  Serial.printf("%s: %.*f (%s)\r\n", _description, decimals(), _value, fromNvs ? "from NVS" : "code default");
 }
 
 void ZbSetting::addEndpoint(void (*cb)(float)) {
@@ -54,7 +54,10 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   float applied = sanitise(requested);
   bool changed = fabsf(applied - _value) > (_step > 0 ? _step / 2 : 1e-6f);
 
-  Serial.printf("%s written from Zigbee: %.2f -> %.2f%s\r\n", _description, requested, applied,
+  // The request keeps two decimals whatever the step is: it is what the
+  // coordinator asked for, and showing it unrounded is what makes a rounded or
+  // clamped write visible as one.
+  Serial.printf("%s written from Zigbee: %.2f -> %.*f%s\r\n", _description, requested, decimals(), applied,
                 changed ? "" : " (no change)");
 
   _value = applied;

@@ -627,6 +627,15 @@ bool reportOverdue(uint32_t lastMs, uint32_t heartbeatS) {
   return heartbeatS > 0 && (millis() - lastMs) >= heartbeatS * 1000UL;
 }
 
+// A reading rounded to TEMP_PUBLISH_DECIMALS. Applied once, right after the read,
+// so the deadband, the attribute, the report and the console line are all the same
+// number - rounding only on the way to the console would show a value the
+// coordinator never got.
+float roundReading(float celsius) {
+  static const float grid = powf(10.0f, (float)TEMP_PUBLISH_DECIMALS);
+  return roundf(celsius * grid) / grid;
+}
+
 void readAndPublish() {
   float delta = cfgDelta.value();
 
@@ -642,18 +651,20 @@ void readAndPublish() {
       continue;
     }
 
+    float celsius = roundReading(r.celsius);
+
     // Deadband: leaving the attribute untouched is what suppresses the report,
     // so nothing can leak out below the threshold. The consequence is that the
     // attribute holds the last published value, which is within delta of the
     // real one by construction.
     bool first = isnan(lastPublished[i]);
-    float change = first ? NAN : fabsf(r.celsius - lastPublished[i]);
+    float change = first ? NAN : fabsf(celsius - lastPublished[i]);
     bool moved = !first && change > delta;
     bool heartbeat = !first && !moved && reportOverdue(lastTempReportMs[i], TEMP_REPORT_HEARTBEAT_S);
     bool publish = first || moved || heartbeat;
 
     if (publish) {
-      zbTemp[i]->setTemperature(r.celsius);
+      zbTemp[i]->setTemperature(celsius);
       if (Zigbee.connected()) {
         // Report explicitly instead of leaving it to the stack's own change
         // detection: that would apply the reportable change from the ZCL
@@ -663,7 +674,7 @@ void readAndPublish() {
         // to, and a rejoin resets lastPublished anyway.
         zbTemp[i]->reportTemperature();
       }
-      lastPublished[i] = r.celsius;
+      lastPublished[i] = celsius;
       lastTempReportMs[i] = millis();
     }
 
@@ -671,8 +682,8 @@ void readAndPublish() {
     // worth a line - see LOG_EVERY_READING, which is what to raise while
     // choosing the deadband, since it also prints the readings held back.
     if (publish || LOG_EVERY_READING) {
-      Serial.printf("slot %u  EP %u  %s  %.2f C  %s\r\n", i, EP_TEMP_BASE + i,
-                    DS18B20Bus::romToString(slotRom[i]).c_str(), r.celsius,
+      Serial.printf("slot %u  EP %u  %s  %.*f C  %s\r\n", i, EP_TEMP_BASE + i,
+                    DS18B20Bus::romToString(slotRom[i]).c_str(), TEMP_PUBLISH_DECIMALS, celsius,
                     !publish ? "within deadband"
                              : first ? "published (first)" : heartbeat ? "published (heartbeat)" : "published");
     }
@@ -1000,6 +1011,15 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println("\r\nM5Stack NanoH2 - DS18B20 over Zigbee");
+  // The slot count is a compile-time choice and the endpoints, the NVS keys and
+  // the whole 1-Wire side follow it, so it is stated before anything that depends
+  // on it. Zero prints as "no" rather than as a 0, which reads as the deliberate
+  // configuration it is instead of a count that failed to print.
+  if (MAX_DS18B20_SENSORS > 0) {
+    Serial.printf("Sensor slots: %u\r\n", (unsigned)MAX_DS18B20_SENSORS);
+  } else {
+    Serial.println("Sensor slots: none configured");
+  }
 
   ledBegin();
   // Pull the pin to the level the open contact should read, so a disconnected
@@ -1022,7 +1042,7 @@ void setup() {
     scanSensors();
     lastRescanMs = millis();
   } else {
-    Serial.println("No sensor slots configured, 1-Wire bus unused");
+    Serial.println("1-Wire bus unused, no slots to map a sensor onto");
   }
 
   setupEndpoints();
