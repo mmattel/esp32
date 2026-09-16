@@ -316,28 +316,27 @@ is how much a reading has to move before it is published.
 
 | | Interval | Delta |
 | --- | --- | --- |
-| Code default | `TEMP_INTERVAL_DEFAULT_S` — 30 s | `TEMP_DELTA_DEFAULT_C` — 0.2 °C |
+| Code default | `TEMP_INTERVAL_DEFAULT_S` — 30 s | `TEMP_DELTA_DEFAULT_C` — 0.25 °C |
 | Range | 10 … 3600 s | 0 … 20 °C |
-| Step | 1 s | 0.1 °C |
+| Step | 1 s | 0.25 °C |
 | Endpoint | 10 | 11 |
 
 Each is printed as precisely as it can be set — the interval in whole seconds, the
-delta with one decimal — since the step is what rounds a write, so a further digit
+delta in quarters — since the step is what rounds a write, so a further digit
 could not differ:
 
 ```
 Reading interval (s): 30 (code default)
-Reporting delta (C): 0.2 (code default)
-Reporting delta (C) written from Zigbee: 0.44 -> 0.4
+Reporting delta (C): 0.25 (code default)
+Reporting delta (C) written from Zigbee: 0.44 -> 0.50
 ```
 
 The written value keeps two decimals on purpose: it is what the coordinator asked
 for, and showing it unrounded is what makes the rounding visible.
 
-A write only prints when it actually moves the value. A coordinator that rewrites
-the value already in effect — or one whose write rounds or clamps back onto it —
-stays silent on the console; the effective value is still mirrored back to the
-attribute, so nothing diverges.
+A write only prints when it moved something: the value in effect, or the number
+itself through rounding or clamping. A coordinator that rewrites the value already
+in effect stays silent on the console.
 
 Both resolve the same way, each source overriding the one above it:
 
@@ -345,11 +344,29 @@ Both resolve the same way, each source overriding the one above it:
 2. The value stored in NVS by a previous run.
 3. A value written to the analog output endpoint from the coordinator.
 
-A write is rounded to the step, clamped to the range, persisted to NVS and
-mirrored back to the analog output attribute — so a clamped or rounded write
-shows up on the coordinator rather than silently diverging. The interval minimum
-stays above the 750 ms conversion time of a 12-bit reading. Both live in NVS, so
-they survive a reboot; a factory reset restores the code defaults.
+A write is rounded to the step, clamped to the range and persisted to NVS. A write
+that survives that untouched needs nothing sent back: the stack has already stored
+it in the attribute, which is where the coordinator reads it. Only a write this did
+not take as sent — rounded or clamped — is mirrored back, so a corrected write shows
+up on the coordinator rather than silently diverging, while an accepted one leaves
+the coordinator's own number alone. The interval minimum stays above the 750 ms
+conversion time of a 12-bit reading. Both live in NVS, so they survive a reboot; a
+factory reset restores the code defaults.
+
+### Why the delta moves in quarters
+
+An Analog Output `PresentValue` is a single-precision float, and a coordinator
+snaps what you type to the step it reads from the endpoint's `Resolution`
+attribute. Neither can hold a tenth: with a step of 0.1, asking Zigbee2MQTT for a
+delta of 0.7 °C gets you **0.700000010430813** in its UI — that is 7 × 0.1 done in
+the coordinator's own arithmetic on the float it read from us, and the device's own
+nearest float to 0.7 is 0.699999988 in turn. Neither number is wrong and neither is
+0.7.
+
+A quarter of a degree *is* exact in binary, so every settable value — 0.25, 0.5,
+0.75, 1.0 … — is the same number on both sides and shows as itself. The cost is
+that 0.7 cannot be set at all; 0.75 is the nearest. The interval needs none of
+this: whole seconds are exact anyway.
 
 ### One decimal, everywhere
 
@@ -365,9 +382,10 @@ holds, what is reported and what Zigbee2MQTT shows. Rounding only on the way to 
 console would print a value the coordinator never received.
 
 One decimal is the precision the sensor stands behind: a 12-bit DS18B20 resolves
-0.0625 °C but is accurate to ±0.5 °C, so the digits below are noise, and 0.1 °C is
-the same grid `TEMP_DELTA_STEP_C` puts the deadband on. Raising the define brings
-those digits back; 0 rounds to whole degrees.
+0.0625 °C but is accurate to ±0.5 °C, so the digits below are noise — and it is
+finer than the 0.25 °C grid `TEMP_DELTA_STEP_C` puts the deadband on, so the
+deadband can still tell two readings apart. Raising the define brings those digits
+back; 0 rounds to whole degrees.
 
 ### How the delta gates reporting
 

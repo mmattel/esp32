@@ -13,9 +13,16 @@ public:
   bool setAnalogOutputDescription(const char *) { return true; }
   bool setAnalogOutputResolution(float) { return true; }
   bool setAnalogOutputMinMax(float, float) { return true; }
-  void onAnalogOutputChange(void (*)(float)) {}
+  void onAnalogOutputChange(void (*cb)(float)) { changed = cb; }
   bool setPowerSource(zb_power_source_t, uint8_t = 0xff, uint8_t = 0xff) { return true; }
-  bool setAnalogOutput(float v) { output = v; return true; }
+  // Like the core's ZigbeeAnalog: the setter runs the change callback too, so a
+  // mirror-back arrives as if the coordinator had written it.
+  bool setAnalogOutput(float v) {
+    output = v;
+    if (changed) { changed(v); }
+    return true;
+  }
+  void (*changed)(float) = nullptr;
   bool reportAnalogOutput() { reports++; return true; }
 };
 struct ZigbeeCoreStub { bool addEndpoint(ZigbeeEP *) { return true; } };
