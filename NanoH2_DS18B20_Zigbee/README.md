@@ -712,12 +712,22 @@ the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
   moved. Temperatures live in RAM (`lastPublished[]`) and go out over the air,
   because a value written every interval would spend the flash's write
   endurance for nothing. Keep it that way when extending the sketch.
-- **No `OneWire` dependency.** `OneWire`'s direct-GPIO layer only special-cases
-  ESP32-C3 and C6; on the H2 it takes the "plain ESP32" branch and references
-  `GPIO.in1` / `GPIO.out1_w1ts`, registers this SoC does not have, so it will
-  not compile. `ds18b20_bus.cpp` implements reset, read/write slots, the Maxim
-  ROM search and CRC-8 directly, masking interrupts only for the parts of each
-  time slot that have an upper bound.
+- **No `OneWire` / `DallasTemperature` dependency, because `OneWire` does not
+  build for this chip.** Its direct-GPIO layer (`util/OneWire_direct_gpio.h`, 2.3.8)
+  special-cases the ESP32-C3 only; every other ESP32 takes the "plain ESP32" branch,
+  which reads `GPIO.in` as a scalar and references `GPIO.in1` / `GPIO.out1_w1tc` /
+  `GPIO.enable1_w1tc`. The H2 has 27 GPIOs and none of those registers, and the ones
+  it does have are unions needing `.val`, so it is a compile error rather than a
+  timing problem — and both halves of the `pin < 32` test are compiled, so the pin
+  number does not save it. The C3 path is exactly right for the H2, so the
+  alternative is a patched fork: extend the five
+  `#if CONFIG_IDF_TARGET_ESP32C3` sites with `|| CONFIG_IDF_TARGET_ESP32H2` (and C6,
+  C2 while there). `ds18b20_bus.cpp` implements reset, read/write slots, the Maxim
+  ROM search and CRC-8 directly instead, masking interrupts only for the parts of
+  each time slot that have an upper bound — which also keeps that logic where
+  `test/onewire` can check it on the host. `DallasTemperature` itself would be no
+  trouble; what it adds beyond this file is per-sensor resolution and alarms, and
+  this sketch uses neither.
 - **Swapping a sensor keeps the endpoint.** A sensor discovered at runtime takes
   the first free slot, starts reporting temperature straight away, and its ROM
   code is written into that endpoint's LocationDescription immediately — no

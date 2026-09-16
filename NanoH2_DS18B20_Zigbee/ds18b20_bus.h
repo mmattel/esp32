@@ -1,10 +1,23 @@
 // Minimal 1-Wire master plus DS18B20 support, bit-banged on a single GPIO.
 //
 // This exists instead of the usual OneWire/DallasTemperature pair because
-// OneWire's direct-GPIO layer (util/OneWire_direct_gpio.h) only special-cases
-// ESP32-C3 and C6; on the ESP32-H2 it falls through to the "plain ESP32"
-// branch and references GPIO.in1 / GPIO.out1_w1ts, which do not exist on this
-// SoC. Rather than patch a library, the protocol is implemented here.
+// OneWire (2.3.8, the copy in ../libraries) does not build for this SoC. Its
+// direct-GPIO layer (util/OneWire_direct_gpio.h) special-cases the ESP32-C3
+// only; every other ESP32 falls through to the "plain ESP32" branch, which
+// reads GPIO.in as a scalar and references GPIO.in1 / GPIO.out1_w1tc /
+// GPIO.enable1_w1tc. On the ESP32-H2 those registers do not exist - the chip
+// has 27 GPIOs - and the ones that do are register unions needing .val, so it
+// is a compile error rather than a timing problem. The C3 path is exactly what
+// the H2 needs, so the alternative is a patched fork of the library:
+//
+//   #if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 \
+//       || CONFIG_IDF_TARGET_ESP32H2 || CONFIG_IDF_TARGET_ESP32C2
+//
+// at each of the five #if sites. DallasTemperature itself is fine: what it
+// offers beyond this file is per-sensor resolution and alarms, neither of which
+// this sketch uses. Implementing the protocol here keeps the tested part in
+// this repository - see test/onewire, which checks the CRC against OneWire's
+// own reference table and the ROM search against a simulated bus.
 //
 // Wiring: external power (not parasite), one 4.7 kOhm pull-up from the data
 // line to the sensor supply rail.
