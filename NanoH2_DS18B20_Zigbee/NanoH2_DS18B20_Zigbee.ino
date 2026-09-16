@@ -802,7 +802,9 @@ void handleLinkQuality() {
     } else if (!sendLqi && !sendRssi) {
       Serial.println("  within deadband");
     } else {
-      Serial.printf("  published %s%s%s%s\r\n", sendLqi ? "LQI" : "", sendLqi && sendRssi ? " and " : "",
+      // Blank line after a line that went on the air, so what was published
+      // stands apart from the polls around it.
+      Serial.printf("  published %s%s%s%s\r\n\r\n", sendLqi ? "LQI" : "", sendLqi && sendRssi ? " and " : "",
                     sendRssi ? "RSSI" : "", first ? " (first)" : heartbeat ? " (heartbeat)" : "");
     }
   }

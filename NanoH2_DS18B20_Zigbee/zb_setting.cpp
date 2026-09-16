@@ -53,15 +53,18 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   float requested = _pending;
   float applied = sanitise(requested);
   bool changed = fabsf(applied - _value) > (_step > 0 ? _step / 2 : 1e-6f);
+  // The write did not survive as sent: rounding to the step or clamping to the
+  // range moved it. The attribute in the stack still holds what was written, so
+  // this is what decides whether it has to be corrected.
+  bool corrected = applied != requested;
 
-  // Only a write that moves the value is worth a line. One that lands back on
-  // the value already in effect - the coordinator repeating it, or rounding and
-  // clamping taking it there - leaves nothing to say, and the coordinator gets
-  // the effective value mirrored back below either way.
+  // Only a write that moved something is worth a line: one that moves the value,
+  // or one this took a liberty with. A coordinator repeating the value already in
+  // effect changes nothing anywhere and says nothing.
   // The request keeps two decimals whatever the step is: it is what the
   // coordinator asked for, and showing it unrounded is what makes a rounded or
   // clamped write visible as one.
-  if (changed) {
+  if (changed || corrected) {
     Serial.printf("%s written from Zigbee: %.2f -> %.*f\r\n", _description, requested, decimals(), applied);
   }
 
@@ -69,13 +72,20 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   if (changed) {
     prefs.putFloat(_nvsKey, _value);
   }
-  // Mirror the effective value back either way, so a clamped or rounded write
-  // shows up on the coordinator instead of silently diverging.
-  publish();
+  // A write the stack accepted verbatim needs no mirror-back: the attribute
+  // already holds it. Mirroring anyway would hand the coordinator our float of
+  // the same number, which is the same value but rarely the same digits.
+  if (corrected) {
+    publish();
+  }
   return changed;
 }
 
 void ZbSetting::publish() {
+  // setAnalogOutput() runs the change callback before it touches the attribute,
+  // so this is where note() has to know the value is our own - see note().
+  _mirroring = true;
   _ep.setAnalogOutput(_value);
+  _mirroring = false;
   _ep.reportAnalogOutput();
 }

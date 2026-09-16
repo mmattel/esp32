@@ -95,19 +95,25 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // last published one by more than this, in °C. Same precedence as the
 // interval - code default, then NVS, then whatever Zigbee writes.
 // The comparison is strict, so 0 publishes every reading that differs at all
-// from the last published one. The DS18B20's own 12-bit step is 0.0625 °C, so
-// any delta below that behaves the same as 0.
-#define TEMP_DELTA_DEFAULT_C 0.2f
+// from the last published one - and 0 is the only setting that does, since the
+// step below is coarser than the resolution of a reading.
+// The step is a quarter of a degree because a quarter is exact in binary. The
+// Analog Output attribute this travels in is a single-precision float, and a
+// coordinator snaps its input to the step it reads from the endpoint - so with a
+// step of 0.1 a delta of 0.7 arrives, and is shown, as 0.700000010430813. Every
+// multiple of 0.25 is representable exactly, in the attribute and in whatever the
+// coordinator does its own arithmetic in, so what is set is what is shown.
+#define TEMP_DELTA_DEFAULT_C 0.25f
 #define TEMP_DELTA_MIN_C 0.0f
 #define TEMP_DELTA_MAX_C 20.0f
-#define TEMP_DELTA_STEP_C 0.1f  // writes are rounded to this step
+#define TEMP_DELTA_STEP_C 0.25f  // writes are rounded to this step
 
 // Decimals a reading is rounded to before it is published and printed, so the
 // console, the Zigbee attribute and the deadband all work on the same number.
 // One digit is the useful precision: the sensor's raw step is 0.0625 °C but its
-// accuracy is only ±0.5 °C, so the further digits are noise, and it is the step
-// the deadband above is set in. 0 rounds to whole degrees; raising this only
-// brings back digits the sensor cannot stand behind.
+// accuracy is only ±0.5 °C, so the further digits are noise, and it is still finer
+// than the quarter-degree grid the deadband above is set in. 0 rounds to whole
+// degrees; raising this only brings back digits the sensor cannot stand behind.
 #define TEMP_PUBLISH_DECIMALS 1
 
 // How often to re-scan the bus while at least one slot has no sensor.

@@ -19,6 +19,13 @@ static void check(const char *what, float got, float want) {
   if (!ok) fails++;
 }
 
+// The core takes a bare function pointer with no context, so the sketch gives
+// each setting a trampoline; these tests need one too.
+static ZbSetting *target = nullptr;
+static void onWritten(float value) {
+  if (target) target->note(value);
+}
+
 ZbSetting makeInterval() {
   return ZbSetting(13, NVS_KEY_INTERVAL, "Reading interval (s)", TEMP_INTERVAL_DEFAULT_S, TEMP_INTERVAL_MIN_S,
                    TEMP_INTERVAL_MAX_S, TEMP_INTERVAL_STEP_S, ESP_ZB_ZCL_AI_TIME_RELATIVE);
@@ -37,17 +44,23 @@ int main() {
   check("NaN -> code default",     iv.sanitise(NAN),    TEMP_INTERVAL_DEFAULT_S);
   check("in range untouched",      iv.sanitise(300),    300);
 
-  printf("delta sanitise (default 0.2, 0..20 step 0.1)\n");
+  printf("delta sanitise (default 0.25, 0..20 step 0.25)\n");
   ZbSetting dl = makeDelta();
   check("negative -> 0",           dl.sanitise(-3),     0.0f);
-  check("0.26 -> 0.3",             dl.sanitise(0.26f),  0.3f);
-  check("0.04 -> 0.0",            dl.sanitise(0.04f),  0.0f);
+  check("0.26 -> 0.25",            dl.sanitise(0.26f),  0.25f);
+  check("0.10 -> 0.0",             dl.sanitise(0.10f),  0.0f);
   check("above max -> max",        dl.sanitise(100),    TEMP_DELTA_MAX_C);
   check("NaN -> code default",     dl.sanitise(NAN),    TEMP_DELTA_DEFAULT_C);
+  // Why the step is a quarter: every multiple of it is exact in a float, so the
+  // value a coordinator sets is bit for bit the value it reads back. A tenth is
+  // not, which is how 0.7 became 0.700000010430813 on the coordinator.
+  printf("  quarters survive the float exactly -> %s\n",
+         dl.sanitise(0.75f) == 0.75f && dl.sanitise(19.25f) == 19.25f ? "yes (ok)" : "no (FAIL)");
+  if (!(dl.sanitise(0.75f) == 0.75f && dl.sanitise(19.25f) == 19.25f)) fails++;
 
   printf("printed decimals follow the step\n");
   check("1 s step -> whole seconds",  iv.decimals(), 0);
-  check("0.1 C step -> one decimal",  dl.decimals(), 1);
+  check("0.25 C step -> two decimals", dl.decimals(), 2);
 
   printf("load() precedence\n");
   Preferences p;
@@ -76,7 +89,10 @@ int main() {
   if (!changed) fails++;
   check("value applied", d.value(), 2.5f);
   check("persisted to NVS", q.getFloat(NVS_KEY_DELTA, NAN), 2.5f);
-  check("mirrored to coordinator", d._ep.output, 2.5f);
+  // Taken as sent, so the attribute the stack already holds is left alone - see
+  // the mirror-back block below.
+  printf("  taken as sent -> attribute left alone -> %s\n", isnan(d._ep.output) ? "yes (ok)" : "no (FAIL)");
+  if (!isnan(d._ep.output)) fails++;
 
   d.note(2.5f);
   changed = d.applyPending(q);
@@ -87,6 +103,46 @@ int main() {
   d.applyPending(q);
   check("clamped write persisted", q.getFloat(NVS_KEY_DELTA, NAN), TEMP_DELTA_MAX_C);
   check("clamped write mirrored",  d._ep.output, TEMP_DELTA_MAX_C);
+
+  // A write taken verbatim leaves the attribute alone: the stack already holds
+  // it, and mirroring would only replace the coordinator's digits with ours.
+  printf("mirror-back only for a write that was not taken as sent\n");
+  ZbSetting e = makeDelta();
+  Preferences r;
+  e.load(r);
+  e.addEndpoint(onWritten);  // as the sketch does, so the core's setter can call back
+  target = &e;
+  int reportsBefore = e._ep.reports;
+  e.note(1.5f);  // on the step, in range
+  e.applyPending(r);
+  printf("  verbatim write touched the attribute -> %s\n", isnan(e._ep.output) ? "no (ok)" : "yes (FAIL)");
+  if (!isnan(e._ep.output)) fails++;
+  printf("  verbatim write reported -> %s\n", e._ep.reports == reportsBefore ? "no (ok)" : "yes (FAIL)");
+  if (e._ep.reports != reportsBefore) fails++;
+  e.note(1.53f);  // off the step, so it is rounded and has to be corrected
+  e.applyPending(r);
+  check("rounded write mirrored", e._ep.output, 1.5f);
+
+  // The core's setter runs the change callback, so publishing used to look like a
+  // write from the coordinator: applied, mirrored, noted, applied ... every loop.
+  printf("publishing does not queue a write\n");
+  e.publish();
+  printf("  publish() left a pending write -> %s\n", e._hasPending ? "yes (FAIL)" : "no (ok)");
+  if (e._hasPending) fails++;
+  reportsBefore = e._ep.reports;
+  for (int i = 0; i < 5; i++) {
+    e.applyPending(r);
+  }
+  printf("  five idle loops -> %d report(s) %s\n", e._ep.reports - reportsBefore,
+         e._ep.reports == reportsBefore ? "(ok)" : "(FAIL)");
+  if (e._ep.reports != reportsBefore) fails++;
+
+  // A real write still gets through after all that.
+  target = &e;
+  onWritten(3.0f);
+  changed = e.applyPending(r);
+  printf("  real write after a publish -> changed=%s\n", changed ? "true (ok)" : "false (FAIL)");
+  if (!changed) fails++;
 
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails != 0;

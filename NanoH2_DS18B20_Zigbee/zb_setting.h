@@ -27,6 +27,13 @@ public:
 
   // Called from the Zigbee task on an attribute write: records only.
   void note(float value) {
+    // The core's ZigbeeAnalog::setAnalogOutput() runs this same callback, so a
+    // mirror-back of our own value comes round looking like a write from the
+    // coordinator. Applying it would mirror it again, which would note it
+    // again - a write, a report and a console line every loop, forever.
+    if (_mirroring) {
+      return;
+    }
     _pending = value;
     _hasPending = true;
   }
@@ -46,12 +53,15 @@ public:
 private:
   float sanitise(float raw) const;
 
-  // Decimals to print the effective value with. A value is always a multiple of
-  // the step, so anything finer than the step is a digit that cannot differ:
-  // a 1 s interval prints as 30, a 0.1 °C deadband as 0.2. A step finer than
-  // 0.1 would want more digits than this gives; neither setting has one.
+  // Decimals to print the effective value with: the fewest that can still spell
+  // the step, since a value is always a multiple of it and anything finer is a
+  // digit that cannot differ. A 1 s interval prints as 30, a 0.25 °C deadband as
+  // 0.25, a 0.1 °C one as 0.2. Two is the finest step either setting has.
   int decimals() const {
-    return _step >= 1.0f ? 0 : 1;
+    if (_step >= 1.0f) {
+      return 0;
+    }
+    return fabsf(roundf(_step * 10.0f) / 10.0f - _step) < 1e-6f ? 1 : 2;
   }
 
   ZigbeeAnalog _ep;
@@ -67,4 +77,8 @@ private:
 
   volatile float _pending = 0;
   volatile bool _hasPending = false;
+  // Set while publish() is inside the core's setter, so the callback it runs
+  // from there can be told apart from a real write. Written from the main task
+  // only, read from the Zigbee task's callback.
+  volatile bool _mirroring = false;
 };
