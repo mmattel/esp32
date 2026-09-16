@@ -172,6 +172,10 @@ bool linkNow = false;            // read the link as soon as there is one
 bool linkWaitLogged = false;     // "nothing to read" already said once this join
 bool linkAssumedLogged = false;  // so has the note about an unflagged parent
 
+// When the two settings last went out, for their heartbeat. See
+// handleSettingReports() for why they need one.
+uint32_t lastSettingReportMs = 0;
+
 bool resetArmed = false;  // pushbutton held long enough to show LED feedback
 bool resetReady = false;  // held the full time: releasing it now resets
 
@@ -483,8 +487,11 @@ void onZigbeeConnected() {
   }
 
   applyReporting();  // must be called after Zigbee.begin()
+  // Once now, in case the coordinator is already bound, and then on the heartbeat
+  // for the far more likely case that it is not yet - see handleSettingReports().
   cfgInterval.publish();
   cfgDelta.publish();
+  lastSettingReportMs = millis();
 
   // Seed the coordinator with fresh values: after a join or a rejoin it has no
   // temperatures at all, and the deadband would otherwise hold them back.
@@ -610,22 +617,36 @@ void updateLinkState() {
   }
 }
 
+// True when the last value put on the air is older than the heartbeat, so it is
+// repeated even though nothing moved. A report is only sent to whoever is bound,
+// so the one a join produces can predate the binding and be the only one there ever
+// was, and the stack's own reporting configuration is no fallback: a coordinator may
+// overwrite it (Zigbee2MQTT does), and the settings are given none in the first
+// place. Repeating on our own schedule is what closes that, for temperatures, for
+// the link and for the two settings alike.
+bool reportOverdue(uint32_t lastMs, uint32_t heartbeatS) {
+  return heartbeatS > 0 && (millis() - lastMs) >= heartbeatS * 1000UL;
+}
+
 void handleSettingWrites() {
   cfgInterval.applyPending(prefs);  // takes effect on the next sample
   cfgDelta.applyPending(prefs);     // takes effect on the next reading
 }
 
-/* --------------------------- temperature -------------------------- */
-
-// True when the last value put on the air for this slot is older than the
-// heartbeat, so it is repeated even though nothing moved. The stack is given the
-// same heartbeat in the reporting configuration, but a coordinator may overwrite
-// that (Zigbee2MQTT does), and a report is only sent to whoever is bound - so the
-// one report a join produces can predate the binding and be the only one there
-// ever was. Repeating on our own schedule is what closes that.
-bool reportOverdue(uint32_t lastMs, uint32_t heartbeatS) {
-  return heartbeatS > 0 && (millis() - lastMs) >= heartbeatS * 1000UL;
+// Both settings, repeated on the heartbeat. Nothing else ever reports them: they
+// only change when a coordinator writes them, and the coordinator that wrote one
+// has the value already - so without this, one that bound after the join publish
+// would show no interval and no delta until it wrote one itself.
+void handleSettingReports() {
+  if (!Zigbee.connected() || !reportOverdue(lastSettingReportMs, SETTING_REPORT_HEARTBEAT_S)) {
+    return;
+  }
+  lastSettingReportMs = millis();
+  cfgInterval.publish();
+  cfgDelta.publish();
 }
+
+/* --------------------------- temperature -------------------------- */
 
 // A reading rounded to TEMP_PUBLISH_DECIMALS. Applied once, right after the read,
 // so the deadband, the attribute, the report and the console line are all the same
@@ -1073,6 +1094,7 @@ void loop() {
   updateLinkState();
   handleJoining();
   handleSettingWrites();
+  handleSettingReports();
   handleTemperature();
   handleLinkQuality();
   handleButton();

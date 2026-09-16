@@ -86,7 +86,7 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // How often the bus is read. TEMP_INTERVAL_DEFAULT_S applies on a
 // factory-fresh device; a value stored in NVS wins over it, and a value
 // written from Zigbee wins over that (and is then stored in NVS).
-#define TEMP_INTERVAL_DEFAULT_S 30
+#define TEMP_INTERVAL_DEFAULT_S 60
 #define TEMP_INTERVAL_MIN_S 10  // must stay above the 750 ms conversion time
 #define TEMP_INTERVAL_MAX_S 3600
 #define TEMP_INTERVAL_STEP_S 1  // writes are rounded to whole seconds
@@ -133,6 +133,17 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // coordinator that has not moved since the two were bound.
 #define TEMP_REPORT_MIN_INTERVAL_S 1
 #define TEMP_REPORT_HEARTBEAT_S 3600
+
+// How often the interval and the delta are repeated to the coordinator. They get
+// no ZCL reporting configuration at all - the core's analog output cluster takes
+// none - so the only thing that reaches a coordinator is what the sketch reports
+// itself, and the publish on join is too early: a report goes to whoever is bound,
+// and Zigbee2MQTT binds while interviewing. Nothing then changes until something is
+// written, which is why a freshly joined device showed no interval and no delta
+// until the first write. This closes that. 0 disables it, leaving both readable but
+// never sent. They are two attributes of a mains-powered device, so a minute costs
+// nothing.
+#define SETTING_REPORT_HEARTBEAT_S 60
 
 /* ------------------------------------------------------------------
  * Pushbutton
