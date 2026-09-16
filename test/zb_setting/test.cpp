@@ -36,7 +36,7 @@ ZbSetting makeDelta() {
 }
 
 int main() {
-  printf("interval sanitise (default 30, 10..3600 step 1)\n");
+  printf("interval sanitise (default 60, 10..3600 step 1)\n");
   ZbSetting iv = makeInterval();
   check("below min -> min",        iv.sanitise(5),      TEMP_INTERVAL_MIN_S);
   check("above max -> max",        iv.sanitise(99999),  TEMP_INTERVAL_MAX_S);

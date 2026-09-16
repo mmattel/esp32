@@ -316,7 +316,7 @@ is how much a reading has to move before it is published.
 
 | | Interval | Delta |
 | --- | --- | --- |
-| Code default | `TEMP_INTERVAL_DEFAULT_S` — 30 s | `TEMP_DELTA_DEFAULT_C` — 0.25 °C |
+| Code default | `TEMP_INTERVAL_DEFAULT_S` — 60 s | `TEMP_DELTA_DEFAULT_C` — 0.25 °C |
 | Range | 10 … 3600 s | 0 … 20 °C |
 | Step | 1 s | 0.25 °C |
 | Endpoint | 10 | 11 |
@@ -326,7 +326,7 @@ delta in quarters — since the step is what rounds a write, so a further digit
 could not differ:
 
 ```
-Reading interval (s): 30 (code default)
+Reading interval (s): 60 (code default)
 Reporting delta (C): 0.25 (code default)
 Reporting delta (C) written from Zigbee: 0.44 -> 0.50
 ```
@@ -353,11 +353,15 @@ the coordinator's own number alone. The interval minimum stays above the 750 ms
 conversion time of a 12-bit reading. Both live in NVS, so they survive a reboot; a
 factory reset restores the code defaults.
 
-That makes these two endpoints pull-only for anyone but the writer: they are
-reported on every join and after a correction, and no ZCL reporting is configured
-for them — `applyReporting()` covers the temperature and link endpoints only. A
-second bound client learns a new interval or delta by reading the attribute, not by
-waiting for a report.
+Which leaves the question of how a coordinator that did *not* write the value ever
+learns it. Nothing else reports these two endpoints — `applyReporting()` covers the
+temperature and link endpoints only, and the core's analog output cluster takes no
+reporting configuration — and the publish on join is too early to help: a report
+only reaches whoever is already bound, and Zigbee2MQTT binds while it interviews.
+That is why a freshly joined device showed an empty interval and delta until the
+first write. Both are therefore repeated every `SETTING_REPORT_HEARTBEAT_S`
+(60 s), which is what fills them in, and what refills them after a coordinator
+restart that lost its state.
 
 ### Why the delta moves in quarters
 
