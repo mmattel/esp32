@@ -999,7 +999,9 @@ void handleButton() {
   }
   bool ready = held >= FACTORY_RESET_HOLD_MS;
   if (ready && !resetReady) {
-    Serial.println("Button: held long enough - release to factory reset");
+    // Blank line after it: what follows a release is either the reset log or
+    // nothing at all, and the gap keeps the prompt apart from both.
+    Serial.println("Button: held long enough - release to factory reset\r\n");
   }
   resetArmed = held >= FACTORY_RESET_HINT_MS;
   resetReady = ready;
