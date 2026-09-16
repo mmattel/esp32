@@ -7,6 +7,28 @@ the on-board RGB LED as a link-state indicator.
 Three is only the default; see [Changing the sensor
 count](#changing-the-sensor-count).
 
+## Contents
+
+- [Files](#files)
+- [Wiring](#wiring)
+  - [Supply voltage — check this before powering up](#supply-voltage--check-this-before-powering-up)
+- [Arduino IDE settings](#arduino-ide-settings)
+- [LED](#led)
+- [Joining a network](#joining-a-network)
+- [Zigbee endpoints](#zigbee-endpoints)
+- [Changing the sensor count](#changing-the-sensor-count)
+- [Reading interval and reporting delta](#reading-interval-and-reporting-delta)
+  - [Why the delta moves in quarters](#why-the-delta-moves-in-quarters)
+  - [One decimal, everywhere](#one-decimal-everywhere)
+  - [How the delta gates reporting](#how-the-delta-gates-reporting)
+- [Link quality and signal strength](#link-quality-and-signal-strength)
+- [Serial console](#serial-console)
+  - [Why the first lines used to arrive mangled](#why-the-first-lines-used-to-arrive-mangled)
+- [Zigbee2MQTT](#zigbee2mqtt)
+  - [An expose that stays N/A](#an-expose-that-stays-na)
+- [Pushbutton](#pushbutton)
+- [Notes and limits](#notes-and-limits)
+
 ## Files
 
 | File | Contents |
