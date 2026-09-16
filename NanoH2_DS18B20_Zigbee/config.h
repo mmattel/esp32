@@ -284,6 +284,23 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 /* ------------------------------------------------------------------
  * Serial console
  * ------------------------------------------------------------------ */
+// How long setup() waits for the USB host to open the port before it starts
+// printing, in milliseconds.
+//
+// The H2 has no UART bridge: the console is the USB Serial/JTAG peripheral, and a
+// write issued before the host has the port open runs into the driver's transmit
+// timeout. What that discards is the rest of the *buffer*, not the rest of the
+// line, so the boot lines did not go missing, they came out cut in half and
+// spliced together - "Sensor slots: none configured" and a later "(code default)"
+// arrived as "Sensor slots: none confiefault)". Waiting for the host first is what
+// keeps the first few lines readable.
+//
+// The wait ends as soon as the port is open, so a host that is already listening
+// costs nothing. It is bounded because a device that runs headless - the normal
+// case - has no host to wait for and must boot anyway. 0 skips the wait and prints
+// straight away, which is the old behaviour, garbling included.
+#define SERIAL_WAIT_MS 2000
+
 // The periodic work - reading the sensors, polling the link, rescanning the bus -
 // happens whether or not the result differs from the last one, and saying so
 // every time buries the lines that matter. With 0 those three report only when
