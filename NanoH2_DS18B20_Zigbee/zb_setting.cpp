@@ -54,11 +54,16 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   float applied = sanitise(requested);
   bool changed = fabsf(applied - _value) > (_step > 0 ? _step / 2 : 1e-6f);
 
+  // Only a write that moves the value is worth a line. One that lands back on
+  // the value already in effect - the coordinator repeating it, or rounding and
+  // clamping taking it there - leaves nothing to say, and the coordinator gets
+  // the effective value mirrored back below either way.
   // The request keeps two decimals whatever the step is: it is what the
   // coordinator asked for, and showing it unrounded is what makes a rounded or
   // clamped write visible as one.
-  Serial.printf("%s written from Zigbee: %.2f -> %.*f%s\r\n", _description, requested, decimals(), applied,
-                changed ? "" : " (no change)");
+  if (changed) {
+    Serial.printf("%s written from Zigbee: %.2f -> %.*f\r\n", _description, requested, decimals(), applied);
+  }
 
   _value = applied;
   if (changed) {

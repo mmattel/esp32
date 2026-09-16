@@ -261,7 +261,8 @@ M5Stack NanoH2 - DS18B20 over Zigbee
 Sensor slots: 3
 ```
 
-A build with none prints `Sensor slots: no` there — the word rather than a `0`, so
+A build with none prints `Sensor slots: none configured` there — the word
+rather than a `0`, so
 it reads as the configuration it is and not as a count that failed to print.
 
 Everything else follows it — the endpoint objects, the temperature endpoint
@@ -332,6 +333,11 @@ Reporting delta (C) written from Zigbee: 0.44 -> 0.4
 
 The written value keeps two decimals on purpose: it is what the coordinator asked
 for, and showing it unrounded is what makes the rounding visible.
+
+A write only prints when it actually moves the value. A coordinator that rewrites
+the value already in effect — or one whose write rounds or clamps back onto it —
+stays silent on the console; the effective value is still mirrored back to the
+attribute, so nothing diverges.
 
 Both resolve the same way, each source overriding the one above it:
 
