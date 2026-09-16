@@ -4,6 +4,16 @@ A pushbutton on `G2` of an M5Stack NanoH2 (ESP32-H2, SKU C149) shown on the
 on-board RGB LED: **green** while the contact is closed, **yellow** while it is
 open. No Zigbee, no radio, no stored state.
 
+## Contents
+
+- [Files](#files)
+- [Wiring](#wiring)
+  - [Inverting the wiring](#inverting-the-wiring)
+- [Arduino IDE settings](#arduino-ide-settings)
+- [LED](#led)
+- [Serial output](#serial-output)
+- [Notes and limits](#notes-and-limits)
+
 ## Files
 
 | File | Contents |
