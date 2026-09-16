@@ -219,9 +219,17 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // How often to scan for the networks in range while looking, in seconds.
 // A scan lists every network it hears with its channel and whether joining
 // is open, which is what tells "nothing in range" apart from "in range but
-// closed". It shares the radio with the join attempts, so it is deliberately
-// rarer than the hint; 0 turns scanning off and keeps the hint.
-#define JOIN_SCAN_INTERVAL_S 120
+// closed". It shares the radio with the join attempts, so a scan costs
+// something; 0 turns scanning off and keeps the hint.
+//
+// A scan is only ever started along with a hint, so this rounds up to a
+// multiple of JOIN_HINT_INTERVAL_S and anything at or below it means every hint
+// brings a scan with it. That is the setting for watching a coordinator that
+// will not open: the "joining open" column then follows the Permit join window
+// closely enough to show it open and close, instead of sampling it every other
+// minute and possibly missing it entirely. 120 is the quieter value for a device
+// that is simply waiting.
+#define JOIN_SCAN_INTERVAL_S 30
 
 // Time spent listening per channel, 1 (fastest) to 4 (most thorough).
 // One scan covers all 16 channels, so this is what a scan costs.

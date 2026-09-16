@@ -172,7 +172,7 @@ scan: 1 network in range
 | Knob | Default | Meaning |
 | --- | --- | --- |
 | `JOIN_HINT_INTERVAL_S` | 30 | how often the wait is reported; 0 silences it, scan included |
-| `JOIN_SCAN_INTERVAL_S` | 120 | how often to scan; 0 keeps the hint and never scans |
+| `JOIN_SCAN_INTERVAL_S` | 30 | how often to scan; 0 keeps the hint and never scans |
 | `JOIN_SCAN_DURATION` | 3 | listening time per channel, 1 (fastest) to 4 (most thorough) |
 
 How to read the scan:
