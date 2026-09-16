@@ -1032,9 +1032,26 @@ void handleButton() {
 
 /* ------------------------- Arduino entry -------------------------- */
 
+// Waits for the USB host to open the console, so the first lines are not written
+// into a port nobody has opened yet - see SERIAL_WAIT_MS for what that did to them.
+// Bounded, because a device with no host attached still has to boot.
+//
+// Whether "Serial" can report the host at all depends on the console driver, and a
+// driver that never says connected is harmless here: the wait then simply runs to
+// SERIAL_WAIT_MS, which is the fixed delay this replaced, only longer.
+void waitForSerialHost() {
+  uint32_t start = millis();
+  while (!Serial && (millis() - start) < SERIAL_WAIT_MS) {
+    delay(10);
+  }
+  // The port being open is not quite the same as the far end being ready to read
+  // from it, and this once is not on any critical path.
+  delay(200);
+}
+
 void setup() {
   Serial.begin(115200);
-  delay(200);
+  waitForSerialHost();
   Serial.println("\r\nM5Stack NanoH2 - DS18B20 over Zigbee");
   // The slot count is a compile-time choice and the endpoints, the NVS keys and
   // the whole 1-Wire side follow it, so it is stated before anything that depends

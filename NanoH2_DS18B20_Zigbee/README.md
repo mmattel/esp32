@@ -577,6 +577,32 @@ While the device has no network the wait is still reported every
 `JOIN_HINT_INTERVAL_S`, since there "nothing changed" is itself the news; see
 [Joining a network](#joining-a-network).
 
+### Why the first lines used to arrive mangled
+
+The NanoH2 has no USB-to-UART bridge; the console is the H2's own USB Serial/JTAG
+peripheral, which exists only while a host has the port open. A write issued before
+that runs into the driver's transmit timeout, and what it discards is the remainder
+of the *buffer* rather than the remainder of the line. So the earliest boot lines
+were not lost, they were spliced:
+
+```
+Sensor slots: none confiefault)
+```
+
+That is `Sensor slots: none configured` cut off after 24 bytes, followed by the last
+bytes of a `... (code default)` line printed further down — two lines, no such string
+anywhere in the source.
+
+```c
+#define SERIAL_WAIT_MS 2000
+```
+
+`setup()` now waits that long for the host to open the port before printing anything.
+The wait ends the moment the port is open, so a monitor that is already listening
+costs nothing, and it is bounded so a headless device still boots. 0 restores the old
+behaviour. If your console driver never reports the host as connected, the wait just
+runs its full length and behaves like a plain delay, which is also fine.
+
 ## Zigbee2MQTT
 
 No external converter is needed: Z2M generates a definition for unknown devices
