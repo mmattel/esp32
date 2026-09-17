@@ -11,6 +11,11 @@
  * The Grove HY2.0-4P port carries GND (black), 5V (red), G2 (yellow)
  * and G1 (white). The pushbutton sits on G2, the 1-Wire bus on G1;
  * swap the two defines to reverse that.
+ *
+ * PIN_BUTTON also takes 9, the on-board button beside the USB-C socket,
+ * which needs no wiring at all and frees the Grove pin. One define is
+ * the whole switch and the code is identical either way, but the two
+ * are not equivalent - see "Which button" below.
  * ------------------------------------------------------------------ */
 #define PIN_ONEWIRE   1   // Grove white  / G1 - DS18B20 data line
 #define PIN_BUTTON    2   // Grove yellow / G2 - pushbutton, pulls the pin to GND when closed
@@ -18,10 +23,43 @@
 #define PIN_RGB_POWER 10  // on-board WS2812 power enable, HIGH = LED powered
 #define PIN_LED_BLUE  4   // on-board blue LED, unused here
 
-// The button pulls G2 down to GND when closed, so a closed contact reads LOW
+/* ------------------------------------------------------------------
+ * Which button
+ *
+ * PIN_BUTTON 2 - an external pushbutton on Grove yellow. The default.
+ * PIN_BUTTON 1 - an external pushbutton on Grove white, which needs
+ *   PIN_ONEWIRE moved to 2: the bus and the button cannot share a pin.
+ * PIN_BUTTON 9 - the on-board button, nothing to wire.
+ *
+ * BUTTON_ACTIVE_HIGH 0 is right for all three. An external contact to
+ * GND and the on-board button both pull the pin down when closed, and
+ * both idle high on the pin's internal pull-up.
+ *
+ * The code does not care which one it is - buttonPressed(), the
+ * debounce, the hold-and-release and both stuck-pin guards are written
+ * in terms of these two defines. What changes with 9 is what to expect:
+ *
+ * - G9 is the boot strapping pin, which makes it the flashing button
+ *   too. Held while the board powers up, it puts the H2 into ROM
+ *   download mode and this sketch never runs: dark LED, silent console.
+ *   So the factory reset has to be done on a device that is already up -
+ *   press, hold, release - and never by holding across a power cycle.
+ * - GPIO9 is no ADC channel, so BUTTON_PIN_HAS_ADC below turns itself
+ *   off and the stuck-pin report loses its millivolt line. It keeps the
+ *   part that pulls the pin both ways, which is the more telling half.
+ * - checkButtonIdleAtBoot() has next to nothing left to catch: a pin
+ *   genuinely held at boot means the chip is in download mode instead
+ *   of running this. It still catches a damaged or shorted switch.
+ * - G2 is then free; nothing else here claims it.
+ * ------------------------------------------------------------------ */
+
+// The button pulls its pin down to GND when closed, so a closed contact reads LOW
 // and the pin is held high while the contact is open - by the internal pull-up
 // this switches on, and on a button breakout by its own pull-up resistor too.
 // Set this to 1 for the other wiring, a button that feeds 3.3 V into the pin.
+// That is a question for an external button only: the on-board one on G9 is
+// wired to GND and nothing about it can be changed, so 0 is the only value
+// that fits it.
 #define BUTTON_ACTIVE_HIGH 0
 
 // For the diagnostic that runs when the button pin looks stuck at the active
@@ -33,7 +71,9 @@
 #define BUTTON_PIN_VDD_MV 3300
 
 // GPIO1..GPIO5 are ADC1_CH0..CH4 on the ESP32-H2, so on those the diagnostic can
-// report the actual voltage on the pin instead of just the logic level.
+// report the actual voltage on the pin instead of just the logic level. Which is
+// to say an external button on the Grove port gets the voltage, and the on-board
+// one on G9 gets the logic level; the test needs no maintenance either way.
 #define BUTTON_PIN_HAS_ADC (PIN_BUTTON >= 1 && PIN_BUTTON <= 5)
 
 /* ------------------------------------------------------------------

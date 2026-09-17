@@ -12,6 +12,17 @@
  * and G1 (white). The button sits on G2 (yellow); change PIN_BUTTON to
  * move it to G1.
  *
+ * PIN_BUTTON 9 uses the on-board button instead, with nothing wired at
+ * all. The code is the same - only the expectations change:
+ *
+ * - G9 is the boot strapping pin, so holding it while the board powers
+ *   up enters ROM download mode and the sketch does not run. Press it
+ *   once the sketch is up and the LED follows it as usual.
+ * - The Grove port is then unused, which rather defeats the point of
+ *   this sketch: it exists to prove out an external button before that
+ *   button is trusted in the Zigbee sketch. Handy as a check that the
+ *   on-board one works, though.
+ *
  * The cable colours are the board's silkscreen, not a guarantee about
  * the cable in your hand - see README.md.
  * ------------------------------------------------------------------ */
@@ -20,7 +31,7 @@
 #define PIN_RGB_POWER 10  // on-board WS2812 power enable, HIGH = LED powered
 #define PIN_LED_BLUE  4   // on-board blue LED, unused here
 
-// The button pulls G2 down to GND when closed, so a closed contact reads LOW
+// The button pulls its pin down to GND when closed, so a closed contact reads LOW
 // and the pin is held high while the contact is open - by the internal pull-up
 // this switches on, and on a button breakout by its own pull-up resistor too.
 // Set this to 1 for the other wiring, a button that feeds 3.3 V into the pin.

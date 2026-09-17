@@ -17,11 +17,13 @@
  *   the networks in range with their channel and whether joining is open, which
  *   the stack itself only does at Core Debug Level "Info".
  * - Joining is automatic and needs no button: the stack retries until it gets in.
- * - A pushbutton on PIN_BUTTON (G2) pulls the pin down to GND when closed; the
- *   pin's internal pull-up holds it high while the contact is open. It does one
- *   thing: held for FACTORY_RESET_HOLD_MS and released, it wipes all stored
- *   configuration and the Zigbee credentials, which is how the device is
- *   excluded from a network. A short press does nothing.
+ * - A pushbutton on PIN_BUTTON pulls the pin down to GND when closed; the pin's
+ *   internal pull-up holds it high while the contact is open. That is either an
+ *   external button on the Grove port (G2 by default) or the on-board one on G9 -
+ *   one define, no code change, see "Which button" in config.h for what to expect
+ *   from each. It does one thing: held for FACTORY_RESET_HOLD_MS and released, it
+ *   wipes all stored configuration and the Zigbee credentials, which is how the
+ *   device is excluded from a network. A short press does nothing.
  * - The on-board RGB LED shows the Zigbee link state.
  *
  * Arduino IDE settings:
@@ -30,7 +32,9 @@
  *   Partition Scheme Zigbee 4MB with spiffs
  *   USB CDC On Boot  Enabled              (for the USB-C serial console)
  *
- * To flash: hold the on-board G9 button, then plug in USB-C.
+ * To flash: hold the on-board G9 button, then plug in USB-C. With PIN_BUTTON 9
+ * that is the same button the sketch uses: held during power-up it flashes, held
+ * while the sketch runs it factory resets.
  *
  * See README.md for wiring and for how the values appear on the coordinator.
  */
