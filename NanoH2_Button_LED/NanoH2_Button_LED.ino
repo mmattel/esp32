@@ -1,8 +1,10 @@
 /**
  * M5Stack NanoH2 (ESP32-H2, SKU C149) - pushbutton shown on the RGB LED.
  *
- * - A pushbutton on PIN_BUTTON (G2) pulls the pin down to GND when closed. The
- *   pin's internal pull-up holds it high while the contact is open.
+ * - A pushbutton on PIN_BUTTON pulls the pin down to GND when closed. The pin's
+ *   internal pull-up holds it high while the contact is open. That is an external
+ *   button on the Grove port (G2 by default), or PIN_BUTTON 9 for the on-board one -
+ *   same code, see config.h for what to expect from each.
  * - The on-board RGB LED is green while the contact is closed and yellow while
  *   it is open. There is no other state: the LED always shows one of the two.
  * - No Zigbee, no radio, no NVS. Everything happens in loop().
@@ -13,7 +15,8 @@
  *   Partition Scheme Default 4MB with spiffs
  *   USB CDC On Boot  Enabled   (for the USB-C serial console)
  *
- * To flash: hold the on-board G9 button, then plug in USB-C.
+ * To flash: hold the on-board G9 button, then plug in USB-C. With PIN_BUTTON 9 that
+ * is the same button the sketch reads: held during power-up it flashes instead.
  *
  * See README.md for wiring and for the active level.
  */

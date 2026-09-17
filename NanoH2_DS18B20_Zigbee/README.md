@@ -11,6 +11,7 @@ count](#changing-the-sensor-count).
 
 - [Files](#files)
 - [Wiring](#wiring)
+  - [Which button](#which-button)
   - [Supply voltage — check this before powering up](#supply-voltage--check-this-before-powering-up)
 - [Arduino IDE settings](#arduino-ide-settings)
 - [LED](#led)
@@ -52,7 +53,7 @@ The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G2` (yellow) and
 | Signal | Pin | Notes |
 | --- | --- | --- |
 | DS18B20 data | `G1` (Grove white) | all sensors in parallel, one 4.7 kΩ pull-up to their supply rail |
-| Pushbutton | `G2` (Grove yellow) | one side to `G2`, other side to `GND`; internal pull-up enabled in software |
+| Pushbutton | `G2` (Grove yellow) *or* `G9` (on-board) | external: one side to the pin, other side to `GND`; internal pull-up enabled in software. `G9` needs no wiring — see [Which button](#which-button) |
 | RGB LED | `G11` | on-board WS2812 |
 | RGB power | `G10` | on-board, must be driven high or the LED stays dark |
 
@@ -97,6 +98,54 @@ can influence how the chip boots. `G1`…`G5` double as `ADC1_CH0`…`CH4`, whic
 what lets the button diagnostic report an actual voltage. (ESP-IDF's per-chip GPIO
 table lists `GPIO2` and `GPIO3` as strapping pins for the H2 — that contradicts
 the datasheet, and the datasheet is the one to trust here.)
+
+`G9` is in that strapping list, and it is where the on-board button sits — which is
+what gives the next section its one caveat.
+
+### Which button
+
+The button can be an external one on the Grove port or the board's own, and
+`PIN_BUTTON` in `config.h` is the entire switch. **No code changes.**
+`buttonPressed()`, the debounce, the hold-and-release and both stuck-pin guards are
+written in terms of `PIN_BUTTON` and `BUTTON_ACTIVE_HIGH`, so every value works the
+same way.
+
+| `PIN_BUTTON` | Button | Wiring |
+| --- | --- | --- |
+| `2` | external, Grove yellow | the default: one side to `G2`, other side to `GND` |
+| `1` | external, Grove white | needs `PIN_ONEWIRE` moved to `2` — the bus and the button cannot share a pin |
+| `9` | the on-board button beside the USB-C socket | none |
+
+`BUTTON_ACTIVE_HIGH 0` is right for all three: an external contact to `GND` and the
+on-board button both pull the pin down when closed, and both idle high on the
+internal pull-up. `BUTTON_ACTIVE_HIGH 1` is a question for an external button only —
+nothing about the on-board one can be rewired.
+
+What to expect from `9`:
+
+- **It is also the flashing button.** `G9` is the boot strapping pin, so holding it
+  while the board powers up puts the H2 into ROM download mode and the sketch never
+  runs at all: dark LED, silent console, no join. The factory reset therefore has to
+  be done on a device that is already up — press, hold, release — and never by
+  holding the button across a power cycle. With an external button on `G2` the two
+  gestures stay on separate buttons and cannot be confused.
+- **The diagnostic loses its voltage line.** `BUTTON_PIN_HAS_ADC` is
+  `PIN_BUTTON >= 1 && PIN_BUTTON <= 5` and `GPIO9` is no `ADC1` channel, so it turns
+  itself off. What remains is the pull-both-ways probe, which is the more telling
+  half anyway; the `probe: … mV` line and the resistance arithmetic below it apply
+  to an external button on `G1`…`G5`.
+- **The boot guard goes quiet.** A pin that already reads pressed in `setup()` is
+  next to impossible on `G9`: if it really were held, the chip would be in download
+  mode instead of running this code. The guard stays useful for a damaged or shorted
+  switch.
+- **One hint in the diagnostic stops applying.** Its last line suggests checking that
+  `PIN_BUTTON` and `PIN_ONEWIRE` match the Grove wiring, which is advice for an
+  external button.
+- **`G2` becomes free.** Nothing else in the sketch claims it.
+
+Either choice is invisible to everything else: the endpoint list, the NVS contents
+and the Zigbee side do not know which pin the button is on, so switching costs no
+re-pair and no factory reset.
 
 ### Supply voltage — check this before powering up
 
@@ -151,7 +200,10 @@ is worth having when a join goes wrong — that is the level at which lines like
 `Network steering was not successful` and `Device started up in factory-reset
 mode` appear.
 
-To enter download mode: hold the on-board `G9` button, *then* plug in USB-C.
+To enter download mode: hold the on-board `G9` button, *then* plug in USB-C. If you
+have set `PIN_BUTTON 9` that is the same button the sketch reads — held during
+power-up it flashes, held while the sketch runs it factory resets; see [Which
+button](#which-button).
 
 ## LED
 
@@ -722,6 +774,11 @@ The button does **one** thing: the factory reset, which is how the device leaves
 network. It has no part in joining one — see [Joining a
 network](#joining-a-network) — and nothing at all is bound to a short press.
 
+Everything here holds for whichever button `PIN_BUTTON` points at, external or
+on-board, with one exception: on the on-board `G9` the hold must happen on a running
+device, because holding that pin through power-up flashes the board instead. See
+[Which button](#which-button).
+
 - **Hold 5 s** (`FACTORY_RESET_HOLD_MS`) **and release** — clear everything: the
   commissioning flag, the interval, the delta and the slot ↔ ROM mapping from our
   NVS namespace, plus the Zigbee stack's own network credentials via
@@ -768,7 +825,8 @@ Button on pin 2 already reads pressed - ignoring it until it goes idle
 ```
 
 The pin is read with the pull applied both ways, and — on `G1`…`G5`, which are
-`ADC1_CH0`…`CH4` on this chip — its open-circuit voltage is measured too. That
+`ADC1_CH0`…`CH4` on this chip, so not on the on-board `G9` — its open-circuit
+voltage is measured too. That
 separates the causes that look identical from a `digitalRead()`:
 
 | Probe result | Cause |
