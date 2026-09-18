@@ -46,8 +46,8 @@ count](#changing-the-sensor-count).
 | `console.h` | `logEvent()`: prints a line and hands it to the console mirror |
 | `zb_mirror.h/.cpp` | The console mirror endpoint: the last line worth an event, as text |
 
-The pure-logic parts — the 1-Wire driver, the settings and the link lookup — have host tests in
-[`../test/`](../test/); run them with `cd test && make`.
+The pure-logic parts — the 1-Wire driver, the settings, the link lookup and the console mirror — have
+host tests in [`../test/`](../test/); run them with `cd test && make`.
 
 ## Wiring
 

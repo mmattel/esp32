@@ -10,7 +10,7 @@ CXX ?= g++
 CXXFLAGS := -std=c++17 -Wall -Wextra -Wno-unused-parameter -O1
 
 SKETCH := ../NanoH2_DS18B20_Zigbee
-SUITES := onewire zb_setting zb_link
+SUITES := onewire zb_setting zb_link zb_mirror
 BINARIES := $(addsuffix /run,$(SUITES))
 
 .PHONY: all clean
@@ -34,6 +34,10 @@ zb_setting/run: zb_setting/test.cpp zb_setting/Arduino.h zb_setting/Preferences.
 zb_link/run: zb_link/test.cpp zb_link/Arduino.h zb_link/Zigbee.h \
              $(SKETCH)/zb_link.cpp $(SKETCH)/zb_link.h
 	$(CXX) $(CXXFLAGS) -Izb_link -o $@ $<
+
+zb_mirror/run: zb_mirror/test.cpp zb_mirror/Arduino.h zb_mirror/Zigbee.h \
+               $(SKETCH)/zb_mirror.cpp $(SKETCH)/zb_mirror.h $(SKETCH)/config.h $(SKETCH)/console.h
+	$(CXX) $(CXXFLAGS) -Izb_mirror -o $@ $<
 
 clean:
 	rm -f $(BINARIES)
