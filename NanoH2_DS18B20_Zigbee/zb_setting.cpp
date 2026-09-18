@@ -2,6 +2,14 @@
 #include "config.h"
 #include "console.h"
 
+// All this file wants from config.h is the identity it puts on each endpoint, so a
+// config.h that predates those two names costs two errors rather than thirty - but
+// naming the file that is out of step still beats being told a string is undeclared.
+// The same check guards zb_mirror.h, where the cost is thirty.
+#if !defined(ZB_MANUFACTURER) || !defined(ZB_MODEL)
+#error "config.h has no Zigbee identity - update the whole sketch folder from one commit"
+#endif
+
 ZbSetting::ZbSetting(uint8_t endpoint, const char *nvsKey, const char *description, float defaultValue,
                      float minValue, float maxValue, float step, uint32_t applicationType)
   : _ep(endpoint), _nvsKey(nvsKey), _description(description), _default(defaultValue), _minValue(minValue),
