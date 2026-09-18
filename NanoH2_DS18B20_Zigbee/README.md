@@ -23,10 +23,12 @@ count](#changing-the-sensor-count).
   - [One decimal, everywhere](#one-decimal-everywhere)
   - [How the delta gates reporting](#how-the-delta-gates-reporting)
 - [Link quality and signal strength](#link-quality-and-signal-strength)
+- [Console mirror](#console-mirror)
 - [Serial console](#serial-console)
   - [Why the first lines used to arrive mangled](#why-the-first-lines-used-to-arrive-mangled)
 - [Zigbee2MQTT](#zigbee2mqtt)
   - [An expose that stays N/A](#an-expose-that-stays-na)
+  - [Showing the mirrored line](#showing-the-mirrored-line)
 - [Pushbutton](#pushbutton)
 - [Notes and limits](#notes-and-limits)
 
@@ -41,6 +43,8 @@ count](#changing-the-sensor-count).
 | `zb_temp_endpoint.h/.cpp` | Temperature endpoint that also publishes its sensor's ROM code |
 | `zb_link.h/.cpp` | LQI and RSSI of the link to the parent, from the neighbour table |
 | `zb_link_endpoint.h/.cpp` | Analog input endpoint that can state its unit, for the RSSI in dBm |
+| `console.h` | `logEvent()`: prints a line and hands it to the console mirror |
+| `zb_mirror.h/.cpp` | The console mirror endpoint: the last line worth an event, as text |
 
 The pure-logic parts — the 1-Wire driver, the settings and the link lookup — have host tests in
 [`../test/`](../test/); run them with `cd test && make`.
@@ -53,29 +57,30 @@ The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G2` (yellow) and
 | Signal | Pin | Notes |
 | --- | --- | --- |
 | DS18B20 data | `G1` (Grove white) | all sensors in parallel, one 4.7 kΩ pull-up to their supply rail |
-| Pushbutton | `G2` (Grove yellow) *or* `G9` (on-board) | external: one side to the pin, other side to `GND`; internal pull-up enabled in software. `G9` needs no wiring — see [Which button](#which-button) |
+| Pushbutton | `G9` (on-board) *or* `G2` (Grove yellow) | `G9` is the default and needs no wiring at all; an external one goes with one side to the pin, other side to `GND`, internal pull-up enabled in software — see [Which button](#which-button) |
 | RGB LED | `G11` | on-board WS2812 |
 | RGB power | `G10` | on-board, must be driven high or the LED stays dark |
 
-Swap `PIN_ONEWIRE` and `PIN_BUTTON` in `config.h` if your wiring is the other
-way round.
+With an external button on the Grove port, swap `PIN_ONEWIRE` and `PIN_BUTTON` in
+`config.h` if your wiring is the other way round.
 
 > **The cable colours are not reliable.** `G1` = white and `G2` = yellow is what
 > the NanoH2 prints next to its Grove port, but the cable you plug in may well be
 > the other way round: white on `G2` and yellow on `G1`. Only `5V` = red and
 > `GND` = black are dependable. Ring the cable out with a multimeter, or go by the
-> serial log. A swapped pair puts the sensors' 4.7 kΩ pull-up on the button pin
-> and the button on the bus, which reads as:
+> serial log. A swapped pair puts the bus on `G2` rather than `G1`, which reads as:
 >
 > ```
 > 1-Wire scan: 0 DS18B20 found
 > ```
 >
-> …while the button does nothing at all, because that pull-up holds its pin at the
-> idle level whatever the contact does. Swap `PIN_ONEWIRE` and `PIN_BUTTON` in
-> `config.h`.
+> Point `PIN_ONEWIRE` at `2` in `config.h`. With an external button sharing the port
+> the same swap also puts the sensors' 4.7 kΩ pull-up on the button pin and the
+> button on the bus, and then the button does nothing at all either, because that
+> pull-up holds its pin at the idle level whatever the contact does — swap
+> `PIN_ONEWIRE` and `PIN_BUTTON`.
 
-The button is wired the same way as in the [pushbutton
+An external button is wired the same way as in the [pushbutton
 sketch](../NanoH2_Button_LED/): it pulls the pin down to `GND` when closed, and
 the internal pull-up — 45 kΩ typical — holds the pin high while the contact is
 open. Nothing but the contact and `GND` is needed; measuring `G2` against `GND`
@@ -112,16 +117,16 @@ same way.
 
 | `PIN_BUTTON` | Button | Wiring |
 | --- | --- | --- |
-| `2` | external, Grove yellow | the default: one side to `G2`, other side to `GND` |
+| `9` | the on-board button beside the USB-C socket | the default: none |
+| `2` | external, Grove yellow | one side to `G2`, other side to `GND` |
 | `1` | external, Grove white | needs `PIN_ONEWIRE` moved to `2` — the bus and the button cannot share a pin |
-| `9` | the on-board button beside the USB-C socket | none |
 
 `BUTTON_ACTIVE_HIGH 0` is right for all three: an external contact to `GND` and the
 on-board button both pull the pin down when closed, and both idle high on the
 internal pull-up. `BUTTON_ACTIVE_HIGH 1` is a question for an external button only —
 nothing about the on-board one can be rewired.
 
-What to expect from `9`:
+What to expect from the default `9`:
 
 - **It is also the flashing button.** `G9` is the boot strapping pin, so holding it
   while the board powers up puts the H2 into ROM download mode and the sketch never
@@ -141,7 +146,7 @@ What to expect from `9`:
 - **One hint in the diagnostic stops applying.** Its last line suggests checking that
   `PIN_BUTTON` and `PIN_ONEWIRE` match the Grove wiring, which is advice for an
   external button.
-- **`G2` becomes free.** Nothing else in the sketch claims it.
+- **`G2` stays free.** Nothing else in the sketch claims it.
 
 Either choice is invisible to everything else: the endpoint list, the NVS contents
 and the Zigbee side do not know which pin the button is on, so switching costs no
@@ -200,8 +205,8 @@ is worth having when a join goes wrong — that is the level at which lines like
 `Network steering was not successful` and `Device started up in factory-reset
 mode` appear.
 
-To enter download mode: hold the on-board `G9` button, *then* plug in USB-C. If you
-have set `PIN_BUTTON 9` that is the same button the sketch reads — held during
+To enter download mode: hold the on-board `G9` button, *then* plug in USB-C. With
+the default `PIN_BUTTON 9` that is the same button the sketch reads — held during
 power-up it flashes, held while the sketch runs it factory resets; see [Which
 button](#which-button).
 
@@ -282,21 +287,22 @@ With the default of three sensors:
 | 11 | Analog Output | reporting delta, °C |
 | 12 | Analog Input | LQI of the link to the parent, 0 … 255 (read-only) |
 | 13 | Analog Input | signal strength of that link, dBm (read-only) |
+| 14 | Analog Input + a text attribute | the [console mirror](#console-mirror): how many lines, and the last one (read-only) |
 | 20, 21, 22 | Temperature Measurement | one per sensor slot |
 
 An Analog Output cluster carries a single value, and so does an Analog Input one,
 so every setting and every measurement needs an endpoint of its own.
 
 What describes the device comes first, what it measures last: the two settings,
-the two link measurements, then the temperature slots from `EP_TEMP_BASE` up. The
-numbers themselves carry no meaning — any assignment within 1 … 240 is legal — so
-the order is a readability choice, and the endpoints are registered in the same
-order, because that is the order in which the stack reports them and the order a
-coordinator lists them in.
+the two link measurements, the console mirror, then the temperature slots from
+`EP_TEMP_BASE` up. The numbers themselves carry no meaning — any assignment within
+1 … 240 is legal — so the order is a readability choice, and the endpoints are
+registered in the same order, because that is the order in which the stack reports
+them and the order a coordinator lists them in.
 
-The four low ones are fixed constants in `config.h`, deliberately *not* derived
+The five low ones are fixed constants in `config.h`, deliberately *not* derived
 from the sensor count, so changing that count leaves them — and the names a
-coordinator derives from their numbers — untouched. The gap between 13 and
+coordinator derives from their numbers — untouched. The gap between 14 and
 `EP_TEMP_BASE` leaves room for further settings.
 
 Each temperature endpoint exposes all three required identifiers:
@@ -346,11 +352,12 @@ ways of getting it wrong: a negative count, and a count so large that the
 temperature endpoints would run past the Zigbee maximum of 240.
 
 **Zero is a valid count.** With `MAX_DS18B20_SENSORS 0` there are no temperature
-endpoints, the settings and the two link endpoints stay at 10 … 13, and
+endpoints, the settings, the two link endpoints and the mirror stay at 10 … 14, and
 `PIN_ONEWIRE` is never driven at all — no bus scan, no conversions, and
 `1-Wire bus unused, no slots to map a sensor onto` in place of the scan line. What is left is
 the Zigbee side, the two settings, the
-[link quality](#link-quality-and-signal-strength), the LED and the button,
+[link quality](#link-quality-and-signal-strength), the [console
+mirror](#console-mirror), the LED and the button,
 which is a useful way to bring up a board before any sensor is wired. The reading interval keeps ticking and finds nothing
 to do. (With *Compiler warnings: All* the per-slot loops then warn
 `comparison is always false` — they are the loops that must not run; the default
@@ -364,7 +371,7 @@ reboot.
 
 What changes on the air:
 
-- **The settings and link endpoints stay where they are**, at 10 … 13, because
+- **The settings, link and mirror endpoints stay where they are**, at 10 … 14, because
   their numbers are fixed rather than derived from the count. Only the temperature
   endpoints change: a slot is added above the last one or removed from the top, so
   in Zigbee2MQTT the count of `temperature_2x` exposes changes and the rest of the
@@ -620,6 +627,99 @@ Worth knowing:
   endpoint number alone, though: 12 and 13 are fixed, and nothing is derived from
   them.
 
+## Console mirror
+
+Endpoint 14 puts the last console line worth an event on the air, as text. It is
+the same information the [serial console](#serial-console) shows, for the normal
+case where no console is attached: the device is on a wall somewhere and the only
+way to it is the network.
+
+It only ever prints. There is nothing on it that can be written, by design — an
+Analog Input is read-only by definition, and the text attribute is created
+read-only as well.
+
+What is mirrored is what the console calls an event in its own right:
+
+| Line | When |
+| --- | --- |
+| `Zigbee connected` | every join and rejoin |
+| `Zigbee link lost` | the radio contact went |
+| `Button: held long enough - release to factory reset` | the hold reached `FACTORY_RESET_HOLD_MS` |
+| `Button: released before the hold was over, no reset` | released too early |
+| `Button on pin 9 … - ignoring it until it goes idle` | the pin reads pressed with nothing pressing it |
+| `Button: idle now, back in use` | that pin went idle again, so the button is real after all |
+| `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
+| `Reading interval (s) written from Zigbee: 300.00 -> 300` | a coordinator changed the interval or the delta and it moved |
+| `slot 0 (28FF…): read failed`, `slot 1 (…) is configured but missing` | a sensor stopped answering |
+| `1-Wire: no device responded to CONVERT T` | nothing on the bus at all |
+| `FATAL: …`, `Flash partition '…' is missing`, `NVS open failed …`, `Zigbee failed to start …`, `scan: failed` | every error line the sketch prints |
+
+The periodic work is deliberately **not** mirrored — the readings, the link polls,
+the bus rescans, the join hints. Those are what the temperature and link endpoints
+carry, they already have `LOG_EVERY_READING` to decide how loud they are on the
+console, and a mirror carrying them would show nothing but the last temperature.
+Neither are the diagnostics that sit *under* one of the lines above: the button
+probe prints several lines about the wiring, and only its first line — the fault
+itself — goes on the air.
+
+`logEvent()` in `console.h` is the whole mechanism: it prints like
+`Serial.printf()` does and hands the same line to the endpoint. A line printed
+with `Serial.printf()` is console-only; a line printed with `logEvent()` is both.
+
+**Two attributes, one endpoint.** ZCL has no cluster for text, so the line travels
+in a character string attribute of its own (`MIRROR_TEXT_ATTR_ID`, 0xF000) — and
+that attribute is added to the endpoint's *standard* Analog Input cluster rather
+than to a private cluster. That is the part that makes it work at all: a report is
+addressed through the binding table, a coordinator binds the clusters it
+recognises, and a cluster it has never heard of is one it will not bind, so those
+reports would be dropped here at the source. See [an expose that stays
+N/A](#an-expose-that-stays-na).
+
+The value of that cluster is not wasted either: it counts the mirrored lines, so it
+is the sequence number of the text beside it. It is a plain number, which means it
+is visible on any coordinator with no converter at all, and it changes with every
+new line — which is what an automation can trigger on even where the text itself
+cannot be read. A gap in the count is honest: it says lines were printed while the
+device was off the air.
+
+| Knob | Default | Meaning |
+| --- | --- | --- |
+| `ZB_MIRROR_ENDPOINT` | 1 | 0 drops endpoint 14 and keeps every line console-only |
+| `MIRROR_TEXT_LEN` | 64 | how much of a line is carried; the rest is cut off |
+| `MIRROR_TEXT_ATTR_ID` | 0xF000 | the attribute the text lives in |
+| `MIRROR_REPORT_HEARTBEAT_S` | 3600 | repeats the current line; 0 disables it |
+
+Worth knowing:
+
+- **The line is repeated every `MIRROR_REPORT_HEARTBEAT_S`**, for the same reason
+  the link values are: the report a new line produces goes to whoever is bound at
+  that moment, and right after a join that is still nobody — which would make the
+  line announcing the join the one line never seen.
+- **A repeated line is not resent.** A read that fails every interval, or a slot
+  that stays missing, changes the text to what the coordinator already has, and
+  that costs no report — the same deadband idea the temperatures and the link use.
+  The count only moves when the line does.
+- **Nothing is buffered while the device is off the air.** The mirror holds one
+  line, and a line printed with no network is overwritten by the next one; a join
+  publishes the state as it is then, starting with `Zigbee connected`. So the boot
+  lines — including a boot-time error — are console-only in practice, since the
+  radio is not up yet when they are printed.
+- **A short button press mirrors nothing**, because it prints nothing: the button
+  does one thing, and a press below `FACTORY_RESET_HINT_MS` is not an event. What
+  the button *does* produce is in the table above.
+- **64 characters is a frame, not a preference.** An APS payload is around 80
+  bytes, the report adds a ZCL header and the string its length byte, and a report
+  is not fragmented — so a longer line would not arrive, it would be dropped.
+- **The text always occupies its full length.** A ZCL string attribute is sized by
+  the value it is created with, so the attribute is created at `MIRROR_TEXT_LEN`
+  and every line is space-padded to it — the same thing the sensor ID does with
+  LocationDescription. Whatever reads it wants a `trim()`.
+- **Zigbee2MQTT shows the count out of the box and the text with a small
+  converter** — see [showing the mirrored line](#showing-the-mirrored-line).
+- **Turning the endpoint off or on changes the endpoint list**, so it costs a
+  factory reset and a re-pair, exactly like the two link endpoints. It leaves every
+  other endpoint number alone.
+
 ## Serial console
 
 Three things here happen on a timer whether or not the result differs from the
@@ -651,6 +751,11 @@ While the device has no network the wait is still reported every
 `JOIN_HINT_INTERVAL_S`, since there "nothing changed" is itself the news; see
 [Joining a network](#joining-a-network).
 
+The rows that are events in their own right — joining, losing the link, what the
+button did, an error, a setting a coordinator changed — are exactly the ones that
+also go out on endpoint 14, so they are readable without a console attached at all.
+See [Console mirror](#console-mirror).
+
 ### Why the first lines used to arrive mangled
 
 The NanoH2 has no USB-to-UART bridge; the console is the H2's own USB Serial/JTAG
@@ -679,10 +784,10 @@ runs its full length and behaves like a plain delay, which is also fine.
 
 ## Zigbee2MQTT
 
-No external converter is needed: Z2M generates a definition for unknown devices
-(`findByDevice(device, true)`), and its generator covers every cluster used here.
-After pairing you get, under vendor `M5Stack` / model `NanoH2-DS18B20`, with the
-default of three sensors:
+No external converter is needed for the values: Z2M generates a definition for
+unknown devices (`findByDevice(device, true)`), and its generator covers every
+cluster used here. After pairing you get, under vendor `M5Stack` / model
+`NanoH2-DS18B20`, with the default of three sensors:
 
 | Expose | Access | Unit | From |
 | --- | --- | --- | --- |
@@ -690,7 +795,12 @@ default of three sensors:
 | `analog_out_temperature_11` | read/write | °C | endpoint 11, reporting delta |
 | `analog_in_count_12` | read | — | endpoint 12, parent link LQI |
 | `analog_input_13` | read | dBm | endpoint 13, parent link signal strength |
+| `analog_in_count_14` | read | — | endpoint 14, how many console lines were mirrored |
 | `temperature_20`, `temperature_21`, `temperature_22` | read | °C | endpoints 20-22 |
+
+The one thing that is *not* in that list is the mirrored text itself: Z2M's
+generator has no expose type for a string, so endpoint 14 arrives as its counter
+alone — see [showing the mirrored line](#showing-the-mirrored-line).
 
 The endpoint number is part of every name, which is why the settings and the link
 endpoints have fixed numbers: a different sensor count then renames nothing but the
@@ -754,11 +864,11 @@ has its reports discarded at the source. Z2M creates those bindings in
 
 - **A `configure` that failed leaves later endpoints unbound.** The steps run in
   expose order and one throwing ends the run, so a rejected Analog Output
-  reporting configuration on endpoint 10 can cost the bindings for 12, 13 and the
-  temperatures behind it. Look for `failed to configure` in the Z2M log, then press
+  reporting configuration on endpoint 10 can cost the bindings for 12, 13, 14 and
+  the temperatures behind it. Look for `failed to configure` in the Z2M log, then press
   **Reconfigure** on the device page.
-- **A binding can be added by hand.** Device → *Bind*, source endpoint `12` or
-  `13`, cluster `genAnalogInput`, destination *Coordinator*.
+- **A binding can be added by hand.** Device → *Bind*, source endpoint `12`, `13`
+  or `14`, cluster `genAnalogInput`, destination *Coordinator*.
 - **A read needs no binding at all**, which makes it the quickest proof that the
   device holds the value: dev console → endpoint `12` → `genAnalogInput` → read
   `presentValue`.
@@ -768,6 +878,47 @@ After a binding change the value arrives at the next heartbeat at the latest
 is what the heartbeat is there for. The temperature exposes work exactly the same
 way and only look healthier because a temperature keeps moving.
 
+The [console mirror](#console-mirror) rides on this same mechanism, which is why
+its text sits in a `genAnalogInput` cluster rather than in a cluster of its own: the
+binding Z2M creates for the counter is what carries the text with it. A cluster Z2M
+had never heard of would be bound by nothing, and every mirrored line would be
+discarded here at the source.
+
+### Showing the mirrored line
+
+Endpoint 14 sends two things on every new line: `presentValue`, which Z2M exposes
+as `analog_in_count_14`, and the line itself in attribute `0xF000` (61440), a ZCL
+character string. Z2M handles the first and has nowhere to put the second — its
+generated definitions can express a number, not a string — so out of the box the
+count increments and the text is only in the debug log.
+
+Read it by hand, no converter involved: dev console → endpoint `14` →
+`genAnalogInput` → read attribute `61440`. That works whenever the device is awake
+and is the quickest way to answer "what happened".
+
+To have it as an expose, an external converter has to do that mapping. The part
+that matters is small — the endpoint, the attribute and the string:
+
+```js
+// Endpoint 14, genAnalogInput, attribute 0xF000: the mirrored console line.
+const consoleMirror = {
+    cluster: 'genAnalogInput',
+    type: ['attributeReport', 'readResponse'],
+    convert: (model, msg) => {
+        if (msg.endpoint.ID !== 14 || msg.data['61440'] === undefined) return;
+        // The string is space padded to MIRROR_TEXT_LEN, so trim it.
+        return {console_mirror: String(msg.data['61440']).trim()};
+    },
+};
+```
+
+with a matching `e.text('console_mirror', ea.STATE)` in the definition's exposes.
+Note that an external definition **replaces** the generated one for this model, so
+whatever it does not list disappears from the device page: the settings, the link
+values and the temperatures have to be in it too. That is the whole cost of the
+text, and it is why the counter beside it is a number — it is the part that needs
+none of this.
+
 ## Pushbutton
 
 The button does **one** thing: the factory reset, which is how the device leaves a
@@ -775,9 +926,9 @@ network. It has no part in joining one — see [Joining a
 network](#joining-a-network) — and nothing at all is bound to a short press.
 
 Everything here holds for whichever button `PIN_BUTTON` points at, external or
-on-board, with one exception: on the on-board `G9` the hold must happen on a running
-device, because holding that pin through power-up flashes the board instead. See
-[Which button](#which-button).
+on-board, with one exception: on the on-board `G9` — the default — the hold must
+happen on a running device, because holding that pin through power-up flashes the
+board instead. See [Which button](#which-button).
 
 - **Hold 5 s** (`FACTORY_RESET_HOLD_MS`) **and release** — clear everything: the
   commissioning flag, the interval, the delta and the slot ↔ ROM mapping from our
@@ -806,7 +957,9 @@ Two guards back that up:
   so it is inhibited the same way, with the same message.
 
 Both then probe the pin instead of guessing, because a logic level on its own
-cannot say *why* it is at the wrong end:
+cannot say *why* it is at the wrong end — this is the full report, from an external
+button on `G2`; on the on-board `G9` the millivolt line and the arithmetic under it
+are absent:
 
 ```
 Button on pin 2 already reads pressed - ignoring it until it goes idle
@@ -901,3 +1054,8 @@ the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
 - **Not a sleepy end device.** `setRxOnWhenIdle(true)` is required so the
   coordinator's interval writes can reach the device. Fine on USB power; a
   battery build would need a different approach to configuration.
+- **The console mirror is a mirror, not a log.** It holds one line — the last one
+  — so a burst of events is seen as its last member plus a counter that jumped.
+  Reconstructing what happened in between needs the serial console, and boot-time
+  lines never make it out at all, because the radio is not up when they are
+  printed. See [Console mirror](#console-mirror).

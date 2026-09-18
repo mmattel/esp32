@@ -28,7 +28,7 @@ onewire/run: onewire/test.cpp onewire/Arduino.h \
 	$(CXX) $(CXXFLAGS) -Ionewire -o $@ $<
 
 zb_setting/run: zb_setting/test.cpp zb_setting/Arduino.h zb_setting/Preferences.h zb_setting/Zigbee.h \
-                $(SKETCH)/zb_setting.cpp $(SKETCH)/zb_setting.h $(SKETCH)/config.h
+                $(SKETCH)/zb_setting.cpp $(SKETCH)/zb_setting.h $(SKETCH)/config.h $(SKETCH)/console.h
 	$(CXX) $(CXXFLAGS) -Izb_setting -o $@ $<
 
 zb_link/run: zb_link/test.cpp zb_link/Arduino.h zb_link/Zigbee.h \

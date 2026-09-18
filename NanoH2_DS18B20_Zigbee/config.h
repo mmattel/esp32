@@ -9,16 +9,17 @@
  * Pins - M5Stack NanoH2 (SKU C149)
  *
  * The Grove HY2.0-4P port carries GND (black), 5V (red), G2 (yellow)
- * and G1 (white). The pushbutton sits on G2, the 1-Wire bus on G1;
- * swap the two defines to reverse that.
+ * and G1 (white). The 1-Wire bus sits on G1 and the pushbutton is the
+ * on-board one on G9, beside the USB-C socket, which needs no wiring at
+ * all and leaves the Grove port to the bus alone.
  *
- * PIN_BUTTON also takes 9, the on-board button beside the USB-C socket,
- * which needs no wiring at all and frees the Grove pin. One define is
- * the whole switch and the code is identical either way, but the two
- * are not equivalent - see "Which button" below.
+ * PIN_BUTTON also takes 2, an external button on Grove yellow - or 1,
+ * with PIN_ONEWIRE moved to 2. One define is the whole switch and the
+ * code is identical either way, but the choices are not equivalent -
+ * see "Which button" below.
  * ------------------------------------------------------------------ */
 #define PIN_ONEWIRE   1   // Grove white  / G1 - DS18B20 data line
-#define PIN_BUTTON    2   // Grove yellow / G2 - pushbutton, pulls the pin to GND when closed
+#define PIN_BUTTON    9   // on-board button / G9 - pulls the pin to GND when closed
 #define PIN_RGB      11   // on-board WS2812 data
 #define PIN_RGB_POWER 10  // on-board WS2812 power enable, HIGH = LED powered
 #define PIN_LED_BLUE  4   // on-board blue LED, unused here
@@ -26,10 +27,10 @@
 /* ------------------------------------------------------------------
  * Which button
  *
- * PIN_BUTTON 2 - an external pushbutton on Grove yellow. The default.
+ * PIN_BUTTON 9 - the on-board button, nothing to wire. The default.
+ * PIN_BUTTON 2 - an external pushbutton on Grove yellow.
  * PIN_BUTTON 1 - an external pushbutton on Grove white, which needs
  *   PIN_ONEWIRE moved to 2: the bus and the button cannot share a pin.
- * PIN_BUTTON 9 - the on-board button, nothing to wire.
  *
  * BUTTON_ACTIVE_HIGH 0 is right for all three. An external contact to
  * GND and the on-board button both pull the pin down when closed, and
@@ -37,7 +38,8 @@
  *
  * The code does not care which one it is - buttonPressed(), the
  * debounce, the hold-and-release and both stuck-pin guards are written
- * in terms of these two defines. What changes with 9 is what to expect:
+ * in terms of these two defines. What the default 9 means, next to an
+ * external button on the Grove port:
  *
  * - G9 is the boot strapping pin, which makes it the flashing button
  *   too. Held while the board powers up, it puts the H2 into ROM
@@ -50,7 +52,7 @@
  * - checkButtonIdleAtBoot() has next to nothing left to catch: a pin
  *   genuinely held at boot means the chip is in download mode instead
  *   of running this. It still catches a damaged or shorted switch.
- * - G2 is then free; nothing else here claims it.
+ * - G2 stays free; nothing else here claims it.
  * ------------------------------------------------------------------ */
 
 // The button pulls its pin down to GND when closed, so a closed contact reads LOW
@@ -218,7 +220,8 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // Endpoint numbers. Any assignment within 1..240 is legal - the numbers carry no
 // meaning of their own - and this one puts what describes the device first and
 // the measurements last: the two writable settings, then the two link
-// measurements, then one endpoint per temperature slot above them.
+// measurements, then the console mirror, then one endpoint per temperature slot
+// above them.
 //
 // The block below is fixed rather than derived from the sensor count, so
 // changing MAX_DS18B20_SENSORS no longer moves it. That matters because a
@@ -231,6 +234,7 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 #define EP_CONFIG_DELTA 11
 #define EP_LINK_LQI 12
 #define EP_LINK_RSSI 13
+#define EP_MIRROR 14
 
 // Temperature sensors occupy EP_TEMP_BASE .. EP_TEMP_BASE+MAX-1. The gap above
 // the block leaves room for further settings without moving the sensors.
@@ -322,6 +326,49 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 #define LINK_REPORT_HEARTBEAT_S 3600
 
 /* ------------------------------------------------------------------
+ * Console mirror
+ *
+ * One endpoint that puts the last console line worth an event on the
+ * air, as text, so that a coordinator sees what a serial console would
+ * have shown: the join, the link going, whatever the button did, an
+ * error, and every interval or delta a coordinator changed. It only
+ * ever prints - there is nothing that can be written to it.
+ *
+ * The line sits in a character string attribute of the endpoint's
+ * Analog Input cluster, and the value of that cluster counts the lines,
+ * so it is the sequence number of the text beside it. That number is
+ * what makes a coordinator bind the cluster - which is what lets the
+ * text through at all - and it is also the part that is visible without
+ * a converter. See "Console mirror" in README.md; Zigbee2MQTT needs a
+ * small external converter to show the text itself.
+ * ------------------------------------------------------------------ */
+// 1 creates the endpoint, 0 keeps every line on the console only. Turning it on
+// or off changes the endpoint list, which costs a re-pair - the same as for the
+// two link endpoints above.
+#define ZB_MIRROR_ENDPOINT 1
+
+// How much of a line is carried. Anything longer is cut off here, which is why
+// the mirrored lines are the short ones.
+//
+// The ceiling is what a single Zigbee frame holds: an APS payload is around 80
+// bytes, the report adds a ZCL header and the string its length byte, and a value
+// past that would have to be fragmented - which a report is not.
+#define MIRROR_TEXT_LEN 64
+
+// The attribute the text lives in. 0xF000 and up is the range reserved for a
+// manufacturer's own attributes, which keeps it clear of the standard Analog
+// Input attributes (0x001C .. 0x006F) in the same cluster.
+#define MIRROR_TEXT_ATTR_ID 0xF000
+
+// Repeats the current line even though no new one came along, like
+// LINK_REPORT_HEARTBEAT_S does, and for the same reason: a report goes to
+// whoever is bound at that moment, and right after a join that is still nobody -
+// so the line announcing the join would otherwise be the one line never seen.
+// 0 disables the repeat.
+#define MIRROR_REPORT_MIN_INTERVAL_S 1
+#define MIRROR_REPORT_HEARTBEAT_S 3600
+
+/* ------------------------------------------------------------------
  * Serial console
  * ------------------------------------------------------------------ */
 // How long setup() waits for the USB host to open the port before it starts
@@ -347,7 +394,8 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // something actually changed: a temperature or a link value that passed its
 // deadband and was published, a failed read, a scan that found something other
 // than last time. Everything that is an event in its own right - joining,
-// losing the link, a factory reset, a fault - is printed either way.
+// losing the link, a factory reset, a fault - is printed either way, and is
+// exactly what the console mirror above carries.
 //
 // 1 restores a line per reading and per link poll, including the ones held back
 // by a deadband and by how much. That is the view to use when choosing
