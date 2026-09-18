@@ -6,10 +6,14 @@
 // console gets everything, and the longest line that goes through logEvent() today
 // is around sixty characters - so this is the limit of what can be printed, not the
 // limit of what is printed.
-static constexpr size_t LINE_MAX = 160;
+//
+// Not LINE_MAX: that is a POSIX limit macro (2048), which Arduino.h drags in
+// through sys/param.h, so the name expands to a number before the compiler ever
+// sees the declaration.
+static constexpr size_t CONSOLE_LINE_LEN = 160;
 
 void logEvent(const char *fmt, ...) {
-  char line[LINE_MAX];
+  char line[CONSOLE_LINE_LEN];
   va_list args;
   va_start(args, fmt);
   vsnprintf(line, sizeof(line), fmt, args);
