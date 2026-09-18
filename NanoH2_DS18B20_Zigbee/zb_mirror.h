@@ -25,6 +25,17 @@
 #include "config.h"
 #include "console.h"
 
+// Every knob this endpoint has lives in config.h, and a config.h from before the
+// endpoint existed has none of them. Unchecked, that mismatch is some thirty errors
+// across three files: the first of them lands in the class below, which then has no
+// members, which makes every method that touches one fail too. Said once, here, it
+// is one line naming the file to update.
+#if !defined(EP_MIRROR) || !defined(ZB_MIRROR_ENDPOINT) || !defined(MIRROR_TEXT_LEN) \
+    || !defined(MIRROR_TEXT_ATTR_ID) || !defined(MIRROR_REPORT_MIN_INTERVAL_S) \
+    || !defined(MIRROR_REPORT_HEARTBEAT_S)
+#error "config.h has no 'Console mirror' section - update the whole sketch folder from one commit"
+#endif
+
 class ZbMirror : public ZigbeeAnalog {
 public:
   explicit ZbMirror(uint8_t endpoint) : ZigbeeAnalog(endpoint) {}
