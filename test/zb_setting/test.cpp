@@ -11,6 +11,19 @@
 #include "../../NanoH2_DS18B20_Zigbee/zb_setting.cpp"
 #undef private
 #include <cassert>
+#include <cstdarg>
+
+// A written value is announced with logEvent(), which on the device prints and
+// hands the same line to the console mirror endpoint (see zb_mirror.cpp). There is
+// no endpoint here, so this is the printing half of it - which is all these tests
+// need, and it keeps zb_setting.cpp free of anything Zigbee to link against.
+void logEvent(const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  vprintf(fmt, args);
+  va_end(args);
+  printf("\n");
+}
 
 static int fails = 0;
 static void check(const char *what, float got, float want) {

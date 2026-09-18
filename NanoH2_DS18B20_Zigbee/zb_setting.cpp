@@ -1,5 +1,6 @@
 #include "zb_setting.h"
 #include "config.h"
+#include "console.h"
 
 ZbSetting::ZbSetting(uint8_t endpoint, const char *nvsKey, const char *description, float defaultValue,
                      float minValue, float maxValue, float step, uint32_t applicationType)
@@ -75,8 +76,11 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   // The request keeps two decimals whatever the step is: it is what the
   // coordinator asked for, and showing it unrounded is what makes a rounded or
   // clamped write visible as one.
+  // logEvent(), so the new interval or delta also goes out on the console mirror:
+  // this is the one setting change nothing else announces, and the coordinator
+  // that wrote it is not necessarily the one watching.
   if (changed || corrected) {
-    Serial.printf("%s written from Zigbee: %.2f -> %.*f\r\n", _description, requested, decimals(), applied);
+    logEvent("%s written from Zigbee: %.2f -> %.*f", _description, requested, decimals(), applied);
   }
 
   _value = applied;

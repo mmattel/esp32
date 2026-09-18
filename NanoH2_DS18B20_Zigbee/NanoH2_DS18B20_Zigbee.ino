@@ -13,17 +13,22 @@
  *   are read on their own interval, logged, and each published on its own analog
  *   input endpoint. This is the device's own view of the link, the opposite
  *   direction to the "linkquality" a coordinator reports.
+ * - One further endpoint mirrors the console: the last line worth an event -
+ *   the join, the link going, whatever the button did, an error, an interval or
+ *   a delta that changed - is published as text, read-only, alongside a count of
+ *   those lines. It is how the device says what happened where no serial console
+ *   is attached.
  * - While the device has no network it reports the wait and periodically lists
  *   the networks in range with their channel and whether joining is open, which
  *   the stack itself only does at Core Debug Level "Info".
  * - Joining is automatic and needs no button: the stack retries until it gets in.
  * - A pushbutton on PIN_BUTTON pulls the pin down to GND when closed; the pin's
- *   internal pull-up holds it high while the contact is open. That is either an
- *   external button on the Grove port (G2 by default) or the on-board one on G9 -
- *   one define, no code change, see "Which button" in config.h for what to expect
- *   from each. It does one thing: held for FACTORY_RESET_HOLD_MS and released, it
- *   wipes all stored configuration and the Zigbee credentials, which is how the
- *   device is excluded from a network. A short press does nothing.
+ *   internal pull-up holds it high while the contact is open. That is either the
+ *   on-board button on G9 (the default) or an external one on the Grove port
+ *   (G2) - one define, no code change, see "Which button" in config.h for what
+ *   to expect from each. It does one thing: held for FACTORY_RESET_HOLD_MS and
+ *   released, it wipes all stored configuration and the Zigbee credentials, which
+ *   is how the device is excluded from a network. A short press does nothing.
  * - The on-board RGB LED shows the Zigbee link state.
  *
  * Arduino IDE settings:
@@ -32,9 +37,9 @@
  *   Partition Scheme Zigbee 4MB with spiffs
  *   USB CDC On Boot  Enabled              (for the USB-C serial console)
  *
- * To flash: hold the on-board G9 button, then plug in USB-C. With PIN_BUTTON 9
- * that is the same button the sketch uses: held during power-up it flashes, held
- * while the sketch runs it factory resets.
+ * To flash: hold the on-board G9 button, then plug in USB-C. With the default
+ * PIN_BUTTON 9 that is the same button the sketch uses: held during power-up it
+ * flashes, held while the sketch runs it factory resets.
  *
  * See README.md for wiring and for how the values appear on the coordinator.
  */
@@ -50,9 +55,11 @@
 #include "Zigbee.h"
 
 #include "config.h"
+#include "console.h"
 #include "ds18b20_bus.h"
 #include "zb_link.h"
 #include "zb_link_endpoint.h"
+#include "zb_mirror.h"
 #include "zb_setting.h"
 #include "zb_temp_endpoint.h"
 
@@ -80,17 +87,18 @@ static_assert(MAX_DS18B20_SENSORS >= 0, "the sensor count cannot be negative");
 // The temperature block is the one that grows with the sensor count, so it is the
 // one that can run off the end of the endpoint range.
 static_assert(EP_CONFIG_INTERVAL >= 1 && EP_CONFIG_DELTA >= 1 && EP_LINK_LQI >= 1 && EP_LINK_RSSI >= 1
-                && EP_TEMP_BASE >= 1 && EP_TEMP_BASE + MAX_DS18B20_SENSORS - 1 <= 240,
+                && EP_MIRROR >= 1 && EP_TEMP_BASE >= 1 && EP_TEMP_BASE + MAX_DS18B20_SENSORS - 1 <= 240,
               "Zigbee endpoint numbers have to stay within 1..240");
 
-// The temperature slots sit above the settings and the link, and every endpoint
-// number has to be unique: a collision would register two endpoints as one.
+// The temperature slots sit above the settings, the link and the mirror, and every
+// endpoint number has to be unique: a collision would register two endpoints as one.
 static_assert(EP_TEMP_BASE > EP_CONFIG_INTERVAL && EP_TEMP_BASE > EP_CONFIG_DELTA && EP_TEMP_BASE > EP_LINK_LQI
-                && EP_TEMP_BASE > EP_LINK_RSSI,
-              "the temperature endpoints have to stay above the settings and the link endpoints");
+                && EP_TEMP_BASE > EP_LINK_RSSI && EP_TEMP_BASE > EP_MIRROR,
+              "the temperature endpoints have to stay above the settings, the link and the mirror endpoints");
 static_assert(EP_CONFIG_INTERVAL != EP_CONFIG_DELTA && EP_CONFIG_INTERVAL != EP_LINK_LQI
-                && EP_CONFIG_INTERVAL != EP_LINK_RSSI && EP_CONFIG_DELTA != EP_LINK_LQI
-                && EP_CONFIG_DELTA != EP_LINK_RSSI && EP_LINK_LQI != EP_LINK_RSSI,
+                && EP_CONFIG_INTERVAL != EP_LINK_RSSI && EP_CONFIG_INTERVAL != EP_MIRROR
+                && EP_CONFIG_DELTA != EP_LINK_LQI && EP_CONFIG_DELTA != EP_LINK_RSSI && EP_CONFIG_DELTA != EP_MIRROR
+                && EP_LINK_LQI != EP_LINK_RSSI && EP_LINK_LQI != EP_MIRROR && EP_LINK_RSSI != EP_MIRROR,
               "every Zigbee endpoint number has to be used only once");
 
 // The retry shortens the wait for the next link reading, so a value above the
@@ -116,6 +124,11 @@ ZbSetting cfgDelta(EP_CONFIG_DELTA, NVS_KEY_DELTA, "Reporting delta (C)", TEMP_D
 // need none of the clamp / persist machinery a ZbSetting has.
 LinkAnalog zbLqi(EP_LINK_LQI);
 LinkAnalog zbRssi(EP_LINK_RSSI);
+
+// The console mirror. Declared in zb_mirror.h and defined here with the other
+// endpoints, because logEvent() reaches it by name from anywhere in the sketch -
+// including from the files that know nothing about Zigbee.
+ZbMirror zbMirror(EP_MIRROR);
 
 // The ZCL application types have no dBm in the list, so the RSSI endpoint uses
 // the "other" group and states its unit in EngineeringUnits instead.
@@ -237,7 +250,7 @@ void updateLed() {
 // bury the explanation in a boot loop, so flash red and keep the message on the
 // console until the board is reflashed.
 void haltFatal(const char *what) {
-  Serial.printf("FATAL: %s\r\n", what);
+  logEvent("FATAL: %s", what);
   while (true) {
     ledWrite(flashOn() ? COLOR_FATAL : COLOR_OFF);
     delay(10);
@@ -312,8 +325,7 @@ void scanSensors() {
       }
       if (slot < 0) {
         header();
-        Serial.printf("  %s ignored, all %u slots taken\r\n",
-                      DS18B20Bus::romToString(found[f]).c_str(), MAX_DS18B20_SENSORS);
+        logEvent("  %s ignored, all %u slots taken", DS18B20Bus::romToString(found[f]).c_str(), MAX_DS18B20_SENSORS);
         continue;
       }
       slotRom[slot] = found[f];
@@ -339,8 +351,7 @@ void scanSensors() {
     for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
       if (slotRom[i] != 0 && !slotPresent[i]) {
         header();
-        Serial.printf("  slot %u (%s) is configured but missing\r\n", i,
-                      DS18B20Bus::romToString(slotRom[i]).c_str());
+        logEvent("  slot %u (%s) is configured but missing", i, DS18B20Bus::romToString(slotRom[i]).c_str());
       }
     }
   }
@@ -390,7 +401,7 @@ bool zigbeePartitionsPresent() {
 
   for (const char *name : required) {
     if (!esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, name)) {
-      Serial.printf("Flash partition '%s' is missing\r\n", name);
+      logEvent("Flash partition '%s' is missing", name);
       ok = false;
     }
   }
@@ -413,6 +424,12 @@ void applyReporting() {
   if (ZB_RSSI_ENDPOINT) {
     zbRssi.setAnalogInputReporting(LINK_REPORT_MIN_INTERVAL_S, LINK_REPORT_HEARTBEAT_S, 0);
   }
+  // Only the sequence number gets a reporting configuration; the text beside it is
+  // reported explicitly, which is also why a coordinator rewriting this cannot
+  // silence the mirror.
+  if (ZB_MIRROR_ENDPOINT) {
+    zbMirror.setAnalogInputReporting(MIRROR_REPORT_MIN_INTERVAL_S, MIRROR_REPORT_HEARTBEAT_S, 0);
+  }
 }
 
 // Allocated once and never freed: the endpoints live for the whole run, and
@@ -423,10 +440,10 @@ void createEndpoints() {
   }
 }
 
-// The endpoints are registered in the order they should be read in: settings,
-// link, then the temperature slots. The stack reports its endpoints in the order
-// they were added here, and a coordinator that lists what it found - Zigbee2MQTT
-// among them - follows that order rather than sorting by number.
+// The endpoints are registered in the order they should be read in: settings, link,
+// the console mirror, then the temperature slots. The stack reports its endpoints in
+// the order they were added here, and a coordinator that lists what it found -
+// Zigbee2MQTT among them - follows that order rather than sorting by number.
 void setupEndpoints() {
   cfgInterval.addEndpoint(onIntervalWritten);
   cfgDelta.addEndpoint(onDeltaWritten);
@@ -460,6 +477,25 @@ void setupEndpoints() {
     Serial.printf("EP %u -> parent link RSSI, dBm\r\n", EP_LINK_RSSI);
   }
 
+  if (ZB_MIRROR_ENDPOINT) {
+    zbMirror.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
+    zbMirror.addAnalogInput();
+    // The value counts the mirrored lines: a plain number with no dimension, like
+    // the LQI, and the part a coordinator can show without understanding the text.
+    zbMirror.setAnalogInputApplication(ESP_ZB_ZCL_AI_COUNT_UNITLESS_COUNT);
+    zbMirror.setAnalogInputDescription("Console mirror");
+    zbMirror.setAnalogInputResolution(1);
+    zbMirror.setAnalogInputMinMax(0, 65535);  // the counter is 16 bit and wraps there
+    if (!zbMirror.addText()) {
+      // Optional attribute, like the sensor id above: without it the endpoint
+      // still counts the lines, it just cannot carry them.
+      logEvent("EP %u: mirrored line attribute unavailable", EP_MIRROR);
+    }
+    zbMirror.setPowerSource(ZB_POWER_SOURCE_MAINS);
+    Zigbee.addEndpoint(&zbMirror);
+    Serial.printf("EP %u -> console mirror\r\n", EP_MIRROR);
+  }
+
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     // Same manufacturer and model on every endpoint: this identifies the
     // product. Which sensor an endpoint reads is the sensor id, see above.
@@ -467,7 +503,7 @@ void setupEndpoints() {
     if (!zbTemp[i]->setSensorId(sensorId(i).c_str())) {
       // Optional attribute: the temperature still works without it, only the
       // "which sensor is this" information is then missing over the air.
-      Serial.printf("EP %u: sensor id attribute unavailable\r\n", EP_TEMP_BASE + i);
+      logEvent("EP %u: sensor id attribute unavailable", EP_TEMP_BASE + i);
     }
     zbTemp[i]->setMinMaxValue(-55, 125);  // DS18B20 range
     zbTemp[i]->setTolerance(0.5);
@@ -479,7 +515,10 @@ void setupEndpoints() {
 }
 
 void onZigbeeConnected() {
-  Serial.println("Zigbee connected");
+  // Whatever the mirror last published went to the previous network, or to nobody
+  // at all, so the join line below is what this one gets first.
+  zbMirror.forgetPublished();
+  logEvent("Zigbee connected");
 
   if (!commissioned) {
     // The network credentials themselves are written by the Zigbee stack into
@@ -542,7 +581,7 @@ void printNetworksFound(uint16_t found) {
 
   zigbee_scan_result_t *nets = Zigbee.getScanResult();
   if (nets == nullptr) {
-    Serial.println("scan: no result to read");
+    logEvent("scan: no result to read");
     return;
   }
 
@@ -573,7 +612,7 @@ void handleJoining() {
     }
     joinScanRunning = false;
     if (status == ZB_SCAN_FAILED) {
-      Serial.println("scan: failed");
+      logEvent("scan: failed");
     } else {
       printNetworksFound((uint16_t)status);
     }
@@ -609,7 +648,7 @@ void updateLinkState() {
   if (connected && !wasConnected) {
     onZigbeeConnected();
   } else if (!connected && wasConnected) {
-    Serial.println("Zigbee link lost");
+    logEvent("Zigbee link lost");
     resetJoinWait();  // the wait that starts now is a new one
   }
   wasConnected = connected;
@@ -670,8 +709,7 @@ void readAndPublish() {
     }
     DS18B20Reading r = owBus.read(slotRom[i]);
     if (!r.valid) {
-      Serial.printf("slot %u (%s): read failed\r\n", i,
-                    DS18B20Bus::romToString(slotRom[i]).c_str());
+      logEvent("slot %u (%s): read failed", i, DS18B20Bus::romToString(slotRom[i]).c_str());
       slotPresent[i] = false;  // picked up again by the next rescan
       continue;
     }
@@ -736,7 +774,7 @@ void handleTemperature() {
         return;
       }
       if (!owBus.startConversionAll()) {
-        Serial.println("1-Wire: no device responded to CONVERT T");
+        logEvent("1-Wire: no device responded to CONVERT T");
         lastSampleMs = now;
         return;
       }
@@ -939,7 +977,9 @@ void inhibitButton(const char *why) {
   buttonInhibited = true;
   resetArmed = false;
   resetReady = false;
-  Serial.printf("Button on pin %d %s - ignoring it until it goes idle\r\n", PIN_BUTTON, why);
+  // Only the first line is mirrored: it is the fault itself, and the probe below
+  // it is wiring diagnostics that belong to whoever has the console open.
+  logEvent("Button on pin %d %s - ignoring it until it goes idle", PIN_BUTTON, why);
   Serial.printf("  the pin reads %s, and with BUTTON_ACTIVE_HIGH %d that counts as pressed\r\n",
                 digitalRead(PIN_BUTTON) == HIGH ? "HIGH" : "LOW", BUTTON_ACTIVE_HIGH);
   probeButtonPin();
@@ -957,7 +997,9 @@ void checkButtonIdleAtBoot() {
 // Reached only from a released hold, never from a level that merely reads
 // pressed - see handleButton().
 void factoryReset() {
-  Serial.println("Factory reset: clearing NVS and re-pairing");
+  // Mirrored before anything is wiped, so the coordinator hears why the device is
+  // about to leave - the report goes out while the network is still there.
+  logEvent("Factory reset: clearing NVS and re-pairing");
   ledWrite(COLOR_RESET_DONE);  // white already, and stays so through the wipe
 
   prefs.clear();  // slots, interval, delta and the commissioning flag
@@ -1001,7 +1043,7 @@ void handleButton() {
     } else if (buttonInhibited) {
       // The idle level we were waiting for: the button is real after all.
       buttonInhibited = false;
-      Serial.println("Button: idle now, back in use");
+      logEvent("Button: idle now, back in use");
     } else {
       bool wasArmed = resetArmed;
       bool wasReady = resetReady;
@@ -1010,7 +1052,7 @@ void handleButton() {
       if (wasReady) {
         factoryReset();  // does not return
       } else if (wasArmed) {
-        Serial.println("Button: released before the hold was over, no reset");
+        logEvent("Button: released before the hold was over, no reset");
       }
     }
   }
@@ -1027,8 +1069,10 @@ void handleButton() {
   bool ready = held >= FACTORY_RESET_HOLD_MS;
   if (ready && !resetReady) {
     // Blank line after it: what follows a release is either the reset log or
-    // nothing at all, and the gap keeps the prompt apart from both.
-    Serial.println("Button: held long enough - release to factory reset\r\n");
+    // nothing at all, and the gap keeps the prompt apart from both. It is printed
+    // separately, since a mirrored line carries no blank line of its own.
+    logEvent("Button: held long enough - release to factory reset");
+    Serial.println();
   }
   resetArmed = held >= FACTORY_RESET_HINT_MS;
   resetReady = ready;
@@ -1077,7 +1121,7 @@ void setup() {
   resetPublished();
 
   if (!prefs.begin(NVS_NAMESPACE, false)) {
-    Serial.println("NVS open failed, running with code defaults");
+    logEvent("NVS open failed, running with code defaults");
   }
   loadSettings();
 
@@ -1102,7 +1146,7 @@ void setup() {
   Zigbee.setRxOnWhenIdle(true);
 
   if (!Zigbee.begin(ZIGBEE_END_DEVICE)) {
-    Serial.println("Zigbee failed to start, rebooting");
+    logEvent("Zigbee failed to start, rebooting");
     delay(1000);
     ESP.restart();
   }
@@ -1116,6 +1160,7 @@ void loop() {
   handleJoining();
   handleSettingWrites();
   handleSettingReports();
+  zbMirror.handleReports();
   handleTemperature();
   handleLinkQuality();
   handleButton();
