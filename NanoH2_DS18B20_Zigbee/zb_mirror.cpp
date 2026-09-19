@@ -145,7 +145,9 @@ bool ZbMirror::reportText() {
   // sits in the range ZCL reserves for manufacturers. The name, not the number: it
   // is 0xFFFF in the SDK generation this builds against and 0x0000 in the next one.
   // The core's own report helpers leave this field uninitialised, which only works
-  // while the stack ignores it for a report that is not manufacturer specific.
+  // while the stack ignores it for a report that is not manufacturer specific -
+  // arduino-esp32#12917. If that is ever fixed, this whole function can go back to
+  // being a call to the helper.
   cmd.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
 
   return reportClusterAttribute(&cmd);

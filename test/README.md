@@ -99,7 +99,9 @@ Covers:
 - Every field of the report command, including the ones the sketch has no opinion
   about. `manuf_code` is the key the stack looks the attribute up by, and the text
   attribute is added under no manufacturer code at all, so that is what the report has
-  to ask for. The test fills the stack with a pattern first (`poisonStack()`) so a
+  to ask for. The core's own helpers never set it
+  ([arduino-esp32#12917](https://github.com/espressif/arduino-esp32/issues/12917)),
+  which is why the sketch builds this command itself and why the check is here. The test fills the stack with a pattern first (`poisonStack()`) so a
   field nobody set reads as garbage here rather than as a lucky zero — with a pattern
   chosen not to collide with the value that is actually correct.
 - The deadband: a line repeated three times costs one report and does not move the

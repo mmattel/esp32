@@ -29,6 +29,7 @@ count](#changing-the-sensor-count).
 - [Zigbee2MQTT](#zigbee2mqtt)
   - [An expose that stays N/A](#an-expose-that-stays-na)
   - [Showing the mirrored line](#showing-the-mirrored-line)
+  - [Adding the external converter](#adding-the-external-converter)
 - [Pushbutton](#pushbutton)
 - [Notes and limits](#notes-and-limits)
 
@@ -45,6 +46,7 @@ count](#changing-the-sensor-count).
 | `zb_link_endpoint.h/.cpp` | Analog input endpoint that can state its unit, for the RSSI in dBm |
 | `console.h` | `logEvent()`: prints a line and hands it to the console mirror |
 | `zb_mirror.h/.cpp` | The console mirror endpoint: the last line worth an event, as text |
+| `nanoh2-ds18b20.mjs` | Not firmware: the Zigbee2MQTT external converter, so the mirrored line becomes an expose |
 
 The pure-logic parts — the 1-Wire driver, the settings, the link lookup and the console mirror — have
 host tests in [`../test/`](../test/); run them with `cd test && make`.
@@ -380,6 +382,14 @@ What changes on the air:
   `Zigbee.begin()`. After flashing, hold the button for 5 s and release to factory
   reset, then join again. In Zigbee2MQTT, delete the device first and let it re-interview;
   otherwise Z2M keeps serving the cached definition with the old endpoint set.
+- **The external converter has to follow the count.**
+  [`nanoh2-ds18b20.mjs`](nanoh2-ds18b20.mjs) lists the temperature endpoints twice —
+  in `m.deviceEndpoints()` and in `m.temperature({endpointNames: …})` — and both
+  lists have to hold exactly `MAX_DS18B20_SENSORS` endpoints, counting up from
+  `EP_TEMP_BASE` (20). One too many gives an expose that can never update and a
+  binding Z2M logs as failed during `configure`; one too few hides a sensor that is
+  really there. Regenerate rather than edit by hand: see [Adding the external
+  converter](#adding-the-external-converter).
 
 Two smaller things:
 
@@ -898,8 +908,35 @@ Read it by hand, no converter involved: dev console → endpoint `14` →
 `genAnalogInput` → read attribute `61440`. That works whenever the device is awake
 and is the quickest way to answer "what happened".
 
-To have it as an expose, an external converter has to do that mapping. The part
-that matters is small — the endpoint, the attribute and the string:
+To have it as an expose, an external converter has to do that mapping, and
+[`nanoh2-ds18b20.mjs`](nanoh2-ds18b20.mjs) in this folder is that converter, ready
+to use — see [Adding the external converter](#adding-the-external-converter). All
+it adds to what Z2M generates by itself is one entry:
+
+```js
+m.text({
+    name: 'console_mirror',
+    cluster: 'genAnalogInput',
+    attribute: {ID: 0xf000, type: 0x42},   // 61440, a ZCL character string
+    description: 'Last console line worth an event, space padded',
+    access: 'STATE_GET',
+    endpointName: '14',                    // singular here, unlike m.numeric()
+    entityCategory: 'diagnostic',
+}),
+```
+
+`console_mirror` being free as a name is the point of calling the counter
+[something else](#showing-the-mirrored-line). There is no `reporting` entry because
+the device reports `0xF000` on its own, on every new line and on the hourly
+heartbeat, so there is nothing for Z2M to configure.
+
+Two things this costs. An external definition **replaces** the generated one for
+this model, so whatever it does not list disappears from the device page — which is
+why the file carries the settings, the link values and the temperatures too, and
+why it has to be regenerated whenever the endpoint list changes. And `m.text()`
+publishes the attribute verbatim, so the line arrives space padded to
+`MIRROR_TEXT_LEN`. To have it trimmed instead, replace that entry with a
+`fromZigbee` converter that does it:
 
 ```js
 // Endpoint 14, genAnalogInput, attribute 0xF000: the mirrored console line.
@@ -914,13 +951,70 @@ const consoleMirror = {
 };
 ```
 
-with a matching `e.text('console_mirror', ea.STATE)` in the definition's exposes —
-that name being free is the point of calling the counter something else.
-Note that an external definition **replaces** the generated one for this model, so
-whatever it does not list disappears from the device page: the settings, the link
-values and the temperatures have to be in it too. That is the whole cost of the
-text, and it is why the counter beside it is a number — it is the part that needs
-none of this.
+with a matching `e.text('console_mirror', ea.STATE)` in the definition's exposes.
+That is the whole cost of the text, and it is why the counter beside it is a plain
+number — it is the part that needs none of this.
+
+### Adding the external converter
+
+**Prerequisite: external JavaScript has to be enabled.** Z2M ignores converter
+files silently while it is off, so this comes first. Either in
+`configuration.yaml`:
+
+```yaml
+advanced:
+  enable_external_js: true
+```
+
+or in the frontend under **Settings → Settings → Advanced → `enable_external.js`**,
+which has to be checked. Both are the same switch; the frontend writes the same
+line into `configuration.yaml`.
+
+**Then add the file, preferably through the UI.** In the frontend, open
+**Settings → External converters**, add a new converter, paste the contents of
+[`nanoh2-ds18b20.mjs`](nanoh2-ds18b20.mjs) and save. Z2M stores it in its own
+`external_converters/` directory and loads it at runtime, so no restart is needed
+and a mistake in the file shows up as an error in the log straight away rather than
+as a Z2M that will not come back up.
+
+> **Tip — what to type as the filename.** Name it after the *model*, not the
+> device: `nanoh2-ds18b20.mjs`. A definition is matched by the `zigbeeModel` string
+> the device reports (`ZB_MODEL` in `config.h`), never by its IEEE address, so this
+> one file serves every board running this sketch — and an address in the name
+> would suggest a per-device scope that does not exist. It has to end in `.mjs`,
+> and it is a plain name, not a path: Z2M decides the directory.
+
+The manual route does the same thing by hand: copy the file into
+`external_converters/` next to `configuration.yaml` (Home Assistant add-on:
+`/config/external_converters/`) and **restart** Z2M. Use it when the frontend is
+not reachable or when the file is deployed by configuration management; the UI is
+otherwise the better way round, because it needs no restart.
+
+Either way, check the result on the device page: **Exposes** should now show
+*Console mirror* with a read button beside the *Mirror line count* number, and the
+device's MQTT state should gain a `console_mirror_14` key. Pressing the button on
+the board is the quickest end-to-end test — the console line it prints should
+appear there.
+
+A copy lives with the sketch so that the definition and the firmware it belongs to
+stay in one place; Z2M keeps its own copy, so a change to one has to be carried
+over to the other. **Regenerate it after any change to the endpoint list** — device
+page → *Dev console* → *Generate external definition* — and re-add the `m.text()`
+entry above to the result, which is the only part Z2M cannot produce by itself. A
+different `MAX_DS18B20_SENSORS` is the usual reason, and needs a
+[re-pair](#changing-the-sensor-count) anyway.
+
+The temperature endpoints are the part that goes stale, and the file names them
+twice — once in `m.deviceEndpoints()` and once in
+`m.temperature({endpointNames: ['20', '21', '22']})`. **Both lists have to match
+`MAX_DS18B20_SENSORS` in `config.h`**, which is 3 in the file as it ships: the
+sketch creates one temperature endpoint per configured slot, numbered up from
+`EP_TEMP_BASE` (20), and nothing on the device side adapts to a converter that
+disagrees. Listing an endpoint the firmware does not have produces an expose that
+stays `N/A` for good and a binding that fails during `configure`; listing one fewer
+hides a sensor that is really reporting. Regenerating gets this right by
+construction, since Z2M reads the endpoint list off the device — which is also why
+it is the better move than editing the two lists by hand.
 
 ## Pushbutton
 
@@ -1062,3 +1156,20 @@ the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
   Reconstructing what happened in between needs the serial console, and boot-time
   lines never make it out at all, because the radio is not up when they are
   printed. See [Console mirror](#console-mirror).
+- **Two open upstream issues touch this sketch.**
+  [arduino-esp32#12917](https://github.com/espressif/arduino-esp32/issues/12917):
+  seventeen of the core's report helpers leave `manuf_code` — the key the stack
+  looks an attribute up by — uninitialised, while the same library sets it
+  correctly on the configure-reporting path in ten other places. That is why
+  `ZbMirror::reportText()` builds its report command itself: zeroed first, then
+  `manuf_code` set to `ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC` by name rather
+  than by number, because the next SDK generation keeps that name and changes its
+  value from `0xFFFF` to `0x0000`. Every other report here — the temperatures, the
+  link values, the mirror's own counter — still goes through a core helper and so
+  is still on the uninitialised path; it works because the stack ignores the field
+  for a report that is not manufacturer specific.
+  [esp-zigbee-sdk#909](https://github.com/espressif/esp-zigbee-sdk/issues/909)
+  asks the other half: why a report the stack rejects aborts the device at
+  `esp_zigbee_zcl_command.c:263` instead of returning an error. That abort was
+  seen here, right after a join, and its cause was never identified — if it comes
+  back, erase the flash and pair fresh before looking anywhere else.

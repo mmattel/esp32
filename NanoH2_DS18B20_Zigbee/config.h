@@ -340,7 +340,8 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
  * what makes a coordinator bind the cluster - which is what lets the
  * text through at all - and it is also the part that is visible without
  * a converter. See "Console mirror" in README.md; Zigbee2MQTT needs a
- * small external converter to show the text itself.
+ * small external converter to show the text itself, which is what
+ * nanoh2-ds18b20.mjs in this folder is.
  * ------------------------------------------------------------------ */
 // 1 creates the endpoint, 0 keeps every line on the console only. Turning it on
 // or off changes the endpoint list, which costs a re-pair - the same as for the
