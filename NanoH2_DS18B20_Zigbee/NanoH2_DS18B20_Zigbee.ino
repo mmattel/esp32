@@ -483,7 +483,11 @@ void setupEndpoints() {
     // The value counts the mirrored lines: a plain number with no dimension, like
     // the LQI, and the part a coordinator can show without understanding the text.
     zbMirror.setAnalogInputApplication(ESP_ZB_ZCL_AI_COUNT_UNITLESS_COUNT);
-    zbMirror.setAnalogInputDescription("Console mirror");
+    // Names the counter, not the endpoint. Zigbee2MQTT takes this string as the expose
+    // name for presentValue, so "Console mirror" here would claim that name for the
+    // number and leave the text - which is the actual console mirror - to be renamed by
+    // hand in every converter. See "Showing the mirrored line" in README.md.
+    zbMirror.setAnalogInputDescription("Mirror line count");
     zbMirror.setAnalogInputResolution(1);
     zbMirror.setAnalogInputMinMax(0, 65535);  // the counter is 16 bit and wraps there
     if (!zbMirror.addText()) {
