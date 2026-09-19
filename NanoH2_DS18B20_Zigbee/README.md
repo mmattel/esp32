@@ -887,7 +887,9 @@ discarded here at the source.
 ### Showing the mirrored line
 
 Endpoint 14 sends two things on every new line: `presentValue`, which Z2M exposes
-as `analog_in_count_14`, and the line itself in attribute `0xF000` (61440), a ZCL
+as `mirror_line_count_14` — it names an expose after the cluster's `description`
+attribute, which is why the sketch sets that to "Mirror line count" and not to
+"Console mirror" — and the line itself in attribute `0xF000` (61440), a ZCL
 character string. Z2M handles the first and has nowhere to put the second — its
 generated definitions can express a number, not a string — so out of the box the
 count increments and the text is only in the debug log.
@@ -912,7 +914,8 @@ const consoleMirror = {
 };
 ```
 
-with a matching `e.text('console_mirror', ea.STATE)` in the definition's exposes.
+with a matching `e.text('console_mirror', ea.STATE)` in the definition's exposes —
+that name being free is the point of calling the counter something else.
 Note that an external definition **replaces** the generated one for this model, so
 whatever it does not list disappears from the device page: the settings, the link
 values and the temperatures have to be in it too. That is the whole cost of the
