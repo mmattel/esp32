@@ -96,6 +96,12 @@ Covers:
   `MIRROR_TEXT_LEN` so a shorter line cannot leave the tail of a longer one behind,
   a `trim()` away from what was printed, with the line count beside it and both
   reported through the binding table from this endpoint.
+- Every field of the report command, including the ones the sketch has no opinion
+  about. `manuf_code` is the key the stack looks the attribute up by, and the text
+  attribute is added under no manufacturer code at all, so that is what the report has
+  to ask for. The test fills the stack with a pattern first (`poisonStack()`) so a
+  field nobody set reads as garbage here rather than as a lucky zero — with a pattern
+  chosen not to collide with the value that is actually correct.
 - The deadband: a line repeated three times costs one report and does not move the
   count; the line before last counts as new again.
 - A leading indent is dropped, and a line longer than `MIRROR_TEXT_LEN` is cut, not

@@ -118,6 +118,17 @@ static void reset() {
   Zigbee.up = true;
 }
 
+// Fills the stack the next calls build their frames in with a pattern, so a field
+// the sketch leaves unset is read here as garbage rather than as the zero a fresh
+// host stack happens to hold - which is what lets the checks below tell a field that
+// was set deliberately from one that was not set at all. The pattern is deliberately
+// not 0xFF: 0xFFFF is a value the sketch has a legitimate reason to send, and a
+// poison that can be mistaken for the right answer proves nothing.
+static void poisonStack() {
+  volatile uint8_t junk[4096];
+  memset((void *)junk, 0xA5, sizeof(junk));
+}
+
 // What a receiver's trim() leaves of the string that was written - see
 // "Showing the mirrored line" in the sketch README.
 static const char *trimmed() {
@@ -173,6 +184,7 @@ int main() {
   {
     ZbMirror m(EP_MIRROR);
     m.addText();
+    poisonStack();
     m.mirror("Zigbee connected");
     check("the text was written", textWrites == 1);
     check("to the analog input cluster, server side",
@@ -191,6 +203,13 @@ int main() {
     check("reported as the standard cluster it lives in",
           lastReport.clusterID == ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT && lastReport.attributeID == MIRROR_TEXT_ATTR_ID);
     check("not flagged manufacturer specific", lastReport.manuf_specific == 0);
+    // The key the attribute is looked up by, and the one field the core's own report
+    // helpers never set. addText() adds the attribute with the non-manufacturer
+    // variant of add_attr, so the report has to ask for it under no manufacturer -
+    // asking under any other code is asking for an attribute that does not exist.
+    // poisonStack() above is what makes an unset field visible here.
+    check("asked for under no manufacturer code",
+          lastReport.manuf_code == ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC);
   }
 
   printf("only what changed, and counted as it comes\n");
