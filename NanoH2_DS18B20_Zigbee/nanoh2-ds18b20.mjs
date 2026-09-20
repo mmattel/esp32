@@ -12,8 +12,12 @@
 // console_mirror stays free for the text.
 //
 // An external definition REPLACES the generated one, so anything missing here
-// disappears from the device page. Regenerate and re-add the m.text() entry whenever
-// the endpoint list changes - a different MAX_DS18B20_SENSORS is the one that does it.
+// disappears from the device page - and an endpoint the firmware gained stays
+// invisible however often the device is re-interviewed or re-paired, which is the one
+// failure that looks like a firmware bug and is not. So regenerate and re-add the
+// m.text() entry whenever the endpoint list changes, which is not only a different
+// MAX_DS18B20_SENSORS: a setting or a diagnostic endpoint added or switched off does
+// it too. Endpoint 15, the temperature correction, is one that did.
 //
 // How to install this in Zigbee2MQTT, and why: see "Adding the external converter" in
 // README.md. This copy is the one kept with the sketch; Zigbee2MQTT holds its own copy
