@@ -128,8 +128,9 @@ Covers, across the interval, the delta and the temperature correction:
 - Precedence: code default when NVS is empty, NVS over the default, and a stored
   out-of-range value still clamped on load.
 - `applyPending()`: no-op without a pending write, change detection on a repeated
-  write, persistence to NVS, and mirror-back of the effective value after a
-  clamped write.
+  write, persistence to NVS, and mirror-back of the effective value after every
+  write that changed something — clamped, rounded or taken as sent — while a write
+  that changed nothing stays silent.
 - The negative half of all of that, which only the correction's range reaches:
   rounding away from zero on the low side, a value below the minimum clamped to
   it, 0 left exactly as it is since that is what switches the correction off, and

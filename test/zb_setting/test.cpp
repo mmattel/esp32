@@ -151,29 +151,30 @@ int main() {
   if (!changed) fails++;
   check("value applied", d.value(), 2.5f);
   check("persisted to NVS", q.getFloat(NVS_KEY_DELTA, NAN), 2.5f);
-  // Taken as sent, so nothing is pushed to the attribute - this endpoint has had
-  // nothing pushed to it at all, which is what NaN says here. The block further
-  // down checks the same rule against an attribute the write really went through.
-  printf("  taken as sent -> nothing pushed to the attribute -> %s\n", isnan(d._ep.output) ? "yes (ok)" : "no (FAIL)");
-  if (!isnan(d._ep.output)) fails++;
+  // A write that changed the value is pushed back to the attribute, taken as sent
+  // or not: it is what tells the coordinator the write landed.
+  check("value pushed to the attribute", d._ep.output, 2.5f);
 
   d.note(2.5f);
+  int idleReportsBefore = d._ep.reports;
   changed = d.applyPending(q);
   printf("  rewriting same value -> changed=%s\n", changed ? "true (FAIL)" : "false (ok)");
   if (changed) fails++;
+  printf("  rewriting same value -> reported -> %s\n", d._ep.reports == idleReportsBefore ? "no (ok)" : "yes (FAIL)");
+  if (d._ep.reports != idleReportsBefore) fails++;
 
   d.note(50.0f);
   d.applyPending(q);
   check("clamped write persisted", q.getFloat(NVS_KEY_DELTA, NAN), TEMP_DELTA_MAX_C);
   check("clamped write mirrored",  d._ep.output, TEMP_DELTA_MAX_C);
 
-  // A write taken verbatim leaves the attribute alone: the stack already holds
-  // it, and mirroring would only replace the coordinator's digits with ours. The
-  // writes below go in through the stub's injectWrite(), which stores the value in
-  // the attribute before calling back exactly as the stack does - so the attribute
-  // afterwards shows whether the value in use and the value the coordinator can
-  // read still agree.
-  printf("mirror-back only for a write that was not taken as sent\n");
+  // Every accepted write is reported back with the value in effect, whether the
+  // device took it as sent or corrected it, because a coordinator that hears
+  // nothing cannot tell the two apart. The writes below go in through the stub's
+  // injectWrite(), which stores the value in the attribute before calling back
+  // exactly as the stack does - so the attribute afterwards shows whether the value
+  // in use and the value the coordinator can read still agree.
+  printf("mirror-back for every write that changed something\n");
   ZbSetting e = makeDelta();
   Preferences r;
   e.load(r);
@@ -184,8 +185,8 @@ int main() {
   e.applyPending(r);
   check("verbatim write left in the attribute", e._ep.output, 1.5f);
   check("attribute agrees with the value in use", e._ep.output, e.value());
-  printf("  verbatim write reported -> %s\n", e._ep.reports == reportsBefore ? "no (ok)" : "yes (FAIL)");
-  if (e._ep.reports != reportsBefore) fails++;
+  printf("  verbatim write reported -> %s\n", e._ep.reports > reportsBefore ? "yes (ok)" : "no (FAIL)");
+  if (e._ep.reports <= reportsBefore) fails++;
   e._ep.injectWrite(1.53f);  // off the step, so it is rounded and has to be corrected
   e.applyPending(r);
   check("rounded write corrected in the attribute", e._ep.output, 1.5f);
