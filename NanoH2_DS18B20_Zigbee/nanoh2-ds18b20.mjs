@@ -27,10 +27,10 @@ export default {
     vendor: 'M5Stack',
     description: 'DS18B20 temperatures over Zigbee, with settings, link quality and a console mirror',
     extend: [
-        // 10 to 14 are fixed. Everything from 20 up is one endpoint per configured
+        // 10 to 15 are fixed. Everything from 20 up is one endpoint per configured
         // sensor slot, so this list and the m.temperature() one below have to hold
         // exactly MAX_DS18B20_SENSORS of them - see the comment there.
-        m.deviceEndpoints({endpoints: {10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 20: 20, 21: 21, 22: 22}}),
+        m.deviceEndpoints({endpoints: {10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 20: 20, 21: 21, 22: 22}}),
         m.identify(),
         m.numeric({
             name: 'reading_interval_(s)',
@@ -58,6 +58,25 @@ export default {
             description: 'Analog Output Reporting delta (C) on endpoint 11',
             access: 'ALL',
             endpointNames: ['11'],
+            unit: '°C',
+        }),
+        // Endpoint 15, out of order on purpose: the device registers this setting with
+        // the two above it, so that is where a generated definition puts it, and the
+        // number is above the mirror's only because it was added after 10 to 14 were in
+        // the field - see EP_CONFIG_CORRECTION in config.h. It is one value for every
+        // sensor on the device, not one per slot; ±5 °C in quarter steps, 0 for none.
+        m.numeric({
+            name: 'temperature_correction_(c)',
+            label: 'Temperature correction (C)',
+            valueMin: -5,
+            valueMax: 5,
+            valueStep: 0.25,
+            cluster: 'genAnalogOutput',
+            attribute: 'presentValue',
+            reporting: {min: 'MIN', max: 'MAX', change: 1},
+            description: 'Analog Output Temperature correction (C) on endpoint 15',
+            access: 'ALL',
+            endpointNames: ['15'],
             unit: '°C',
         }),
         m.numeric({

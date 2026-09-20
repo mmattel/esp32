@@ -123,7 +123,7 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // README.md.
 //
 // 0 is allowed. The device then has no temperature endpoints and never
-// touches PIN_ONEWIRE, leaving the two settings endpoints, the LED and the
+// touches PIN_ONEWIRE, leaving the settings endpoints, the LED and the
 // button - a Zigbee-only build. How many sensors are actually plugged in is
 // a separate question and never a problem: a slot without its sensor stays
 // UNASSIGNED, and an empty bus is a defined state, not an error.
@@ -162,6 +162,30 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 #define TEMP_DELTA_MIN_C 0.0f
 #define TEMP_DELTA_MAX_C 20.0f
 #define TEMP_DELTA_STEP_C 0.25f  // writes are rounded to this step
+
+// Temperature correction, in °C: added to every reading before it is rounded,
+// published, compared against the deadband and printed, so the console, the
+// attribute and the coordinator all see the same corrected number. Same precedence
+// as the two above - code default, then NVS, then whatever Zigbee writes - and the
+// same quarter-degree step, for the same reason: every multiple of 0.25 is exact in
+// the float the value travels in, so what is set is what is read back.
+//
+// One value for the whole device, not one per sensor. A DS18B20 is accurate to
+// ±0.5 °C, so a correction is about a reference to align against or the warmth of
+// an enclosure, and those apply to the device rather than to one of its sensors.
+// Per sensor would also mean a correction bound to a slot, and a slot can change
+// hands - a sensor that is replaced leaves its slot to the replacement (see
+// "Replacing a sensor" in README.md), which would quietly hand the old sensor's
+// correction to the new one. A device-wide value cannot go wrong that way.
+//
+// ±5 °C is deliberately narrow: it is a correction, not a calibration curve, and a
+// range wide enough to publish a temperature nowhere near the sensor's would turn a
+// mistyped value into plausible-looking data. 0 disables it, which is the default -
+// an uncorrected reading is the sensor's own measurement.
+#define TEMP_CORRECTION_DEFAULT_C 0.0f
+#define TEMP_CORRECTION_MIN_C -5.0f
+#define TEMP_CORRECTION_MAX_C 5.0f
+#define TEMP_CORRECTION_STEP_C 0.25f  // writes are rounded to this step
 
 // Decimals a reading is rounded to before it is published and printed, so the
 // console, the Zigbee attribute and the deadband all work on the same number.
@@ -260,9 +284,8 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
  * ------------------------------------------------------------------ */
 // Endpoint numbers. Any assignment within 1..240 is legal - the numbers carry no
 // meaning of their own - and this one puts what describes the device first and
-// the measurements last: the two writable settings, then the two link
-// measurements, then the console mirror, then one endpoint per temperature slot
-// above them.
+// the measurements last: the writable settings, then the two link measurements,
+// then the console mirror, then one endpoint per temperature slot above them.
 //
 // The block below is fixed rather than derived from the sensor count, so
 // changing MAX_DS18B20_SENSORS no longer moves it. That matters because a
@@ -276,6 +299,13 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 #define EP_LINK_LQI 12
 #define EP_LINK_RSSI 13
 #define EP_MIRROR 14
+
+// The temperature correction arrived after the block above was in the field, and an
+// endpoint number that moves renames the setting it belongs to on every coordinator
+// that already knows this device - so it goes on the end rather than next to the
+// other two settings at 10 and 11. Only the number sits apart: it is registered
+// with them in setupEndpoints(), which is the order a coordinator lists.
+#define EP_CONFIG_CORRECTION 15
 
 // Temperature sensors occupy EP_TEMP_BASE .. EP_TEMP_BASE+MAX-1. The gap above
 // the block leaves room for further settings without moving the sensors.
@@ -454,4 +484,5 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 #define NVS_KEY_COMMISSIONED "joined"
 #define NVS_KEY_INTERVAL "interval"
 #define NVS_KEY_DELTA "delta"
+#define NVS_KEY_CORRECTION "correction"
 #define NVS_KEY_ROM_PREFIX "rom"  // rom0, rom1, ... one key per slot

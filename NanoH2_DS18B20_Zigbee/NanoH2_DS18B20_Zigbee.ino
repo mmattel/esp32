@@ -7,15 +7,17 @@
  *   sensor's own 64-bit ROM code, and the measured value is its temperature.
  *   Slots without a sensor, and a count of 0, are both fine - see config.h.
  * - The bus is read every "interval" seconds; a reading is only published when
- *   it moves more than "delta" degrees from the last published one. Both are
- *   writable from the coordinator and persisted.
+ *   it moves more than "delta" degrees from the last published one. A third
+ *   setting, "correction", is added to every reading before any of that happens,
+ *   so a whole device can be aligned against a reference. All three are writable
+ *   from the coordinator and persisted.
  * - The quality (LQI) and the strength (RSSI, in dBm) of the link to the parent
  *   are read on their own interval, logged, and each published on its own analog
  *   input endpoint. This is the device's own view of the link, the opposite
  *   direction to the "linkquality" a coordinator reports.
  * - One further endpoint mirrors the console: the last line worth an event -
- *   the join, the link going, whatever the button did, an error, an interval or
- *   a delta that changed - is published as text, read-only, alongside a count of
+ *   the join, the link going, whatever the button did, an error, a setting that
+ *   changed - is published as text, read-only, alongside a count of
  *   those lines. It is how the device says what happened where no serial console
  *   is attached.
  * - While the device has no network it reports the wait and periodically lists
@@ -100,20 +102,34 @@ static_assert(MAX_DS18B20_SENSORS <= 16,
 
 // The temperature block is the one that grows with the sensor count, so it is the
 // one that can run off the end of the endpoint range.
-static_assert(EP_CONFIG_INTERVAL >= 1 && EP_CONFIG_DELTA >= 1 && EP_LINK_LQI >= 1 && EP_LINK_RSSI >= 1
-                && EP_MIRROR >= 1 && EP_TEMP_BASE >= 1 && EP_TEMP_BASE + MAX_DS18B20_SENSORS - 1 <= 240,
+static_assert(EP_CONFIG_INTERVAL >= 1 && EP_CONFIG_DELTA >= 1 && EP_CONFIG_CORRECTION >= 1 && EP_LINK_LQI >= 1
+                && EP_LINK_RSSI >= 1 && EP_MIRROR >= 1 && EP_TEMP_BASE >= 1
+                && EP_TEMP_BASE + MAX_DS18B20_SENSORS - 1 <= 240,
               "Zigbee endpoint numbers have to stay within 1..240");
 
 // The temperature slots sit above the settings, the link and the mirror, and every
 // endpoint number has to be unique: a collision would register two endpoints as one.
-static_assert(EP_TEMP_BASE > EP_CONFIG_INTERVAL && EP_TEMP_BASE > EP_CONFIG_DELTA && EP_TEMP_BASE > EP_LINK_LQI
-                && EP_TEMP_BASE > EP_LINK_RSSI && EP_TEMP_BASE > EP_MIRROR,
+static_assert(EP_TEMP_BASE > EP_CONFIG_INTERVAL && EP_TEMP_BASE > EP_CONFIG_DELTA
+                && EP_TEMP_BASE > EP_CONFIG_CORRECTION && EP_TEMP_BASE > EP_LINK_LQI && EP_TEMP_BASE > EP_LINK_RSSI
+                && EP_TEMP_BASE > EP_MIRROR,
               "the temperature endpoints have to stay above the settings, the link and the mirror endpoints");
-static_assert(EP_CONFIG_INTERVAL != EP_CONFIG_DELTA && EP_CONFIG_INTERVAL != EP_LINK_LQI
-                && EP_CONFIG_INTERVAL != EP_LINK_RSSI && EP_CONFIG_INTERVAL != EP_MIRROR
-                && EP_CONFIG_DELTA != EP_LINK_LQI && EP_CONFIG_DELTA != EP_LINK_RSSI && EP_CONFIG_DELTA != EP_MIRROR
-                && EP_LINK_LQI != EP_LINK_RSSI && EP_LINK_LQI != EP_MIRROR && EP_LINK_RSSI != EP_MIRROR,
-              "every Zigbee endpoint number has to be used only once");
+
+// Pairwise, one static_assert per endpoint against the ones after it. Spelled out
+// rather than looped over a table, because a table would need a constexpr helper and
+// the Arduino builder generates its own prototypes for the functions in a .ino. A
+// new endpoint gets a line of its own here and one term in each line above it.
+static_assert(EP_CONFIG_INTERVAL != EP_CONFIG_DELTA && EP_CONFIG_INTERVAL != EP_CONFIG_CORRECTION
+                && EP_CONFIG_INTERVAL != EP_LINK_LQI && EP_CONFIG_INTERVAL != EP_LINK_RSSI
+                && EP_CONFIG_INTERVAL != EP_MIRROR,
+              "the reading interval endpoint number is used twice");
+static_assert(EP_CONFIG_DELTA != EP_CONFIG_CORRECTION && EP_CONFIG_DELTA != EP_LINK_LQI
+                && EP_CONFIG_DELTA != EP_LINK_RSSI && EP_CONFIG_DELTA != EP_MIRROR,
+              "the reporting delta endpoint number is used twice");
+static_assert(EP_CONFIG_CORRECTION != EP_LINK_LQI && EP_CONFIG_CORRECTION != EP_LINK_RSSI
+                && EP_CONFIG_CORRECTION != EP_MIRROR,
+              "the temperature correction endpoint number is used twice");
+static_assert(EP_LINK_LQI != EP_LINK_RSSI && EP_LINK_LQI != EP_MIRROR && EP_LINK_RSSI != EP_MIRROR,
+              "a link or mirror endpoint number is used twice");
 
 // The retry shortens the wait for the next link reading, so a value above the
 // interval it shortens would mean "retry every loop" instead.
@@ -137,6 +153,12 @@ ZbSetting cfgInterval(EP_CONFIG_INTERVAL, NVS_KEY_INTERVAL, "Reading interval (s
                       TEMP_INTERVAL_MIN_S, TEMP_INTERVAL_MAX_S, TEMP_INTERVAL_STEP_S, ESP_ZB_ZCL_AI_TIME_RELATIVE);
 ZbSetting cfgDelta(EP_CONFIG_DELTA, NVS_KEY_DELTA, "Reporting delta (C)", TEMP_DELTA_DEFAULT_C, TEMP_DELTA_MIN_C,
                    TEMP_DELTA_MAX_C, TEMP_DELTA_STEP_C, ESP_ZB_ZCL_AI_TEMPERATURE_OTHER);
+// Added to every reading, one value for all slots - see TEMP_CORRECTION_* in
+// config.h for why it is not per sensor. 26 characters of description, inside the
+// 32 the Zigbee library allows, and it is what a coordinator names the setting.
+ZbSetting cfgCorrection(EP_CONFIG_CORRECTION, NVS_KEY_CORRECTION, "Temperature correction (C)",
+                        TEMP_CORRECTION_DEFAULT_C, TEMP_CORRECTION_MIN_C, TEMP_CORRECTION_MAX_C,
+                        TEMP_CORRECTION_STEP_C, ESP_ZB_ZCL_AI_TEMPERATURE_OTHER);
 
 // The link towards the parent: quality as an LQI, strength as an RSSI in dBm,
 // one analog input endpoint each because an Analog Input cluster carries a
@@ -161,6 +183,9 @@ void onIntervalWritten(float value) {
 }
 void onDeltaWritten(float value) {
   cfgDelta.note(value);
+}
+void onCorrectionWritten(float value) {
+  cfgCorrection.note(value);
 }
 
 // Slot -> sensor mapping. Persisted, so slot 0 keeps meaning the same physical
@@ -212,7 +237,7 @@ bool linkNow = false;            // read the link as soon as there is one
 bool linkWaitLogged = false;     // "nothing to read" already said once this join
 bool linkAssumedLogged = false;  // so has the note about an unflagged parent
 
-// When the two settings last went out, for their heartbeat. See
+// When the settings last went out, for their heartbeat. See
 // handleSettingReports() for why they need one.
 uint32_t lastSettingReportMs = 0;
 
@@ -339,6 +364,7 @@ void loadSettings() {
   commissioned = prefs.getBool(NVS_KEY_COMMISSIONED, false);
   cfgInterval.load(prefs);
   cfgDelta.load(prefs);
+  cfgCorrection.load(prefs);
 
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     slotRom[i] = prefs.getULong64(romKey(i).c_str(), 0);
@@ -551,7 +577,11 @@ void createEndpoints() {
 void setupEndpoints() {
   cfgInterval.addEndpoint(onIntervalWritten);
   cfgDelta.addEndpoint(onDeltaWritten);
-  Serial.printf("EP %u -> reading interval\r\nEP %u -> reporting delta\r\n", EP_CONFIG_INTERVAL, EP_CONFIG_DELTA);
+  // Registered here with the other two settings although its number is above the
+  // mirror's: a coordinator lists the endpoints in the order they are added.
+  cfgCorrection.addEndpoint(onCorrectionWritten);
+  Serial.printf("EP %u -> reading interval\r\nEP %u -> reporting delta\r\nEP %u -> temperature correction\r\n",
+                EP_CONFIG_INTERVAL, EP_CONFIG_DELTA, EP_CONFIG_CORRECTION);
 
   if (ZB_LQI_ENDPOINT) {
     zbLqi.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
@@ -642,6 +672,7 @@ void onZigbeeConnected() {
   // for the far more likely case that it is not yet - see handleSettingReports().
   cfgInterval.publish();
   cfgDelta.publish();
+  cfgCorrection.publish();
   lastSettingReportMs = millis();
 
   // Seed the coordinator with fresh values: after a join or a rejoin it has no
@@ -782,7 +813,7 @@ void updateLinkState() {
 // was, and the stack's own reporting configuration is no fallback: a coordinator may
 // overwrite it (Zigbee2MQTT does), and the settings are given none in the first
 // place. Repeating on our own schedule is what closes that, for temperatures, for
-// the link and for the two settings alike.
+// the link and for the settings alike.
 bool reportOverdue(uint32_t lastMs, uint32_t heartbeatS) {
   return heartbeatS > 0 && (millis() - lastMs) >= heartbeatS * 1000UL;
 }
@@ -790,12 +821,22 @@ bool reportOverdue(uint32_t lastMs, uint32_t heartbeatS) {
 void handleSettingWrites() {
   cfgInterval.applyPending(prefs);  // takes effect on the next sample
   cfgDelta.applyPending(prefs);     // takes effect on the next reading
+
+  // A correction that changed makes every temperature the coordinator holds wrong by
+  // the amount of the change, and the deadband would hold the corrected values back
+  // for as long as they stay within delta of the uncorrected ones - a correction of a
+  // quarter degree might never arrive anywhere. So this is the one setting whose
+  // write forces a fresh round: forget what was published and sample now.
+  if (cfgCorrection.applyPending(prefs)) {
+    resetPublished();
+    sampleNow = true;
+  }
 }
 
-// Both settings, repeated on the heartbeat. Nothing else ever reports them: they
-// only change when a coordinator writes them, and the coordinator that wrote one
-// has the value already - so without this, one that bound after the join publish
-// would show no interval and no delta until it wrote one itself.
+// All three settings, repeated on the heartbeat. Nothing else ever reports them:
+// they only change when a coordinator writes them, and the coordinator that wrote
+// one has the value already - so without this, one that bound after the join publish
+// would show no interval, delta or correction until it wrote one itself.
 void handleSettingReports() {
   if (!Zigbee.connected() || !reportOverdue(lastSettingReportMs, SETTING_REPORT_HEARTBEAT_S)) {
     return;
@@ -803,6 +844,7 @@ void handleSettingReports() {
   lastSettingReportMs = millis();
   cfgInterval.publish();
   cfgDelta.publish();
+  cfgCorrection.publish();
 }
 
 /* --------------------------- temperature -------------------------- */
@@ -818,6 +860,9 @@ float roundReading(float celsius) {
 
 void readAndPublish() {
   float delta = cfgDelta.value();
+  // One value for every slot, and read once for the whole round: a write that lands
+  // between two slots would otherwise correct the rest of them and not the first.
+  float correction = cfgCorrection.value();
 
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     if (!slotPresent[i]) {
@@ -855,7 +900,14 @@ void readAndPublish() {
       continue;
     }
 
-    float celsius = roundReading(r.celsius);
+    // Corrected first, rounded after: both are a quarter degree or coarser, so the
+    // other order would round what is already rounded and could land a step away.
+    // Everything after this point - the deadband, the attribute, the report, the last
+    // good reading, the console - works on the corrected number, because a coordinator
+    // that is told 21.5 C has to see the same 21.5 C wherever else it is written down.
+    // r.powerOnReset is unaffected: it comes from the sensor's own register value, and
+    // a correction does not stop 85.00 C from being the power-on default.
+    float celsius = roundReading(r.celsius + correction);
 
     // Records the reading as this slot's last good one, and says so if it is exactly
     // the power-on default - see slots.h. Given the rounded value, so that what a
@@ -891,9 +943,22 @@ void readAndPublish() {
     // worth a line - see LOG_EVERY_READING, which is what to raise while
     // choosing the deadband, since it also prints the readings held back.
     if (publish || LOG_EVERY_READING) {
-      Serial.printf("slot %u  EP %u  %s  %.*f C  %s\r\n", i, EP_TEMP_BASE + i, rom, TEMP_PUBLISH_DECIMALS, celsius,
+      // A corrected reading looks exactly like an uncorrected one, so while a
+      // correction is in effect the line says what it was applied to - otherwise the
+      // console would be the one place that cannot tell a warm sensor from a value
+      // shifted by hand. Left out at 0, which is the default: "(raw 21.50, correction
+      // +0.00)" on every line of every device that never set one is noise. Console
+      // only - the coordinator has the correction as an endpoint of its own, and the
+      // mirror carries a single line that this would not be the best use of.
+      char applied[48] = "";
+      if (correction != 0.0f) {
+        snprintf(applied, sizeof(applied), "  (raw %.*f C, correction %+.2f)", TEMP_PUBLISH_DECIMALS,
+                 roundReading(r.celsius), correction);
+      }
+      Serial.printf("slot %u  EP %u  %s  %.*f C  %s%s\r\n", i, EP_TEMP_BASE + i, rom, TEMP_PUBLISH_DECIMALS, celsius,
                     !publish ? "within deadband"
-                             : first ? "published (first)" : heartbeat ? "published (heartbeat)" : "published");
+                             : first ? "published (first)" : heartbeat ? "published (heartbeat)" : "published",
+                    applied);
     }
   }
 }
@@ -1147,7 +1212,7 @@ void factoryReset() {
   logEvent("Factory reset: clearing NVS and re-pairing");
   ledWrite(COLOR_RESET_DONE);  // white already, and stays so through the wipe
 
-  prefs.clear();  // slots, interval, delta and the commissioning flag
+  prefs.clear();  // the slots, all three settings and the commissioning flag
   prefs.end();
   delay(200);
 
