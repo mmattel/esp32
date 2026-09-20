@@ -29,6 +29,13 @@
 struct DS18B20Reading {
   bool valid;
   float celsius;
+  // The reading is exactly +85.00 C, which is what a DS18B20's temperature
+  // register holds after a power-on reset - so it is what comes back from a
+  // sensor whose supply dipped, or one read before any conversion finished. The
+  // CRC is good either way, so validity cannot tell the two apart, and 85 C is a
+  // temperature a sensor can legitimately be at. Hence a flag rather than a
+  // rejection: whether it is plausible is the application's call.
+  bool powerOnReset;
 };
 
 class DS18B20Bus {

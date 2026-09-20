@@ -25,10 +25,12 @@ count](#changing-the-sensor-count).
 - [Link quality and signal strength](#link-quality-and-signal-strength)
 - [Console mirror](#console-mirror)
 - [Serial console](#serial-console)
+  - [Telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed)
   - [Why the first lines used to arrive mangled](#why-the-first-lines-used-to-arrive-mangled)
 - [Zigbee2MQTT](#zigbee2mqtt)
   - [An expose that stays N/A](#an-expose-that-stays-na)
   - [Showing the mirrored line](#showing-the-mirrored-line)
+  - [Adding the external converter](#adding-the-external-converter)
 - [Pushbutton](#pushbutton)
 - [Notes and limits](#notes-and-limits)
 
@@ -45,6 +47,7 @@ count](#changing-the-sensor-count).
 | `zb_link_endpoint.h/.cpp` | Analog input endpoint that can state its unit, for the RSSI in dBm |
 | `console.h` | `logEvent()`: prints a line and hands it to the console mirror |
 | `zb_mirror.h/.cpp` | The console mirror endpoint: the last line worth an event, as text |
+| `nanoh2-ds18b20.mjs` | Not firmware: the Zigbee2MQTT external converter, so the mirrored line becomes an expose |
 
 The pure-logic parts — the 1-Wire driver, the settings, the link lookup and the console mirror — have
 host tests in [`../test/`](../test/); run them with `cd test && make`.
@@ -380,6 +383,14 @@ What changes on the air:
   `Zigbee.begin()`. After flashing, hold the button for 5 s and release to factory
   reset, then join again. In Zigbee2MQTT, delete the device first and let it re-interview;
   otherwise Z2M keeps serving the cached definition with the old endpoint set.
+- **The external converter has to follow the count.**
+  [`nanoh2-ds18b20.mjs`](nanoh2-ds18b20.mjs) lists the temperature endpoints twice —
+  in `m.deviceEndpoints()` and in `m.temperature({endpointNames: …})` — and both
+  lists have to hold exactly `MAX_DS18B20_SENSORS` endpoints, counting up from
+  `EP_TEMP_BASE` (20). One too many gives an expose that can never update and a
+  binding Z2M logs as failed during `configure`; one too few hides a sensor that is
+  really there. Regenerate rather than edit by hand: see [Adding the external
+  converter](#adding-the-external-converter).
 
 Two smaller things:
 
@@ -650,7 +661,9 @@ What is mirrored is what the console calls an event in its own right:
 | `Button: idle now, back in use` | that pin went idle again, so the button is real after all |
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
 | `Reading interval (s) written from Zigbee: 300.00 -> 300` | a coordinator changed the interval or the delta and it moved |
-| `slot 0 (28FF…): read failed`, `slot 1 (…) is configured but missing` | a sensor stopped answering |
+| `slot 0 (28FF…): read failed, never read since boot`, `slot 1 (…) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
+| `slots: 1 on the bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
+| `slot 0 (28FF…): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
 | `1-Wire: no device responded to CONVERT T` | nothing on the bus at all |
 | `FATAL: …`, `Flash partition '…' is missing`, `NVS open failed …`, `Zigbee failed to start …`, `scan: failed` | every error line the sketch prints |
 
@@ -733,9 +746,11 @@ what keeps the lines that matter visible at 115200 baud:
 | a reading past its deadband, published | yes |
 | a reading inside its deadband | no |
 | a value repeated by its heartbeat | yes, marked `(heartbeat)` |
-| a failed read, a slot going missing | yes |
+| a failed read, a slot going missing | yes, with what the slot had read before |
+| a reading of exactly 85.00 °C, the register's power-on value | yes, once per spell of it |
 | a scan finding the same sensors as last time | no |
 | a scan finding a different number, or a new ROM code | yes |
+| a scan whose slot counts changed, empty slots included | yes |
 | joining, losing the link, a factory reset, a fault | yes |
 | the banner and the configured slot count, once at boot | yes |
 
@@ -755,6 +770,70 @@ The rows that are events in their own right — joining, losing the link, what t
 button did, an error, a setting a coordinator changed — are exactly the ones that
 also go out on endpoint 14, so they are readable without a console attached at all.
 See [Console mirror](#console-mirror).
+
+### Telling an empty slot from a sensor that has failed
+
+A temperature expose with no value looks the same either way: a slot nothing was
+ever plugged into, and a sensor that worked for a month and then stopped, both
+read N/A. The console and the mirror are where the difference is stated.
+
+Four states, and what each one prints:
+
+| State | Line | On the air |
+| --- | --- | --- |
+| never assigned | `slot 2 is unassigned, no sensor has ever claimed it` | no, see below |
+| assigned, not answering the bus scan | `slot 0 (28FF…) is configured but missing` | yes |
+| answering the scan, every read bad, none ever good | `slot 0 (28FF…): read failed, never read since boot` | yes |
+| answering the scan, every read bad, one was good | `slot 0 (28FF…): read failed, last good 21.4 C` + `that reading was 7 min ago` | the first line only |
+
+The middle two are the useful pair. A slot only holds a ROM code because a scan
+once found that sensor and wrote the code to NVS, so **`configured but missing`
+is proof the sensor existed** — a slot that was never filled cannot produce that
+line. And `read failed` says the sensor still answers the ROM search, so it is
+powered and addressable, but the scratchpad came back with a bad CRC or an
+impossible value: a marginal contact rather than a missing device.
+
+**Which of those two you get is itself the diagnosis.** A sensor that is gone
+goes missing at the scan; a sensor that is dying answers the scan and fails the
+read, over and over as the rescan keeps finding it again.
+
+Since the mirror holds exactly one line, the per-slot detail cannot all fit on
+it, so one summary line goes out whenever the counts change:
+
+```
+slots: 1 on the bus, 1 missing, 1 never seen
+```
+
+That is the whole picture in one line, it is stable while nothing changes — so
+the mirror's deadband suppresses the repeats — and it is sent again after every
+join, because the only scan that ran before the radio came up was the one in
+`setup()`, whose result reached nobody. With every slot reading, the counts stop
+changing and the temperatures themselves are the better answer anyway.
+
+What is deliberately **not** mirrored: the unassigned-slot lines (three empty
+slots would push each other off a one-line mirror, and an empty slot is not a
+fault), and the age of the last good reading (it changes on every attempt, which
+would make every failed read a fresh report). Both are on the console, where
+there is room.
+
+**85.00 °C is not a temperature, usually.** That exact value is what a DS18B20's
+temperature register holds after a power-on reset, with a perfectly good CRC — so
+it is what a sensor whose supply dips returns, and what any sensor returns if it
+is read before its first conversion finishes. It is also a temperature a sensor
+can legitimately be at, so the driver flags it rather than dropping it
+(`DS18B20Reading::powerOnReset`) and the sketch publishes the value and says what
+it means:
+
+```
+slot 0 (28FF641E1234ABCD): 85.00 C is the power-on default
+  check the supply and the wiring
+```
+
+Once per spell of it, not once per interval, and the check is for that exact
+value: 84.9375 °C and 85.0625 °C are one sixteenth of a degree away and are
+treated as real readings. The usual cause is a pull-up or a supply that cannot
+hold the sensor through a conversion — see [supply
+voltage](#supply-voltage--check-this-before-powering-up).
 
 ### Why the first lines used to arrive mangled
 
@@ -878,6 +957,13 @@ After a binding change the value arrives at the next heartbeat at the latest
 is what the heartbeat is there for. The temperature exposes work exactly the same
 way and only look healthier because a temperature keeps moving.
 
+A temperature expose is also the one case where `N/A` is often not a fault at
+all: there is an endpoint per configured slot whether or not a sensor is in it,
+so an empty slot has nothing to publish and stays `N/A` by design. Which of the
+two it is, the console and the mirror say outright — see [telling an empty slot
+from a sensor that has
+failed](#telling-an-empty-slot-from-a-sensor-that-has-failed).
+
 The [console mirror](#console-mirror) rides on this same mechanism, which is why
 its text sits in a `genAnalogInput` cluster rather than in a cluster of its own: the
 binding Z2M creates for the counter is what carries the text with it. A cluster Z2M
@@ -898,8 +984,35 @@ Read it by hand, no converter involved: dev console → endpoint `14` →
 `genAnalogInput` → read attribute `61440`. That works whenever the device is awake
 and is the quickest way to answer "what happened".
 
-To have it as an expose, an external converter has to do that mapping. The part
-that matters is small — the endpoint, the attribute and the string:
+To have it as an expose, an external converter has to do that mapping, and
+[`nanoh2-ds18b20.mjs`](nanoh2-ds18b20.mjs) in this folder is that converter, ready
+to use — see [Adding the external converter](#adding-the-external-converter). All
+it adds to what Z2M generates by itself is one entry:
+
+```js
+m.text({
+    name: 'console_mirror',
+    cluster: 'genAnalogInput',
+    attribute: {ID: 0xf000, type: 0x42},   // 61440, a ZCL character string
+    description: 'Last console line worth an event, space padded',
+    access: 'STATE_GET',
+    endpointName: '14',                    // singular here, unlike m.numeric()
+    entityCategory: 'diagnostic',
+}),
+```
+
+`console_mirror` being free as a name is the point of calling the counter
+[something else](#showing-the-mirrored-line). There is no `reporting` entry because
+the device reports `0xF000` on its own, on every new line and on the hourly
+heartbeat, so there is nothing for Z2M to configure.
+
+Two things this costs. An external definition **replaces** the generated one for
+this model, so whatever it does not list disappears from the device page — which is
+why the file carries the settings, the link values and the temperatures too, and
+why it has to be regenerated whenever the endpoint list changes. And `m.text()`
+publishes the attribute verbatim, so the line arrives space padded to
+`MIRROR_TEXT_LEN`. To have it trimmed instead, replace that entry with a
+`fromZigbee` converter that does it:
 
 ```js
 // Endpoint 14, genAnalogInput, attribute 0xF000: the mirrored console line.
@@ -914,13 +1027,70 @@ const consoleMirror = {
 };
 ```
 
-with a matching `e.text('console_mirror', ea.STATE)` in the definition's exposes —
-that name being free is the point of calling the counter something else.
-Note that an external definition **replaces** the generated one for this model, so
-whatever it does not list disappears from the device page: the settings, the link
-values and the temperatures have to be in it too. That is the whole cost of the
-text, and it is why the counter beside it is a number — it is the part that needs
-none of this.
+with a matching `e.text('console_mirror', ea.STATE)` in the definition's exposes.
+That is the whole cost of the text, and it is why the counter beside it is a plain
+number — it is the part that needs none of this.
+
+### Adding the external converter
+
+**Prerequisite: external JavaScript has to be enabled.** Z2M ignores converter
+files silently while it is off, so this comes first. Either in
+`configuration.yaml`:
+
+```yaml
+advanced:
+  enable_external_js: true
+```
+
+or in the frontend under **Settings → Settings → Advanced → `enable_external.js`**,
+which has to be checked. Both are the same switch; the frontend writes the same
+line into `configuration.yaml`.
+
+**Then add the file, preferably through the UI.** In the frontend, open
+**Settings → External converters**, add a new converter, paste the contents of
+[`nanoh2-ds18b20.mjs`](nanoh2-ds18b20.mjs) and save. Z2M stores it in its own
+`external_converters/` directory and loads it at runtime, so no restart is needed
+and a mistake in the file shows up as an error in the log straight away rather than
+as a Z2M that will not come back up.
+
+> **Tip — what to type as the filename.** Name it after the *model*, not the
+> device: `nanoh2-ds18b20.mjs`. A definition is matched by the `zigbeeModel` string
+> the device reports (`ZB_MODEL` in `config.h`), never by its IEEE address, so this
+> one file serves every board running this sketch — and an address in the name
+> would suggest a per-device scope that does not exist. It has to end in `.mjs`,
+> and it is a plain name, not a path: Z2M decides the directory.
+
+The manual route does the same thing by hand: copy the file into
+`external_converters/` next to `configuration.yaml` (Home Assistant add-on:
+`/config/external_converters/`) and **restart** Z2M. Use it when the frontend is
+not reachable or when the file is deployed by configuration management; the UI is
+otherwise the better way round, because it needs no restart.
+
+Either way, check the result on the device page: **Exposes** should now show
+*Console mirror* with a read button beside the *Mirror line count* number, and the
+device's MQTT state should gain a `console_mirror_14` key. Pressing the button on
+the board is the quickest end-to-end test — the console line it prints should
+appear there.
+
+A copy lives with the sketch so that the definition and the firmware it belongs to
+stay in one place; Z2M keeps its own copy, so a change to one has to be carried
+over to the other. **Regenerate it after any change to the endpoint list** — device
+page → *Dev console* → *Generate external definition* — and re-add the `m.text()`
+entry above to the result, which is the only part Z2M cannot produce by itself. A
+different `MAX_DS18B20_SENSORS` is the usual reason, and needs a
+[re-pair](#changing-the-sensor-count) anyway.
+
+The temperature endpoints are the part that goes stale, and the file names them
+twice — once in `m.deviceEndpoints()` and once in
+`m.temperature({endpointNames: ['20', '21', '22']})`. **Both lists have to match
+`MAX_DS18B20_SENSORS` in `config.h`**, which is 3 in the file as it ships: the
+sketch creates one temperature endpoint per configured slot, numbered up from
+`EP_TEMP_BASE` (20), and nothing on the device side adapts to a converter that
+disagrees. Listing an endpoint the firmware does not have produces an expose that
+stays `N/A` for good and a binding that fails during `configure`; listing one fewer
+hides a sensor that is really reporting. Regenerating gets this right by
+construction, since Z2M reads the endpoint list off the device — which is also why
+it is the better move than editing the two lists by hand.
 
 ## Pushbutton
 
@@ -1062,3 +1232,20 @@ the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
   Reconstructing what happened in between needs the serial console, and boot-time
   lines never make it out at all, because the radio is not up when they are
   printed. See [Console mirror](#console-mirror).
+- **Two open upstream issues touch this sketch.**
+  [arduino-esp32#12917](https://github.com/espressif/arduino-esp32/issues/12917):
+  seventeen of the core's report helpers leave `manuf_code` — the key the stack
+  looks an attribute up by — uninitialised, while the same library sets it
+  correctly on the configure-reporting path in ten other places. That is why
+  `ZbMirror::reportText()` builds its report command itself: zeroed first, then
+  `manuf_code` set to `ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC` by name rather
+  than by number, because the next SDK generation keeps that name and changes its
+  value from `0xFFFF` to `0x0000`. Every other report here — the temperatures, the
+  link values, the mirror's own counter — still goes through a core helper and so
+  is still on the uninitialised path; it works because the stack ignores the field
+  for a report that is not manufacturer specific.
+  [esp-zigbee-sdk#909](https://github.com/espressif/esp-zigbee-sdk/issues/909)
+  asks the other half: why a report the stack rejects aborts the device at
+  `esp_zigbee_zcl_command.c:263` instead of returning an error. That abort was
+  seen here, right after a join, and its cause was never identified — if it comes
+  back, erase the flash and pair fresh before looking anywhere else.

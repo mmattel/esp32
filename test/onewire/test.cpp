@@ -13,12 +13,20 @@
 
 // ---------------- simulated collective of 1-Wire slaves ----------------
 static std::vector<std::array<uint8_t, 8>> g_devices;
+static std::vector<std::array<uint8_t, 9>> g_scratch;   // one scratchpad per device
 static std::vector<bool> g_active;
 
-enum SimMode { M_IDLE, M_CMD, M_SEARCH };
+// Where the collective is in the transaction. M_CMD means the next eight bits are
+// a ROM command; every command that takes a payload has a mode of its own, and
+// falls back to M_CMD when the payload is done if another command may follow.
+enum SimMode { M_IDLE, M_CMD, M_SEARCH, M_MATCH, M_WRITE_SP, M_READ_SP };
 static SimMode g_mode = M_IDLE;
 static int g_cmdBits = 0, g_cmdVal = 0;
 static int g_searchBit = 0, g_searchPhase = 0;
+static int g_matchBit = 0;               // ROM bits taken so far after MATCH ROM
+static int g_selected = -1;              // device MATCH ROM addressed, -1 for none
+static int g_writeBits = 0;              // scratchpad bytes being written at us
+static int g_readBit = 0;                // scratchpad bits handed back so far
 
 static int g_line = 1;         // as driven by the master
 static uint32_t g_lastDelay = 0;
@@ -28,15 +36,74 @@ static bool g_slotPending = false;   // a 6us low slot happened: read or write-1
 static void sim_activateAll() {
   g_active.assign(g_devices.size(), true);
 }
-// Clear leftover slot state so one test case cannot bleed into the next.
+// Clear leftover slot state so one test case cannot bleed into the next. The
+// scratchpads are sized here and zeroed, so a test that does not set one gets a
+// device whose reading is 0 C with a good CRC rather than uninitialised memory.
 static void sim_init() {
   g_mode = M_IDLE; g_cmdBits = g_cmdVal = 0;
   g_searchBit = g_searchPhase = 0;
+  g_matchBit = 0; g_selected = -1;
+  g_writeBits = 0; g_readBit = 0;
   g_line = 1; g_lastDelay = 0; g_lowDuration = 0; g_slotPending = false;
   sim_activateAll();
+  g_scratch.assign(g_devices.size(), std::array<uint8_t, 9>{});
 }
 static int devBit(size_t d, int bitIndex) {
   return (g_devices[d][bitIndex / 8] >> (bitIndex % 8)) & 1;
+}
+
+// One bit written by the master, whichever way it was signalled. Keeping the
+// state machine in a single place is what stops the write-0 and the write-1 path
+// from drifting apart as commands are added.
+static void sim_masterBit(int bit) {
+  switch (g_mode) {
+    case M_CMD:
+      if (bit) g_cmdVal |= 1 << g_cmdBits;
+      if (++g_cmdBits < 8) return;
+      switch (g_cmdVal) {
+        case 0xF0: g_mode = M_SEARCH; g_searchBit = 0; g_searchPhase = 0; break;
+        case 0x55: g_mode = M_MATCH; g_matchBit = 0; g_selected = -1; break;
+        // SKIP ROM addresses everything and is followed by another command, so no
+        // device is selected and the next eight bits are read as one.
+        case 0xCC: g_mode = M_CMD; g_cmdBits = g_cmdVal = 0; g_selected = -1; return;
+        case 0x4E: g_mode = M_WRITE_SP; g_writeBits = 0; break;
+        case 0xBE: g_mode = M_READ_SP; g_readBit = 0; break;
+        default: g_mode = M_IDLE; break;   // CONVERT T and anything unmodelled
+      }
+      return;
+
+    case M_SEARCH:
+      // Only the third slot of each search triple is a master bit: the first two
+      // are reads, handled in sim_read().
+      if (g_searchPhase != 2) return;
+      for (size_t d = 0; d < g_devices.size(); d++)
+        if (g_active[d] && devBit(d, g_searchBit) != bit) g_active[d] = false;
+      if (++g_searchBit == 64) g_mode = M_IDLE; else g_searchPhase = 0;
+      return;
+
+    case M_MATCH:
+      // Deselect as the address arrives, exactly as the devices do, so a ROM that
+      // is not on the bus leaves nothing selected and the read slots come back as
+      // all ones - which is what the driver sees from an absent sensor.
+      for (size_t d = 0; d < g_devices.size(); d++)
+        if (g_active[d] && devBit(d, g_matchBit) != bit) g_active[d] = false;
+      if (++g_matchBit < 64) return;
+      g_selected = -1;
+      for (size_t d = 0; d < g_devices.size(); d++)
+        if (g_active[d]) g_selected = (int)d;
+      g_mode = M_CMD; g_cmdBits = g_cmdVal = 0;
+      return;
+
+    case M_WRITE_SP:
+      // WRITE SCRATCHPAD carries TH, TL and the config byte. They are counted and
+      // dropped: storing them would invalidate the CRC the test set up, and no
+      // test reads them back.
+      if (++g_writeBits == 24) g_mode = M_IDLE;
+      return;
+
+    default:
+      return;
+  }
 }
 
 // The master released the line after driving it low for g_lowDuration us.
@@ -45,22 +112,13 @@ static void sim_slotEnd() {
     sim_activateAll();
     g_mode = M_CMD;
     g_cmdBits = g_cmdVal = 0;
+    g_selected = -1;
     g_slotPending = false;
     return;
   }
   if (g_lowDuration >= 40) {             // write-0
     g_slotPending = false;
-    if (g_mode == M_CMD) {
-      g_cmdBits++;                       // bit value 0
-      if (g_cmdBits == 8) {
-        if (g_cmdVal == 0xF0) { g_mode = M_SEARCH; g_searchBit = 0; g_searchPhase = 0; }
-        else g_mode = M_IDLE;
-      }
-    } else if (g_mode == M_SEARCH && g_searchPhase == 2) {
-      for (size_t d = 0; d < g_devices.size(); d++)
-        if (g_active[d] && devBit(d, g_searchBit) != 0) g_active[d] = false;
-      if (++g_searchBit == 64) g_mode = M_IDLE; else g_searchPhase = 0;
-    }
+    sim_masterBit(0);
     return;
   }
   g_slotPending = true;                  // short low: read slot or write-1
@@ -70,18 +128,7 @@ static void sim_slotEnd() {
 static void sim_resolvePendingAsWrite1() {
   if (!g_slotPending) return;
   g_slotPending = false;
-  if (g_mode == M_CMD) {
-    g_cmdVal |= 1 << g_cmdBits;
-    g_cmdBits++;
-    if (g_cmdBits == 8) {
-      if (g_cmdVal == 0xF0) { g_mode = M_SEARCH; g_searchBit = 0; g_searchPhase = 0; }
-      else g_mode = M_IDLE;
-    }
-  } else if (g_mode == M_SEARCH && g_searchPhase == 2) {
-    for (size_t d = 0; d < g_devices.size(); d++)
-      if (g_active[d] && devBit(d, g_searchBit) != 1) g_active[d] = false;
-    if (++g_searchBit == 64) g_mode = M_IDLE; else g_searchPhase = 0;
-  }
+  sim_masterBit(1);
 }
 
 void sim_delay(uint32_t us) { g_lastDelay = us; }
@@ -119,6 +166,14 @@ int sim_read(uint8_t) {
       } else bit = 1;
       return bit;
     }
+    if (g_mode == M_READ_SP) {
+      // Nine bytes, LSB first, and then ones: the driver stops at nine, and a bus
+      // with nobody selected reads as all ones throughout.
+      if (g_selected < 0 || g_readBit >= 72) return 1;
+      int bit = (g_scratch[g_selected][g_readBit / 8] >> (g_readBit % 8)) & 1;
+      g_readBit++;
+      return bit;
+    }
     return 1;
   }
   return 1;
@@ -147,6 +202,24 @@ static std::array<uint8_t, 8> makeRom(uint8_t a, uint8_t b, uint8_t c) {
   std::array<uint8_t, 8> r = {0x28, a, b, c, 0x00, 0x00, 0x00, 0x00};
   r[7] = ref_crc8(r.data(), 7);
   return r;
+}
+
+// Loads one device's scratchpad with a temperature register value. The other
+// bytes are what a DS18B20 holds after the sketch has set 12-bit resolution: TH,
+// TL, config, the reserved trio. goodCrc false flips the check byte, which is the
+// only way to tell the driver's CRC rejection from its range rejection.
+static void sim_setScratch(size_t dev, int16_t raw, bool goodCrc = true) {
+  std::array<uint8_t, 9> sp = {(uint8_t)(raw & 0xFF), (uint8_t)((raw >> 8) & 0xFF),
+                               0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10, 0};
+  sp[8] = ref_crc8(sp.data(), 8);
+  if (!goodCrc) sp[8] ^= 0xFF;
+  g_scratch[dev] = sp;
+}
+
+// A reading's three fields as one line, so a failure shows what came back rather
+// than only that it was wrong.
+static void showReading(const char *what, const DS18B20Reading &r) {
+  printf("%s: valid=%d celsius=%.4f powerOnReset=%d\n", what, r.valid, r.celsius, r.powerOnReset);
 }
 
 int main() {
@@ -216,6 +289,83 @@ int main() {
   n = mixed.discover(found, 8);
   printf("mixed families: discover() = %u (expected 1)\n", n);
   if (n != 1) fails++;
+
+  // ---- read(): MATCH ROM plus READ SCRATCHPAD against one device ----
+  // Two devices throughout, so a pass also proves read() addressed the right one:
+  // an implementation that ignored the ROM would answer from whichever came first.
+  g_devices = {makeRom(0x01, 0x02, 0x03), makeRom(0x0A, 0x0B, 0x0C)};
+  sim_init();
+  DS18B20Bus rd(2);
+  uint64_t romA = 0, romB = 0;
+  for (int i = 0; i < 8; i++) {
+    romA |= (uint64_t)g_devices[0][i] << (8 * i);
+    romB |= (uint64_t)g_devices[1][i] << (8 * i);
+  }
+
+  // 7. An ordinary reading, and the addressing that gets it. 0x0158 is 344
+  //    sixteenths, so 21.5 C exactly, which a float compares safely.
+  sim_setScratch(0, 0x0158);
+  sim_setScratch(1, 0x0640);             // 100 C, to be told apart from slot 0's
+  DS18B20Reading r = rd.read(romA);
+  showReading("read() 0x0158 on device A", r);
+  if (!r.valid || r.celsius != 21.5f || r.powerOnReset) fails++;
+
+  r = rd.read(romB);
+  showReading("read() 0x0640 on device B", r);
+  if (!r.valid || r.celsius != 100.0f || r.powerOnReset) fails++;
+
+  // 8. The power-on default: 85 C with a good CRC, so it must come back valid and
+  //    flagged. This is the case the sketch reports as "85.00 C is the power-on
+  //    default" - a supply that dipped, or a read before the first conversion.
+  sim_setScratch(0, 0x0550);
+  r = rd.read(romA);
+  showReading("read() 0x0550 (power-on default)", r);
+  if (!r.valid || r.celsius != 85.0f || !r.powerOnReset) fails++;
+
+  // 9. One sixteenth either side of it is a real temperature, not the default.
+  //    The flag is an exact-value test, and this is what says so.
+  sim_setScratch(0, 0x054F);
+  r = rd.read(romA);
+  showReading("read() 0x054F (84.9375 C)", r);
+  if (!r.valid || r.powerOnReset) fails++;
+  sim_setScratch(0, 0x0551);
+  r = rd.read(romA);
+  showReading("read() 0x0551 (85.0625 C)", r);
+  if (!r.valid || r.powerOnReset) fails++;
+
+  // 10. A negative reading: 0xFF5E is -162 sixteenths, -10.125 C.
+  sim_setScratch(0, (int16_t)0xFF5E);
+  r = rd.read(romA);
+  showReading("read() 0xFF5E (-10.125 C)", r);
+  if (!r.valid || r.celsius != -10.125f || r.powerOnReset) fails++;
+
+  // 11. A bad CRC is rejected even though the temperature itself is plausible.
+  sim_setScratch(0, 0x0158, false);
+  r = rd.read(romA);
+  showReading("read() with a bad CRC", r);
+  if (r.valid) fails++;
+
+  // 12. Out of range: 0x0800 is 128 C, past the DS18B20's 125 C, and its CRC is
+  //     good - so this is the range check and nothing else.
+  sim_setScratch(0, 0x0800);
+  r = rd.read(romA);
+  showReading("read() 0x0800 (128 C, out of range)", r);
+  if (r.valid) fails++;
+
+  // 13. A ROM that is not on the bus: nobody answers MATCH ROM, the read slots
+  //     come back as all ones, and 0xFF x9 fails the CRC. This is what the sketch
+  //     sees from a sensor that was unplugged since the last scan.
+  sim_setScratch(0, 0x0158);
+  r = rd.read(romA ^ 0xFF00);            // same family code, wrong serial
+  showReading("read() of an absent ROM", r);
+  if (r.valid) fails++;
+
+  // 14. An empty bus fails at the reset, before any scratchpad is involved.
+  g_devices.clear(); sim_init();
+  DS18B20Bus gone(2);
+  r = gone.read(romA);
+  showReading("read() on an empty bus", r);
+  if (r.valid) fails++;
 
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails != 0;
