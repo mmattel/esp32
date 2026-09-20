@@ -38,7 +38,7 @@ void ZbSetting::load(Preferences &prefs) {
   float stored = prefs.getFloat(_nvsKey, NAN);
   bool fromNvs = !isnan(stored);
   _value = fromNvs ? sanitise(stored) : _default;
-  Serial.printf("%s: %.*f (%s)\r\n", _description, decimals(), _value, fromNvs ? "from NVS" : "code default");
+  Serial.printf("%s: %.*f (%s)" CONSOLE_EOL, _description, decimals(), _value, fromNvs ? "from NVS" : "code default");
 
   // A stored value the current build cannot represent - the step or the range
   // changed between builds - is re-rounded above. Say so and store the result,
@@ -46,7 +46,7 @@ void ZbSetting::load(Preferences &prefs) {
   // difference is silent on every boot. A stored deadband can land on 0 this way,
   // which publishes every reading that moves at all, so it is worth a line.
   if (fromNvs && _value != stored) {
-    Serial.printf("%s: stored %.2f does not fit this build's range and step, re-stored as %.*f\r\n", _description,
+    Serial.printf("%s: stored %.2f does not fit this build's range and step, re-stored as %.*f" CONSOLE_EOL, _description,
                   stored, decimals(), _value);
     prefs.putFloat(_nvsKey, _value);
   }

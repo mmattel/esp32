@@ -400,7 +400,7 @@ void scanSensors() {
   bool headerDone = false;
   auto header = [&]() {
     if (!headerDone) {
-      Serial.printf("1-Wire scan: %u DS18B20 found\r\n", count);
+      Serial.printf("1-Wire scan: %u DS18B20 found" CONSOLE_EOL, count);
       headerDone = true;
     }
   };
@@ -434,7 +434,7 @@ void scanSensors() {
       slotRom[slot] = found[f];
       prefs.putULong64(romKey(slot).c_str(), found[f]);
       header();
-      Serial.printf("  %s assigned to slot %d (stored)\r\n", rom, slot);
+      Serial.printf("  %s assigned to slot %d (stored)" CONSOLE_EOL, rom, slot);
       if (Zigbee.started()) {
         // Tell the coordinator which sensor this endpoint now reads. Before
         // Zigbee.begin() there is nothing to update: setupEndpoints() reads the
@@ -472,7 +472,7 @@ void scanSensors() {
     for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
       if (slotRom[i] == 0) {
         header();
-        Serial.printf("  slot %u is unassigned, no sensor has ever claimed it\r\n", i);
+        Serial.printf("  slot %u is unassigned, no sensor has ever claimed it" CONSOLE_EOL, i);
       }
     }
   }
@@ -485,7 +485,7 @@ void scanSensors() {
   // them. Only when something was actually printed: a scan that found nothing new
   // says nothing at all, and a blank line on its own would be the only trace of it.
   if (headerDone) {
-    Serial.println();
+    Serial.printf(CONSOLE_EOL);
   }
   slotsReportSummary(slotRom, slotPresent);
 }
@@ -580,7 +580,8 @@ void setupEndpoints() {
   // Registered here with the other two settings although its number is above the
   // mirror's: a coordinator lists the endpoints in the order they are added.
   cfgCorrection.addEndpoint(onCorrectionWritten);
-  Serial.printf("EP %u -> reading interval\r\nEP %u -> reporting delta\r\nEP %u -> temperature correction\r\n",
+  Serial.printf("EP %u -> reading interval" CONSOLE_EOL "EP %u -> reporting delta" CONSOLE_EOL
+                  "EP %u -> temperature correction" CONSOLE_EOL,
                 EP_CONFIG_INTERVAL, EP_CONFIG_DELTA, EP_CONFIG_CORRECTION);
 
   if (ZB_LQI_ENDPOINT) {
@@ -593,7 +594,7 @@ void setupEndpoints() {
     zbLqi.setAnalogInputMinMax(0, 255);
     zbLqi.setPowerSource(ZB_POWER_SOURCE_MAINS);
     Zigbee.addEndpoint(&zbLqi);
-    Serial.printf("EP %u -> parent link LQI\r\n", EP_LINK_LQI);
+    Serial.printf("EP %u -> parent link LQI" CONSOLE_EOL, EP_LINK_LQI);
   }
 
   if (ZB_RSSI_ENDPOINT) {
@@ -608,7 +609,7 @@ void setupEndpoints() {
     zbRssi.setAnalogInputMinMax(-128, 0);
     zbRssi.setPowerSource(ZB_POWER_SOURCE_MAINS);
     Zigbee.addEndpoint(&zbRssi);
-    Serial.printf("EP %u -> parent link RSSI, dBm\r\n", EP_LINK_RSSI);
+    Serial.printf("EP %u -> parent link RSSI, dBm" CONSOLE_EOL, EP_LINK_RSSI);
   }
 
   if (ZB_MIRROR_ENDPOINT) {
@@ -631,7 +632,7 @@ void setupEndpoints() {
     }
     zbMirror.setPowerSource(ZB_POWER_SOURCE_MAINS);
     Zigbee.addEndpoint(&zbMirror);
-    Serial.printf("EP %u -> console mirror\r\n", EP_MIRROR);
+    Serial.printf("EP %u -> console mirror" CONSOLE_EOL, EP_MIRROR);
   }
 
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
@@ -648,7 +649,7 @@ void setupEndpoints() {
     zbTemp[i]->setDefaultValue(0);
     zbTemp[i]->setPowerSource(ZB_POWER_SOURCE_MAINS);
     Zigbee.addEndpoint(zbTemp[i]);
-    Serial.printf("EP %u -> slot %u, sensor %s\r\n", EP_TEMP_BASE + i, i, sensorId(i).c_str());
+    Serial.printf("EP %u -> slot %u, sensor %s" CONSOLE_EOL, EP_TEMP_BASE + i, i, sensorId(i).c_str());
   }
 }
 
@@ -664,7 +665,7 @@ void onZigbeeConnected() {
     // a later radio loss shows as yellow rather than magenta.
     commissioned = true;
     prefs.putBool(NVS_KEY_COMMISSIONED, true);
-    Serial.println("Commissioning stored in NVS");
+    Serial.printf("Commissioning stored in NVS" CONSOLE_EOL);
   }
 
   applyReporting();  // must be called after Zigbee.begin()
@@ -722,7 +723,7 @@ void resetJoinWait() {
 
 void printNetworksFound(uint16_t found) {
   if (found == 0) {
-    Serial.println("scan: no Zigbee network on any channel");
+    Serial.printf("scan: no Zigbee network on any channel" CONSOLE_EOL);
     return;
   }
 
@@ -733,15 +734,15 @@ void printNetworksFound(uint16_t found) {
   }
 
   bool anyOpen = false;
-  Serial.printf("scan: %u network%s in range\r\n", found, found == 1 ? "" : "s");
-  Serial.println("  PAN ID | CH | joining open | room for an end device");
+  Serial.printf("scan: %u network%s in range" CONSOLE_EOL, found, found == 1 ? "" : "s");
+  Serial.printf("  PAN ID | CH | joining open | room for an end device" CONSOLE_EOL);
   for (uint16_t i = 0; i < found; i++) {
-    Serial.printf("  0x%04X | %2u | %-12s | %s\r\n", nets[i].short_pan_id, nets[i].logic_channel, nets[i].permit_joining ? "yes" : "no",
-                  nets[i].end_device_capacity ? "yes" : "no");
+    Serial.printf("  0x%04X | %2u | %-12s | %s" CONSOLE_EOL, nets[i].short_pan_id, nets[i].logic_channel,
+                  nets[i].permit_joining ? "yes" : "no", nets[i].end_device_capacity ? "yes" : "no");
     anyOpen = anyOpen || nets[i].permit_joining;
   }
   if (!anyOpen) {
-    Serial.println("  none of them is open - joining has to be enabled on the coordinator");
+    Serial.printf("  none of them is open - joining has to be enabled on the coordinator" CONSOLE_EOL);
   }
 }
 
@@ -777,7 +778,8 @@ void handleJoining() {
   }
   lastJoinHintMs = now;
 
-  Serial.printf("Zigbee: %s, %lus so far\r\n", commissioned ? "still looking for its network" : "still waiting to be commissioned",
+  Serial.printf("Zigbee: %s, %lus so far" CONSOLE_EOL,
+                commissioned ? "still looking for its network" : "still waiting to be commissioned",
                 (unsigned long)((now - joinWaitStartMs) / 1000UL));
 
   if (JOIN_SCAN_INTERVAL_S > 0 && (now - lastJoinScanMs) >= (uint32_t)JOIN_SCAN_INTERVAL_S * 1000UL) {
@@ -889,7 +891,7 @@ void readAndPublish() {
         // Console-only, and deliberately so: a bus that needs this says something
         // about the wiring, but it is not a fault the coordinator can act on, and
         // it would cost a report every time the cable was noisy.
-        Serial.printf("slot %u (%s): read retried, attempt %u succeeded\r\n", i, rom, (unsigned)(retry + 1));
+        Serial.printf("slot %u (%s): read retried, attempt %u succeeded" CONSOLE_EOL, i, rom, (unsigned)(retry + 1));
       }
     }
 
@@ -955,7 +957,8 @@ void readAndPublish() {
         snprintf(applied, sizeof(applied), "  (raw %.*f C, correction %+.2f)", TEMP_PUBLISH_DECIMALS,
                  roundReading(r.celsius), correction);
       }
-      Serial.printf("slot %u  EP %u  %s  %.*f C  %s%s\r\n", i, EP_TEMP_BASE + i, rom, TEMP_PUBLISH_DECIMALS, celsius,
+      Serial.printf("slot %u  EP %u  %s  %.*f C  %s%s" CONSOLE_EOL, i, EP_TEMP_BASE + i, rom, TEMP_PUBLISH_DECIMALS,
+                    celsius,
                     !publish ? "within deadband"
                              : first ? "published (first)" : heartbeat ? "published (heartbeat)" : "published",
                     applied);
@@ -1040,7 +1043,7 @@ void handleLinkQuality() {
     // because "empty" and "holds entries, none of them usable" are different
     // faults and only this line tells them apart.
     if (!linkWaitLogged) {
-      Serial.printf("link: no parent to read, neighbour table holds %u entr%s\r\n", link.entries,
+      Serial.printf("link: no parent to read, neighbour table holds %u entr%s" CONSOLE_EOL, link.entries,
                     link.entries == 1 ? "y" : "ies");
       linkWaitLogged = true;
     }
@@ -1050,7 +1053,7 @@ void handleLinkQuality() {
   linkWaitLogged = false;
 
   if (link.assumed && !linkAssumedLogged) {
-    Serial.println("link: the one neighbour is not flagged as the parent - reading it as one anyway");
+    Serial.printf("link: the one neighbour is not flagged as the parent - reading it as one anyway" CONSOLE_EOL);
     linkAssumedLogged = true;
   }
 
@@ -1071,14 +1074,15 @@ void handleLinkQuality() {
   if (lqiMoved || rssiMoved || LOG_EVERY_READING) {
     Serial.printf("link: parent 0x%04X  LQI %u/255  RSSI %d dBm", link.parentAddr, link.lqi, link.rssi);
     if (!ZB_LQI_ENDPOINT && !ZB_RSSI_ENDPOINT) {
-      Serial.println();  // console only, there is nothing to publish to
+      Serial.printf(CONSOLE_EOL);  // console only, there is nothing to publish to
     } else if (!sendLqi && !sendRssi) {
-      Serial.println("  within deadband");
+      Serial.printf("  within deadband" CONSOLE_EOL);
     } else {
       // Blank line after a line that went on the air, so what was published
       // stands apart from the polls around it.
-      Serial.printf("  published %s%s%s%s\r\n\r\n", sendLqi ? "LQI" : "", sendLqi && sendRssi ? " and " : "",
-                    sendRssi ? "RSSI" : "", first ? " (first)" : heartbeat ? " (heartbeat)" : "");
+      Serial.printf("  published %s%s%s%s" CONSOLE_EOL CONSOLE_EOL, sendLqi ? "LQI" : "",
+                    sendLqi && sendRssi ? " and " : "", sendRssi ? "RSSI" : "",
+                    first ? " (first)" : heartbeat ? " (heartbeat)" : "");
     }
   }
 
@@ -1150,33 +1154,33 @@ void probeButtonPin() {
     delay(2);
   }
 
-  Serial.printf("  probe: pulled towards pressed %s, pulled towards idle %s\r\n",
+  Serial.printf("  probe: pulled towards pressed %s, pulled towards idle %s" CONSOLE_EOL,
                 towardsPressed == HIGH ? "HIGH" : "LOW", towardsIdle == HIGH ? "HIGH" : "LOW");
   if (mv >= 0) {
-    Serial.printf("  probe: %d mV on the pin with no internal pull, rail is %d mV\r\n", mv, BUTTON_PIN_VDD_MV);
+    Serial.printf("  probe: %d mV on the pin with no internal pull, rail is %d mV" CONSOLE_EOL, mv, BUTTON_PIN_VDD_MV);
   }
 
   if ((towardsIdle == HIGH) != (bool)BUTTON_ACTIVE_HIGH) {
-    Serial.printf("  the %d kOhm internal pull moves the pin, so nothing conductive is holding it:\r\n",
+    Serial.printf("  the %d kOhm internal pull moves the pin, so nothing conductive is holding it:" CONSOLE_EOL,
                   BUTTON_PULL_KOHM);
-    Serial.println("  the active reading was a transient or pick-up on a long run. A 10 kOhm");
-    Serial.println("  resistor at the button end holds the idle level far better than the internal one");
+    Serial.printf("  the active reading was a transient or pick-up on a long run. A 10 kOhm" CONSOLE_EOL);
+    Serial.printf("  resistor at the button end holds the idle level far better than the internal one" CONSOLE_EOL);
     return;
   }
 
   // V_IH is 0.75 x VDD and the internal pull is 45 kOhm, so ~55 uA has to flow in
   // to hold the pin at the active end. Input leakage is 50 nA - three orders of
   // magnitude short - which leaves a conductive path as the only explanation.
-  Serial.printf("  the %d kOhm internal pull cannot move the pin, so tens of microamps are flowing\r\n",
+  Serial.printf("  the %d kOhm internal pull cannot move the pin, so tens of microamps are flowing" CONSOLE_EOL,
                 BUTTON_PULL_KOHM);
-  Serial.println("  in: a conductive path is holding it, not noise and not leakage. With the button");
-  Serial.println("  open the pin should sit at the idle rail - measure it there. A 4-pin tactile");
-  Serial.println("  switch shorts the two legs on the same side, which leaves the contact closed");
-  Serial.println("  for good, and a rail wire in the signal position does the same thing");
-  Serial.printf("  an external pull resistor also does it - ~10 kOhm beats the %d kOhm internal one.\r\n",
+  Serial.printf("  in: a conductive path is holding it, not noise and not leakage. With the button" CONSOLE_EOL);
+  Serial.printf("  open the pin should sit at the idle rail - measure it there. A 4-pin tactile" CONSOLE_EOL);
+  Serial.printf("  switch shorts the two legs on the same side, which leaves the contact closed" CONSOLE_EOL);
+  Serial.printf("  for good, and a rail wire in the signal position does the same thing" CONSOLE_EOL);
+  Serial.printf("  an external pull resistor also does it - ~10 kOhm beats the %d kOhm internal one." CONSOLE_EOL,
                 BUTTON_PULL_KOHM);
-  Serial.println("  If the open button measures a few hundred mV off the rail rather than on it, that");
-  Serial.printf("  is what it is, and BUTTON_ACTIVE_HIGH %d is the wrong way round for this wiring\r\n",
+  Serial.printf("  If the open button measures a few hundred mV off the rail rather than on it, that" CONSOLE_EOL);
+  Serial.printf("  is what it is, and BUTTON_ACTIVE_HIGH %d is the wrong way round for this wiring" CONSOLE_EOL,
                 BUTTON_ACTIVE_HIGH);
 }
 
@@ -1190,10 +1194,10 @@ void inhibitButton(const char *why) {
   // Only the first line is mirrored: it is the fault itself, and the probe below
   // it is wiring diagnostics that belong to whoever has the console open.
   logEvent("Button on pin %d %s - ignoring it until it goes idle", PIN_BUTTON, why);
-  Serial.printf("  the pin reads %s, and with BUTTON_ACTIVE_HIGH %d that counts as pressed\r\n",
+  Serial.printf("  the pin reads %s, and with BUTTON_ACTIVE_HIGH %d that counts as pressed" CONSOLE_EOL,
                 digitalRead(PIN_BUTTON) == HIGH ? "HIGH" : "LOW", BUTTON_ACTIVE_HIGH);
   probeButtonPin();
-  Serial.printf("  also check that PIN_BUTTON and PIN_ONEWIRE match the Grove wiring (see README)\r\n");
+  Serial.printf("  also check that PIN_BUTTON and PIN_ONEWIRE match the Grove wiring (see README)" CONSOLE_EOL);
 }
 
 // Nobody can have been holding the button since before power-on, so a pin that
@@ -1349,7 +1353,7 @@ void handleButton() {
     // nothing at all, and the gap keeps the prompt apart from both. It is printed
     // separately, since a mirrored line carries no blank line of its own.
     logEvent("Button: held long enough - release to factory reset");
-    Serial.println();
+    Serial.printf(CONSOLE_EOL);
   }
 
   // The release window is left as soon as the reset hold is reached, so holding on
@@ -1360,7 +1364,7 @@ void handleButton() {
   bool release = !ready && held >= SLOT_RELEASE_HOLD_MS && anySensorLost();
   if (release && !releaseArmed) {
     logEvent("Button: release now to free the slots of the missing sensors");
-    Serial.println("  keep holding to factory reset instead");
+    Serial.printf("  keep holding to factory reset instead" CONSOLE_EOL);
   }
   resetArmed = held >= FACTORY_RESET_HINT_MS;
   releaseArmed = release;
@@ -1389,15 +1393,18 @@ void waitForSerialHost() {
 void setup() {
   Serial.begin(115200);
   waitForSerialHost();
-  Serial.println("\r\nM5Stack NanoH2 - DS18B20 over Zigbee");
+  // The version rides on the banner rather than on a line of its own, so the boot
+  // log keeps its shape and the build is named where the device names itself. See
+  // FW_VERSION in config.h for what a number in it means.
+  Serial.printf(CONSOLE_EOL "M5Stack NanoH2 - DS18B20 over Zigbee v%s" CONSOLE_EOL, FW_VERSION);
   // The slot count is a compile-time choice and the endpoints, the NVS keys and
   // the whole 1-Wire side follow it, so it is stated before anything that depends
   // on it. Zero prints as "no" rather than as a 0, which reads as the deliberate
   // configuration it is instead of a count that failed to print.
   if (MAX_DS18B20_SENSORS > 0) {
-    Serial.printf("Sensor slots: %u\r\n", (unsigned)MAX_DS18B20_SENSORS);
+    Serial.printf("Sensor slots: %u" CONSOLE_EOL, (unsigned)MAX_DS18B20_SENSORS);
   } else {
-    Serial.println("Sensor slots: none configured");
+    Serial.printf("Sensor slots: none configured" CONSOLE_EOL);
   }
 
   ledBegin();
@@ -1422,7 +1429,7 @@ void setup() {
     scanSensors();
     lastRescanMs = millis();
   } else {
-    Serial.println("1-Wire bus unused, no slots to map a sensor onto");
+    Serial.printf("1-Wire bus unused, no slots to map a sensor onto" CONSOLE_EOL);
   }
 
   setupEndpoints();
@@ -1440,8 +1447,8 @@ void setup() {
     delay(1000);
     ESP.restart();
   }
-  Serial.println(commissioned ? "Zigbee started, rejoining known network"
-                             : "Zigbee started, waiting to be commissioned");
+  Serial.printf("%s" CONSOLE_EOL, commissioned ? "Zigbee started, rejoining known network"
+                                               : "Zigbee started, waiting to be commissioned");
   resetJoinWait();
 }
 

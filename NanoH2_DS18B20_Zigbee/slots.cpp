@@ -98,7 +98,7 @@ void slotsNoteReading(uint8_t slot, const char *rom, float celsius, bool powerOn
   }
   porReported[slot] = true;
   logEvent("slot %u (%s): 85.00 C is the power-on default", (unsigned)slot, rom);
-  Serial.println("  check the supply and the wiring");
+  Serial.printf("  check the supply and the wiring" CONSOLE_EOL);
 }
 
 void slotsReportReadFailure(uint8_t slot, const char *rom) {
@@ -116,7 +116,7 @@ void slotsReportReadFailure(uint8_t slot, const char *rom) {
            lastGoodC[slot]);
   char age[AGE_TEXT_CHARS];
   ageText(millis() - lastGoodMs[slot], age, sizeof(age));
-  Serial.printf("  that reading was %s ago\r\n", age);
+  Serial.printf("  that reading was %s ago" CONSOLE_EOL, age);
 }
 
 void slotsSensorGone(uint8_t slot) {

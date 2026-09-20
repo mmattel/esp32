@@ -19,7 +19,7 @@ void logEvent(const char *fmt, ...) {
   vsnprintf(line, sizeof(line), fmt, args);
   va_end(args);
 
-  Serial.println(line);  // println ends the line with \r\n, like the printf calls do
+  Serial.printf("%s" CONSOLE_EOL, line);  // one write, ending like every other line - see CONSOLE_EOL
   zbMirror.mirror(line);
 }
 
