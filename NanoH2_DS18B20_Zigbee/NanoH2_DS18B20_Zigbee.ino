@@ -453,6 +453,14 @@ void scanSensors() {
 
   lastCount = count;
   lastPresent = present;
+
+  // The summary is about the bus as a whole, the indented lines above are about one
+  // sensor each, so it is set apart from them rather than reading as one more of
+  // them. Only when something was actually printed: a scan that found nothing new
+  // says nothing at all, and a blank line on its own would be the only trace of it.
+  if (headerDone) {
+    Serial.println();
+  }
   slotsReportSummary(slotRom, slotPresent);
 }
 

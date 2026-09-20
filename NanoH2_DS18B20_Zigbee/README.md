@@ -463,6 +463,7 @@ slot 1 (2800000BDEADBEEF) released, ready for a new sensor
 temp sensors (3 slots): 2 on the bus, 0 missing, 1 never seen
 1-Wire scan: 3 DS18B20 found
   28FF1234567890AB assigned to slot 1 (stored)
+
 temp sensors (3 slots): 3 on the bus, 0 missing, 0 never seen
 ```
 
