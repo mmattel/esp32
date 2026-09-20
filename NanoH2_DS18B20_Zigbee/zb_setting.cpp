@@ -95,10 +95,20 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   if (changed) {
     prefs.putFloat(_nvsKey, _value);
   }
-  // A write the stack accepted verbatim needs no mirror-back: the attribute
-  // already holds it. Mirroring anyway would hand the coordinator our float of
-  // the same number, which is the same value but rarely the same digits.
-  if (corrected) {
+  // Every write that changed something is reported back with the value now in
+  // effect. The device is what decides what a write became - rounded to the step,
+  // clamped to the range - so that value is the only one worth anybody's state,
+  // and a coordinator that does not hear it has to read the attribute before its
+  // own view agrees with the device's again.
+  //
+  // This used to be sent only for a write the device had corrected, on the grounds
+  // that the attribute already holds a verbatim one. True of the attribute, but not
+  // of the coordinator: nothing tells it the write was taken, so a value set from
+  // Zigbee2MQTT only turned up there after a manual read. One report per accepted
+  // write is a small price for the two ends agreeing by themselves. A write that
+  // changed nothing is still silent, so repeating the value in effect costs
+  // nothing.
+  if (changed || corrected) {
     publish();
   }
   return changed;

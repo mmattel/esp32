@@ -426,7 +426,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v1.1.0
+M5Stack NanoH2 - DS18B20 over Zigbee v1.1.1
 Sensor slots: 3
 ```
 
@@ -589,14 +589,20 @@ setting and follows every rule in this section:
 2. The value stored in NVS by a previous run.
 3. A value written to the analog output endpoint from the coordinator.
 
-A write is rounded to the step, clamped to the range and persisted to NVS. A write
-that survives that untouched needs nothing sent back: the stack has already stored
-it in the attribute, which is where the coordinator reads it. Only a write this did
-not take as sent — rounded or clamped — is mirrored back, so a corrected write shows
-up on the coordinator rather than silently diverging, while an accepted one leaves
-the coordinator's own number alone. The interval minimum stays above the 750 ms
-conversion time of a 12-bit reading. Both live in NVS, so they survive a reboot; a
-factory reset restores the code defaults.
+A write is rounded to the step, clamped to the range and persisted to NVS, and then
+reported back with the value now **in effect** — rounded or clamped or exactly as
+sent. The device is what decides what a write became, so that is the number worth
+having on both ends, and a coordinator that hears nothing cannot tell an accepted
+write from a corrected one. A write that changed nothing is not reported, so
+repeating the value already in effect stays silent. The interval minimum stays above
+the 750 ms conversion time of a 12-bit reading. All three live in NVS, so they
+survive a reboot; a factory reset restores the code defaults.
+
+> Earlier builds reported only a *corrected* write, on the grounds that the stack
+> already holds a verbatim one in the attribute. That is true of the attribute and
+> not of the coordinator: a value written from Zigbee2MQTT then only appeared there
+> after a manual read. One report per accepted write buys the two ends agreeing by
+> themselves.
 
 Which leaves the question of how a coordinator that did *not* write the value ever
 learns it. Nothing else reports the setting endpoints — `applyReporting()` covers the
@@ -1029,7 +1035,7 @@ See [Console mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v1.1.0
+M5Stack NanoH2 - DS18B20 over Zigbee v1.1.1
 Sensor slots: 3
 ```
 
@@ -1038,7 +1044,7 @@ is the one value that changes with every release — and bumping it belongs in t
 same commit as the change it names:
 
 ```c
-#define FW_VERSION "1.1.0"
+#define FW_VERSION "1.1.1"
 ```
 
 Read the three numbers against what a coordinator already knows about the device:
