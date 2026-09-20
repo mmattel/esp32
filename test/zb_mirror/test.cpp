@@ -116,6 +116,8 @@ static void reset() {
   clusterMissing = addAttrFails = false;
   hostMillis = 0;
   Zigbee.up = true;
+  Serial.lines = 0;
+  Serial.last[0] = '\0';
 }
 
 // Fills the stack the next calls build their frames in with a pattern, so a field
@@ -340,6 +342,17 @@ int main() {
     // sees that something was printed even when the text of it did not make it,
     // and the next line - or the heartbeat - writes the attribute again.
     check("the line count still goes out", valueReports == 1 && wroteValue == 1.0f);
+    check("a text that was not written is not reported", textReports == 0);
+    // On the board log_e() above prints nothing - Core Debug Level is "None" - so
+    // without this line a mirror that has stopped working and a coordinator that
+    // ignores it look the same from the console. mirror() itself prints nothing, so
+    // every line counted here is the mirror talking about itself.
+    check("the console is told", Serial.lines == 1 && strstr(Serial.last, "cannot be sent") != nullptr);
+    m.mirror("FATAL: 1-Wire bus still not responding");
+    check("a spell of it costs one line, not one per line", Serial.lines == 1);
+    writeStatus = ESP_ZB_ZCL_STATUS_SUCCESS;
+    m.mirror("1-Wire bus responding again");
+    check("the recovery is said as well", Serial.lines == 2 && strstr(Serial.last, "sending again") != nullptr);
   }
 
   printf("logEvent(): printed and mirrored, same line\n");

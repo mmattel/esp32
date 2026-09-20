@@ -77,12 +77,32 @@ void ZbMirror::publish() {
 
   // The text goes first and the sequence number second, so that a coordinator
   // acting on a new number already has the line that number belongs to.
-  setText();
-  setAnalogInput(_sequence);
+  bool ok = true;
   if (_hasText) {
-    reportText();
+    ok = setText() && reportText();  // a write that failed is not worth reporting
   }
-  reportAnalogInput();
+  if (!setAnalogInput(_sequence) || !reportAnalogInput()) {
+    ok = false;
+  }
+
+  // Whether the line made it onto the air is otherwise invisible. Every failure
+  // below this function says so through log_e() or log_w(), and Core Debug Level is
+  // "None" in the board settings this is built with, which compiles those away: a
+  // mirror that had stopped working looked exactly like a coordinator that ignores
+  // it, and the console - where the line does appear, because logEvent() prints
+  // before it mirrors - gave no hint which of the two it was.
+  //
+  // Serial.printf(), never logEvent(): logEvent() hands its line to mirror(), which
+  // comes straight back here, fails again, and says so again.
+  //
+  // Said once per spell of failing, and again once it recovers, because whatever
+  // stops the mirror stops it for every line: a bus that has gone quiet would
+  // otherwise turn one failure into a failure message per reading.
+  if (ok != _publishWorked) {
+    Serial.printf("Console mirror (EP %u): %s" CONSOLE_EOL, _endpoint,
+                  ok ? "sending again" : "cannot be sent, the console is all there is for now");
+    _publishWorked = ok;
+  }
 
   strcpy(_published, _text);
   _lastReportMs = millis();

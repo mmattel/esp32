@@ -426,7 +426,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v1.1.1
+M5Stack NanoH2 - DS18B20 over Zigbee v1.1.2
 Sensor slots: 3
 ```
 
@@ -987,6 +987,15 @@ Worth knowing:
   LocationDescription. Whatever reads it wants a `trim()`.
 - **Zigbee2MQTT shows the count out of the box and the text with a small
   converter** — see [showing the mirrored line](#showing-the-mirrored-line).
+- **A mirror that cannot send says so on the console**, once when it starts failing
+  and once when it works again:
+  `Console mirror (EP 14): cannot be sent, the console is all there is for now`.
+  The stack refusing the write or the report is otherwise completely silent — it is
+  reported through `log_e()`, which Core Debug Level "None" compiles out — and a
+  mirror that has stopped working then looks exactly like a coordinator that is
+  ignoring it, which is the one difference worth knowing before looking anywhere
+  else. Said once per spell because whatever stops the mirror stops every line:
+  a failure per reading would bury the line that explains it.
 - **Turning the endpoint off or on changes the endpoint list**, so it costs a
   factory reset and a re-pair, exactly like the two link endpoints. It leaves every
   other endpoint number alone.
@@ -1035,7 +1044,7 @@ See [Console mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v1.1.1
+M5Stack NanoH2 - DS18B20 over Zigbee v1.1.2
 Sensor slots: 3
 ```
 
@@ -1044,7 +1053,7 @@ is the one value that changes with every release — and bumping it belongs in t
 same commit as the change it names:
 
 ```c
-#define FW_VERSION "1.1.1"
+#define FW_VERSION "1.1.2"
 ```
 
 Read the three numbers against what a coordinator already knows about the device:
