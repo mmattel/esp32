@@ -68,6 +68,10 @@ private:
   uint16_t _sequence = 0;
   uint32_t _lastReportMs = 0;
   bool _hasText = false;  // whether addText() got the attribute created
+  // Whether the last publish() reached the air, so that a spell of failing costs one
+  // console line at each end of it rather than one per line mirrored. Starts true:
+  // the first thing it can say is that something went wrong.
+  bool _publishWorked = true;
 };
 
 // The one mirror there is, defined beside the other endpoint objects in the

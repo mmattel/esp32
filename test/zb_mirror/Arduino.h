@@ -22,8 +22,18 @@ static inline uint32_t millis() {
   return hostMillis;
 }
 
+// Keeps what it printed as well as printing it: the mirror says on the console when
+// it cannot get a line out, which is the whole point of that line - log_e() is
+// compiled out at the Core Debug Level the board is built with - so a test has to be
+// able to count and read those lines and not only what went on the air.
 struct SerialStub {
-  template <typename... A> void printf(const char *f, A... a) { std::printf(f, a...); }
+  int lines = 0;
+  char last[256] = "";
+  template <typename... A> void printf(const char *f, A... a) {
+    std::snprintf(last, sizeof(last), f, a...);
+    std::printf("%s", last);
+    lines++;
+  }
   void println(const char *s = "") { std::printf("%s\n", s); }
 };
 static SerialStub Serial;

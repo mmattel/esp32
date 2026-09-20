@@ -199,7 +199,11 @@ Covers:
   than from the last new line, never while disconnected, and never before anything
   has been printed.
 - The failure paths: without the text attribute, and with a write the stack refuses,
-  the line count still goes out.
+  the line count still goes out — a text that was not written is not reported, and
+  the console is told once per spell of failing and once again on recovery, since
+  the stack's own `log_e()` is compiled out at the Core Debug Level the board is
+  built with. The `Serial` stub keeps what it printed so that line can be counted
+  and read.
 - `logEvent()` formats once for both the console and the mirror, and a line past its
   own buffer is cut at both ends of that path rather than overrunning either.
 
