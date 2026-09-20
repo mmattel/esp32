@@ -1192,7 +1192,7 @@ void releaseMissingSlots() {
       // The endpoint stays, with nothing behind it until a sensor claims the slot.
       // Saying so beats leaving the old ROM code on the air, where it would read as
       // a sensor that has gone quiet.
-      zbTemp[i]->setSensorId(sensorId(i));
+      zbTemp[i]->setSensorId(sensorId(i).c_str());
     }
     // 58 characters with a 16-digit ROM code and a one-digit slot, inside the
     // MIRROR_TEXT_LEN of 64, so the line reaches the coordinator whole. One line per
