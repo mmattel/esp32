@@ -30,6 +30,7 @@ count](#changing-the-sensor-count).
   - [In Zigbee2MQTT](#in-zigbee2mqtt)
 - [Link quality and signal strength](#link-quality-and-signal-strength)
 - [Console mirror](#console-mirror)
+- [Firmware version](#firmware-version)
 - [Serial console](#serial-console)
   - [Which build is running](#which-build-is-running)
   - [Telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed)
@@ -48,7 +49,7 @@ count](#changing-the-sensor-count).
 | File | Contents |
 | --- | --- |
 | `NanoH2_DS18B20_Zigbee.ino` | Application: link state machine, LED, sampling, button |
-| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, correction, hold times, Zigbee channel, `FW_VERSION` and `CONSOLE_EOL` |
+| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, correction, hold times, Zigbee channel, the `FW_VERSION_*` numbers and `CONSOLE_EOL` |
 | `ds18b20_bus.h/.cpp` | Self-contained 1-Wire master and DS18B20 driver |
 | `slots.h/.cpp` | What each slot has read, and the lines that say which of the four states it is in |
 | `zb_setting.h/.cpp` | A setting with a code default, an NVS override and a Zigbee override |
@@ -57,10 +58,12 @@ count](#changing-the-sensor-count).
 | `zb_link_endpoint.h/.cpp` | Analog input endpoint that can state its unit, for the RSSI in dBm |
 | `console.h` | `logEvent()`: prints a line and hands it to the console mirror |
 | `zb_mirror.h/.cpp` | The console mirror endpoint: the last line worth an event, as text |
-| `nanoh2-ds18b20.mjs` | Not firmware: the Zigbee2MQTT external converter, so the mirrored line becomes an expose |
+| `zb_version.h/.cpp` | The firmware version endpoint, and the Basic-cluster attribute every endpoint carries |
+| `nanoh2-ds18b20.mjs` | Not firmware: the Zigbee2MQTT external converter, so the mirrored line and the version become exposes |
 
-The pure-logic parts — the 1-Wire driver, the slot bookkeeping, the settings, the link lookup and the
-console mirror — have host tests in [`../test/`](../test/); run them with `cd test && make`.
+The pure-logic parts — the 1-Wire driver, the slot bookkeeping, the settings, the
+link lookup, the console mirror and the version endpoint — have host tests in
+[`../test/`](../test/); run them with `cd test && make`.
 
 ## Wiring
 
@@ -368,13 +371,15 @@ With the default of three sensors:
 | 13 | Analog Input | signal strength of that link, dBm (read-only) |
 | 14 | Analog Input + a text attribute | the [console mirror](#console-mirror): how many lines, and the last one (read-only) |
 | 15 | Analog Output | [temperature correction](#temperature-correction), °C, one value for every sensor |
+| 16 | Analog Input + a text attribute | the [firmware version](#firmware-version): as a number and as a string (read-only) |
 | 20, 21, 22 | Temperature Measurement | one per sensor slot |
 
 An Analog Output cluster carries a single value, and so does an Analog Input one,
 so every setting and every measurement needs an endpoint of its own.
 
 What describes the device comes first, what it measures last: the settings, the
-two link measurements, the console mirror, then the temperature slots from
+two link measurements, the console mirror, the firmware version, then the
+temperature slots from
 `EP_TEMP_BASE` up. The numbers themselves carry no meaning — any assignment within
 1 … 240 is legal — so the order is a readability choice, and the endpoints are
 registered in the same order, because that is the order in which the stack reports
@@ -388,9 +393,13 @@ that already knew this one. It took the next free number instead. Only its
 *number* sits apart — it is registered with the other two settings, so a
 coordinator still lists it beside them.
 
-The six low ones are fixed constants in `config.h`, deliberately *not* derived
+The firmware version, 16, arrived the same way and for the same reason took the
+next free number — but there its number and its place in the list agree, since it
+belongs with the things that are read rather than set.
+
+The seven low ones are fixed constants in `config.h`, deliberately *not* derived
 from the sensor count, so changing that count leaves them — and the names a
-coordinator derives from their numbers — untouched. The gap between 15 and
+coordinator derives from their numbers — untouched. The gap between 16 and
 `EP_TEMP_BASE` leaves room for further settings.
 
 Each temperature endpoint exposes all three required identifiers:
@@ -426,7 +435,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v1.1.3
+M5Stack NanoH2 - DS18B20 over Zigbee v2.0.0
 Sensor slots: 3
 ```
 
@@ -447,7 +456,8 @@ holds, so it is a ceiling on the configuration rather than a limit worth raising
 the `static_assert` in the `.ino` says what to widen if it ever is.
 
 **Zero is a valid count.** With `MAX_DS18B20_SENSORS 0` there are no temperature
-endpoints, the settings, the two link endpoints and the mirror stay at 10 … 15, and
+endpoints, the settings, the two link endpoints, the mirror and the version stay at
+10 … 16, and
 `PIN_ONEWIRE` is never driven at all — no bus scan, no conversions, and
 `1-Wire bus unused, no slots to map a sensor onto` in place of the scan line. What is left is
 the Zigbee side, the three settings, the
@@ -466,7 +476,8 @@ reboot.
 
 What changes on the air:
 
-- **The settings, link and mirror endpoints stay where they are**, at 10 … 15, because
+- **The settings, link, mirror and version endpoints stay where they are**, at
+  10 … 16, because
   their numbers are fixed rather than derived from the count. Only the temperature
   endpoints change: a slot is added above the last one or removed from the top, so
   in Zigbee2MQTT the count of `temperature_2x` exposes changes and the rest of the
@@ -1012,6 +1023,71 @@ Worth knowing:
   factory reset and a re-pair, exactly like the two link endpoints. It leaves every
   other endpoint number alone.
 
+## Firmware version
+
+The version in the boot banner is also on the air, three times over, because the
+question "which build is this board running?" is asked from three places and only
+one of them has a serial console attached.
+
+| Where | What it is | Needs |
+| --- | --- | --- |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v2.0.0` | a console |
+| Basic cluster, SWBuildID (0x4000) | `2.0.0`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `20000`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `2.0.0` again, as a string | the [external converter](#adding-the-external-converter) |
+
+In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
+the device page, next to the manufacturer and the model. That is the copy worth
+knowing about: it is read once during the interview, needs no converter, no
+binding and no reporting, and it is there even on a device page that has nothing
+else from this repo installed. It is also why the attribute is added to the
+*settings* endpoints as well as to 16 — a coordinator reads Basic from whichever
+endpoint it likes, and those are the ones it is likeliest to pick.
+
+Endpoint 16 is for the other use: something that watches the version rather than
+looks at it. `firmware_version_number` is `major × 10000 + minor × 100 + patch`,
+so 1.9.9 is below 2.0.0 and 2.0.1 is above it — an automation can compare that,
+and a graph can show when a board was last reflashed. `firmware_version` beside it
+is the same version as text, which is the readable one. Both are diagnostic
+exposes, and both are read-only.
+
+All three copies come from the same three numbers in `config.h`:
+
+```c
+#define FW_VERSION_MAJOR 2
+#define FW_VERSION_MINOR 0
+#define FW_VERSION_PATCH 0
+```
+
+`FW_VERSION` (`"2.0.0"`) and `FW_VERSION_NUMBER` (`20000`) are built from them, so
+there is one place to bump and no way for the string and the number to disagree —
+which is the whole reason the version is not simply one string any more. What the
+three numbers *mean* is under [which build is
+running](#which-build-is-running).
+
+Worth knowing:
+
+- **It is published on every join, and nowhere else.** A version can only change by
+  flashing, flashing reboots the device, and a reboot rejoins — so there is nothing
+  a timer could catch that the join does not. No heartbeat, no reporting
+  configuration of our own.
+- **A coordinator that was not bound yet misses that report**, like every other one
+  sent at a join — see [an expose that stays N/A](#an-expose-that-stays-na). It can
+  read the value whenever it likes instead: a read needs no binding, and the answer
+  is the same until the next flash.
+- **`VERSION_TEXT_ATTR_ID` is 0xF000, the same number the mirrored line uses.**
+  Attributes belong to an endpoint and a cluster, so there is nothing to keep apart,
+  and one number for "the text this endpoint carries" keeps the read-it-by-hand
+  recipe the same: dev console → endpoint `16` → `genAnalogInput` → read attribute
+  `61440`.
+- **The string is not padded**, unlike the mirrored line: a version is fixed at
+  compile time, so the attribute is created at exactly its length and there is never
+  a longer value to make room for. Nothing to `trim()`.
+- **`ZB_VERSION_ENDPOINT 0` drops endpoint 16** and leaves the banner and the Basic
+  cluster's SWBuildID doing the job, which for a device that is only ever looked at
+  in Z2M is enough. Like the link and mirror endpoints, turning it off changes the
+  endpoint list and therefore costs a factory reset and a re-pair.
+
 ## Serial console
 
 Three things here happen on a timer whether or not the result differs from the
@@ -1056,23 +1132,26 @@ See [Console mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v1.1.3
+M5Stack NanoH2 - DS18B20 over Zigbee v2.0.0
 Sensor slots: 3
 ```
 
-It comes from the first define in `config.h` — the file starts with it because it
-is the one value that changes with every release — and bumping it belongs in the
-same commit as the change it names:
+It comes from the first defines in `config.h` — the file starts with them because
+they are the values that change with every release — and bumping them belongs in
+the same commit as the change they name:
 
 ```c
-#define FW_VERSION "1.1.3"
+#define FW_VERSION_MAJOR 2
+#define FW_VERSION_MINOR 0
+#define FW_VERSION_PATCH 0
 ```
 
 Read the three numbers against what a coordinator already knows about the device:
 the **patch** for a fix that changes nothing visible, the **minor** for a feature
 that leaves the endpoint list and the expose names alone, the **major** for anything
 that forces a re-pair or renames an expose — a new endpoint is the usual reason, so
-[the temperature correction](#temperature-correction) would have been one.
+[the temperature correction](#temperature-correction) would have been one, and
+[endpoint 16](#firmware-version) is why this is 2.0.0.
 
 Why it is worth a line at all: a flashed board is the one thing in this project that
 cannot be asked what it is. A serial log pasted into an issue, or read a week later,
@@ -1081,11 +1160,12 @@ you — and the symptom of that mismatch is looking for a bug in code the device
 had. A log whose banner carries no version at all predates this, which is its own
 answer.
 
-It stays on the console rather than going on the air. The only version the Zigbee
-library can carry is the Basic cluster's application version, a single byte with no
-room for three numbers, and the string a coordinator really does read is `ZB_MODEL`
-— which has to stay exactly as it is, since Zigbee2MQTT keys its device definition
-on it and would treat every release as a different product.
+The console is not the only place it appears: the same three numbers go on the air
+as the Basic cluster's `SWBuildID` and on [endpoint 16](#firmware-version), so a
+board that is paired can be asked what it is without a serial cable. What does *not*
+carry the version is `ZB_MODEL` — that string has to stay exactly as it is, since
+Zigbee2MQTT keys its device definition on it and would treat every release as a
+different product.
 
 ### Telling an empty slot from a sensor that has failed
 
@@ -1395,8 +1475,10 @@ and is the quickest way to answer "what happened".
 
 To have it as an expose, an external converter has to do that mapping, and
 [`nanoh2-ds18b20.mjs`](nanoh2-ds18b20.mjs) in this folder is that converter, ready
-to use — see [Adding the external converter](#adding-the-external-converter). All
-it adds to what Z2M generates by itself is one entry:
+to use — see [Adding the external converter](#adding-the-external-converter). It
+adds two entries to what Z2M generates by itself, one per character string on the
+device; this is the first, and the [firmware version](#firmware-version) text is the
+other:
 
 ```js
 m.text({
@@ -1479,7 +1561,8 @@ Either way, check the result on the device page: **Exposes** should now show
 *Console mirror* with a read button beside the *Mirror line count* number, and the
 device's MQTT state should gain a `console_mirror_14` key. Pressing the button on
 the board is the quickest end-to-end test — the console line it prints should
-appear there.
+appear there. *Firmware version* arrives with the same converter, next to the
+*Firmware version number* Z2M generates by itself.
 
 A copy lives with the sketch so that the definition and the firmware it belongs to
 stay in one place; Z2M keeps its own copy, so a change to one has to be carried
@@ -1516,6 +1599,7 @@ Any change to the endpoint list counts, not only the sensor count:
 | a new setting or diagnostic endpoint | its number in `m.deviceEndpoints()` and an `m.numeric()` for it — endpoint 15, the temperature correction, was this |
 | `ZB_LQI_ENDPOINT` or `ZB_RSSI_ENDPOINT` set to 0 | the entry and the `m.numeric()` removed, or the expose stays `N/A` for good |
 | `ZB_MIRROR_ENDPOINT` set to 0 | endpoint 14 gone from the list, including the `m.text()` |
+| `ZB_VERSION_ENDPOINT` set to 0 | endpoint 16 gone, both the `m.numeric()` and the `m.text()`; *Firmware build ID* stays, since that one is not from here |
 
 The order that works, and it does have to be this order:
 
@@ -1526,7 +1610,8 @@ The order that works, and it does have to be this order:
    [a new endpoint needs anyway](#in-zigbee2mqtt). Regenerating before this reads
    the stale list back and looks like it worked.
 3. Regenerate — device page → *Dev console* → *Generate external definition* — and
-   re-add the `m.text()` entry, the only part Z2M cannot produce by itself.
+   re-add **both** `m.text()` entries, the mirrored line and the firmware version,
+   the only parts Z2M cannot produce by itself. They are marked in the file.
 4. Update **both** copies: the one in Z2M's `external_converters/` and
    [`nanoh2-ds18b20.mjs`](nanoh2-ds18b20.mjs) here beside the sketch. Only the
    first one changes what the device page shows, and only the second one survives

@@ -68,6 +68,7 @@
 #include "zb_mirror.h"
 #include "zb_setting.h"
 #include "zb_temp_endpoint.h"
+#include "zb_version.h"
 
 /* ----------------------------- state ------------------------------ */
 
@@ -103,7 +104,7 @@ static_assert(MAX_DS18B20_SENSORS <= 16,
 // The temperature block is the one that grows with the sensor count, so it is the
 // one that can run off the end of the endpoint range.
 static_assert(EP_CONFIG_INTERVAL >= 1 && EP_CONFIG_DELTA >= 1 && EP_CONFIG_CORRECTION >= 1 && EP_LINK_LQI >= 1
-                && EP_LINK_RSSI >= 1 && EP_MIRROR >= 1 && EP_TEMP_BASE >= 1
+                && EP_LINK_RSSI >= 1 && EP_MIRROR >= 1 && EP_VERSION >= 1 && EP_TEMP_BASE >= 1
                 && EP_TEMP_BASE + MAX_DS18B20_SENSORS - 1 <= 240,
               "Zigbee endpoint numbers have to stay within 1..240");
 
@@ -111,7 +112,7 @@ static_assert(EP_CONFIG_INTERVAL >= 1 && EP_CONFIG_DELTA >= 1 && EP_CONFIG_CORRE
 // endpoint number has to be unique: a collision would register two endpoints as one.
 static_assert(EP_TEMP_BASE > EP_CONFIG_INTERVAL && EP_TEMP_BASE > EP_CONFIG_DELTA
                 && EP_TEMP_BASE > EP_CONFIG_CORRECTION && EP_TEMP_BASE > EP_LINK_LQI && EP_TEMP_BASE > EP_LINK_RSSI
-                && EP_TEMP_BASE > EP_MIRROR,
+                && EP_TEMP_BASE > EP_MIRROR && EP_TEMP_BASE > EP_VERSION,
               "the temperature endpoints have to stay above the settings, the link and the mirror endpoints");
 
 // Pairwise, one static_assert per endpoint against the ones after it. Spelled out
@@ -120,16 +121,24 @@ static_assert(EP_TEMP_BASE > EP_CONFIG_INTERVAL && EP_TEMP_BASE > EP_CONFIG_DELT
 // new endpoint gets a line of its own here and one term in each line above it.
 static_assert(EP_CONFIG_INTERVAL != EP_CONFIG_DELTA && EP_CONFIG_INTERVAL != EP_CONFIG_CORRECTION
                 && EP_CONFIG_INTERVAL != EP_LINK_LQI && EP_CONFIG_INTERVAL != EP_LINK_RSSI
-                && EP_CONFIG_INTERVAL != EP_MIRROR,
+                && EP_CONFIG_INTERVAL != EP_MIRROR && EP_CONFIG_INTERVAL != EP_VERSION,
               "the reading interval endpoint number is used twice");
 static_assert(EP_CONFIG_DELTA != EP_CONFIG_CORRECTION && EP_CONFIG_DELTA != EP_LINK_LQI
-                && EP_CONFIG_DELTA != EP_LINK_RSSI && EP_CONFIG_DELTA != EP_MIRROR,
+                && EP_CONFIG_DELTA != EP_LINK_RSSI && EP_CONFIG_DELTA != EP_MIRROR && EP_CONFIG_DELTA != EP_VERSION,
               "the reporting delta endpoint number is used twice");
 static_assert(EP_CONFIG_CORRECTION != EP_LINK_LQI && EP_CONFIG_CORRECTION != EP_LINK_RSSI
-                && EP_CONFIG_CORRECTION != EP_MIRROR,
+                && EP_CONFIG_CORRECTION != EP_MIRROR && EP_CONFIG_CORRECTION != EP_VERSION,
               "the temperature correction endpoint number is used twice");
-static_assert(EP_LINK_LQI != EP_LINK_RSSI && EP_LINK_LQI != EP_MIRROR && EP_LINK_RSSI != EP_MIRROR,
-              "a link or mirror endpoint number is used twice");
+static_assert(EP_LINK_LQI != EP_LINK_RSSI && EP_LINK_LQI != EP_MIRROR && EP_LINK_LQI != EP_VERSION
+                && EP_LINK_RSSI != EP_MIRROR && EP_LINK_RSSI != EP_VERSION && EP_MIRROR != EP_VERSION,
+              "a link, mirror or version endpoint number is used twice");
+
+// Two digits each for the minor and the patch is all FW_VERSION_NUMBER's encoding
+// holds, so a minor of 100 would read as the next major and a version could go
+// backwards without anybody touching the major. The string in FW_VERSION is fine
+// either way, which is exactly why this has to be checked here.
+static_assert(FW_VERSION_MINOR < 100 && FW_VERSION_PATCH < 100,
+              "FW_VERSION_NUMBER gives the minor and the patch two digits each");
 
 // 0 means "every channel"; anything else is a single 2.4 GHz Zigbee channel, and
 // those are 11 to 26. A number outside that range would be shifted into a mask
@@ -178,6 +187,11 @@ LinkAnalog zbRssi(EP_LINK_RSSI);
 // endpoints, because logEvent() reaches it by name from anywhere in the sketch -
 // including from the files that know nothing about Zigbee.
 ZbMirror zbMirror(EP_MIRROR);
+
+// Which firmware is running, as a number and as a string - see zb_version.h. It has
+// no state and nothing to poll: the value is set once in setupEndpoints() and sent
+// again on each join.
+ZbVersion zbVersion(EP_VERSION);
 
 // The ZCL application types have no dBm in the list, so the RSSI endpoint uses
 // the "other" group and states its unit in EngineeringUnits instead.
@@ -567,6 +581,9 @@ void applyReporting() {
   if (ZB_MIRROR_ENDPOINT) {
     zbMirror.setAnalogInputReporting(MIRROR_REPORT_MIN_INTERVAL_S, MIRROR_REPORT_HEARTBEAT_S, 0);
   }
+  // Nothing for the version endpoint on purpose: a reporting configuration is what
+  // repeats a value that moves, and this one cannot move without a reflash - which
+  // reboots the device and rejoins, and onZigbeeConnected() sends it there.
 }
 
 // Allocated once and never freed: the endpoints live for the whole run, and
@@ -578,9 +595,10 @@ void createEndpoints() {
 }
 
 // The endpoints are registered in the order they should be read in: settings, link,
-// the console mirror, then the temperature slots. The stack reports its endpoints in
-// the order they were added here, and a coordinator that lists what it found -
-// Zigbee2MQTT among them - follows that order rather than sorting by number.
+// the console mirror, the firmware version, then the temperature slots. The stack
+// reports its endpoints in the order they were added here, and a coordinator that
+// lists what it found - Zigbee2MQTT among them - follows that order rather than
+// sorting by number.
 void setupEndpoints() {
   cfgInterval.addEndpoint(onIntervalWritten);
   cfgDelta.addEndpoint(onDeltaWritten);
@@ -642,6 +660,37 @@ void setupEndpoints() {
     Serial.printf("EP %u -> console mirror" CONSOLE_EOL, EP_MIRROR);
   }
 
+  if (ZB_VERSION_ENDPOINT) {
+    zbVersion.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
+    // In the Basic cluster as well as on this endpoint's own value, which is the
+    // half a coordinator reads without being taught anything - see zb_version.h.
+    // Said on the console when it fails, because this is the one endpoint whose
+    // whole purpose it is.
+    if (!zbVersion.addSoftwareBuildId(FW_VERSION)) {
+      logEvent("EP %u: firmware version attribute unavailable", EP_VERSION);
+    }
+    zbVersion.addAnalogInput();
+    // A version number is a bare number: no unit, and nothing in the ZCL
+    // application types that describes one.
+    zbVersion.setAnalogInputApplication(ESP_ZB_ZCL_AI_COUNT_UNITLESS_COUNT);
+    // Names the number, not the endpoint, the same way "Mirror line count" does:
+    // Zigbee2MQTT takes this string as the expose name for presentValue, so the
+    // plain name stays free for the string beside it.
+    zbVersion.setAnalogInputDescription("Firmware version number");
+    zbVersion.setAnalogInputResolution(1);
+    // 0 to 2.0.0's own encoding and beyond: two digits each for the minor and the
+    // patch, so the range has to reach 99.99.99 - see FW_VERSION_NUMBER.
+    zbVersion.setAnalogInputMinMax(0, 999999);
+    if (!zbVersion.addText(FW_VERSION)) {
+      // Optional, like the mirrored line: without it the endpoint still carries the
+      // version as a number, which is the part that needs no converter anyway.
+      logEvent("EP %u: firmware version text unavailable", EP_VERSION);
+    }
+    zbVersion.setPowerSource(ZB_POWER_SOURCE_MAINS);
+    Zigbee.addEndpoint(&zbVersion);
+    Serial.printf("EP %u -> firmware version %s" CONSOLE_EOL, EP_VERSION, FW_VERSION);
+  }
+
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     // Same manufacturer and model on every endpoint: this identifies the
     // product. Which sensor an endpoint reads is the sensor id, see above.
@@ -682,6 +731,15 @@ void onZigbeeConnected() {
   cfgDelta.publish();
   cfgCorrection.publish();
   lastSettingReportMs = millis();
+
+  // And the firmware version, which is sent here and nowhere else: this is the only
+  // moment it can have changed, since changing it means flashing and flashing means
+  // a reboot and a fresh join. A coordinator that is not bound yet misses it and can
+  // read it whenever it likes - a read needs no binding, and the answer is the same
+  // until the next flash.
+  if (ZB_VERSION_ENDPOINT) {
+    zbVersion.publish(FW_VERSION_NUMBER);
+  }
 
   // Seed the coordinator with fresh values: after a join or a rejoin it has no
   // temperatures at all, and the deadband would otherwise hold them back.

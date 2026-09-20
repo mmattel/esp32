@@ -9,6 +9,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include "Zigbee.h"
+#include "zb_version.h"
 
 class ZbSetting {
 public:
@@ -74,7 +75,9 @@ private:
     return fabsf(roundf(_step * 10.0f) / 10.0f - _step) < 1e-6f ? 1 : 2;
   }
 
-  ZigbeeAnalog _ep;
+  // A plain ZigbeeAnalog in every respect that matters here; the subclass is only
+  // there to put FW_VERSION in the endpoint's Basic cluster - see addEndpoint().
+  SwBuildAnalog _ep;
   const char *_nvsKey;
   const char *_description;
   float _default;

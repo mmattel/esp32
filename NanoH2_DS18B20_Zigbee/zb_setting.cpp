@@ -6,7 +6,7 @@
 // config.h that predates those two names costs two errors rather than thirty - but
 // naming the file that is out of step still beats being told a string is undeclared.
 // The same check guards zb_mirror.h, where the cost is thirty.
-#if !defined(ZB_MANUFACTURER) || !defined(ZB_MODEL)
+#if !defined(ZB_MANUFACTURER) || !defined(ZB_MODEL) || !defined(FW_VERSION)
 #error "config.h has no Zigbee identity - update the whole sketch folder from one commit"
 #endif
 
@@ -54,6 +54,14 @@ void ZbSetting::load(Preferences &prefs) {
 
 void ZbSetting::addEndpoint(void (*cb)(float)) {
   _ep.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
+  // Which firmware this is, in the Basic cluster beside the manufacturer and the
+  // model. Here rather than only on EP_VERSION because a coordinator reads Basic
+  // from one endpoint of its choosing - Zigbee2MQTT takes the first it finds one on -
+  // and the settings are the endpoints registered first and numbered lowest, so they
+  // are the likely choice. Adding it to all of them costs a few bytes each and takes
+  // the guess out of it. Optional: a failure leaves the setting working and only that
+  // one endpoint silent about the version, so it is not worth a line of its own.
+  _ep.addSoftwareBuildId(FW_VERSION);
   _ep.addAnalogOutput();
   _ep.setAnalogOutputApplication(_appType);
   _ep.setAnalogOutputDescription(_description);
