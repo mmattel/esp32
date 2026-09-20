@@ -38,6 +38,7 @@ count](#changing-the-sensor-count).
   - [An expose that stays N/A](#an-expose-that-stays-na)
   - [Showing the mirrored line](#showing-the-mirrored-line)
   - [Adding the external converter](#adding-the-external-converter)
+  - [When the endpoint list changes](#when-the-endpoint-list-changes)
 - [Pushbutton](#pushbutton)
 - [Notes and limits](#notes-and-limits)
 
@@ -736,7 +737,9 @@ serving its cached definition, which has no endpoint 15 in it.
 The [external converter](#adding-the-external-converter) needs the endpoint too —
 `15: 15` in `m.deviceEndpoints()` and the `temperature_correction_(c)` numeric — and
 the copy under `external_converters/` has to be updated along with the one kept
-beside the sketch.
+beside the sketch. Until it is, the setting does not appear even after a re-pair,
+because an external definition replaces the generated one rather than adding to it:
+see [When the endpoint list changes](#when-the-endpoint-list-changes).
 
 ## Link quality and signal strength
 
@@ -1394,11 +1397,7 @@ appear there.
 
 A copy lives with the sketch so that the definition and the firmware it belongs to
 stay in one place; Z2M keeps its own copy, so a change to one has to be carried
-over to the other. **Regenerate it after any change to the endpoint list** — device
-page → *Dev console* → *Generate external definition* — and re-add the `m.text()`
-entry above to the result, which is the only part Z2M cannot produce by itself. A
-different `MAX_DS18B20_SENSORS` is the usual reason, and needs a
-[re-pair](#changing-the-sensor-count) anyway.
+over to the other. What has to be carried over, and when, is the next section.
 
 The temperature endpoints are the part that goes stale, and the file names them
 twice — once in `m.deviceEndpoints()` and once in
@@ -1411,6 +1410,41 @@ stays `N/A` for good and a binding that fails during `configure`; listing one fe
 hides a sensor that is really reporting. Regenerating gets this right by
 construction, since Z2M reads the endpoint list off the device — which is also why
 it is the better move than editing the two lists by hand.
+
+### When the endpoint list changes
+
+**An external definition replaces the generated one; Z2M does not merge the two.**
+So an endpoint the firmware gained is invisible until the `.mjs` names it, and it
+stays invisible however often the device is re-interviewed or re-paired. This is
+worth knowing before it happens, because it is the one failure here that looks like
+a firmware bug and is not: the boot log lists the endpoint, the device answers on
+it, and the device page shows nothing. Without an external converter the same
+change would have appeared by itself, since Z2M generates a definition from what it
+finds on the device. That is the price of the converter, and the whole price.
+
+Any change to the endpoint list counts, not only the sensor count:
+
+| Change | What the converter needs |
+| --- | --- |
+| a different `MAX_DS18B20_SENSORS` | the `20`… entries in `m.deviceEndpoints()` **and** in `m.temperature()`, both |
+| a new setting or diagnostic endpoint | its number in `m.deviceEndpoints()` and an `m.numeric()` for it — endpoint 15, the temperature correction, was this |
+| `ZB_LQI_ENDPOINT` or `ZB_RSSI_ENDPOINT` set to 0 | the entry and the `m.numeric()` removed, or the expose stays `N/A` for good |
+| `ZB_MIRROR_ENDPOINT` set to 0 | endpoint 14 gone from the list, including the `m.text()` |
+
+The order that works, and it does have to be this order:
+
+1. Flash the firmware first and check the boot log — the `EP <n> -> ...` lines are
+   the device's own list of what it now has.
+2. Get Z2M to see the new list: *Re-interview* on the device page, or delete and
+   re-pair if the endpoint list grew, which is what
+   [a new endpoint needs anyway](#in-zigbee2mqtt). Regenerating before this reads
+   the stale list back and looks like it worked.
+3. Regenerate — device page → *Dev console* → *Generate external definition* — and
+   re-add the `m.text()` entry, the only part Z2M cannot produce by itself.
+4. Update **both** copies: the one in Z2M's `external_converters/` and
+   [`nanoh2-ds18b20.mjs`](nanoh2-ds18b20.mjs) here beside the sketch. Only the
+   first one changes what the device page shows, and only the second one survives
+   the next person to read this repo.
 
 ## Pushbutton
 
