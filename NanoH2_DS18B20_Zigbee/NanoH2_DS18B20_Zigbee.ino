@@ -353,7 +353,17 @@ void reportSlotState() {
   lastOnBus = onBus;
   lastMissing = missing;
   lastNeverSeen = neverSeen;
-  logEvent("slots: %u on the bus, %u missing, %u never seen", onBus, missing, neverSeen);
+  // The configured count is in the line because the three that follow only add up
+  // to something once it is known: "0 on the bus" with nothing else stated could be
+  // a build with no slots at all.
+  //
+  // 61 characters at three slots, against the MIRROR_TEXT_LEN of 64 that the mirror
+  // carries - so it goes out whole rather than cut, which is what the wording is
+  // chosen for. It is 57 plus one digit per number, so any slot count that is
+  // physically sensible on one 1-Wire bus still fits; a line of 30-odd slots with
+  // two-digit counts everywhere would be the first to lose a character.
+  logEvent("temp sensors (%u slots): %u on the bus, %u missing, %u never seen",
+           (unsigned)MAX_DS18B20_SENSORS, onBus, missing, neverSeen);
 }
 
 // Whatever was last said about the slots went to the previous coordinator, or to

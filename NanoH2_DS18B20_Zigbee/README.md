@@ -662,7 +662,7 @@ What is mirrored is what the console calls an event in its own right:
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
 | `Reading interval (s) written from Zigbee: 300.00 -> 300` | a coordinator changed the interval or the delta and it moved |
 | `slot 0 (28FF…): read failed, never read since boot`, `slot 1 (…) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
-| `slots: 1 on the bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
+| `temp sensors (3 slots): 1 on the bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
 | `slot 0 (28FF…): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
 | `1-Wire: no device responded to CONVERT T` | nothing on the bus at all |
 | `FATAL: …`, `Flash partition '…' is missing`, `NVS open failed …`, `Zigbee failed to start …`, `scan: failed` | every error line the sketch prints |
@@ -801,14 +801,22 @@ Since the mirror holds exactly one line, the per-slot detail cannot all fit on
 it, so one summary line goes out whenever the counts change:
 
 ```
-slots: 1 on the bus, 1 missing, 1 never seen
+temp sensors (3 slots): 1 on the bus, 1 missing, 1 never seen
 ```
 
-That is the whole picture in one line, it is stable while nothing changes — so
-the mirror's deadband suppresses the repeats — and it is sent again after every
-join, because the only scan that ran before the radio came up was the one in
-`setup()`, whose result reached nobody. With every slot reading, the counts stop
-changing and the temperatures themselves are the better answer anyway.
+That is the whole picture in one line: the slot count is `MAX_DS18B20_SENSORS` and
+the three that follow add up to it, which is what makes `0 on the bus` readable —
+without the total it could equally be a build with no slots at all. It is stable
+while nothing changes — so the mirror's deadband suppresses the repeats — and it is
+sent again after every join, because the only scan that ran before the radio came up
+was the one in `setup()`, whose result reached nobody. With every slot reading, the
+counts stop changing and the temperatures themselves are the better answer anyway.
+
+The wording is as short as it is on purpose: at 61 characters it is inside the
+mirror's `MIRROR_TEXT_LEN` of 64, so the copy on endpoint 14 is the whole line
+rather than a cut one. It costs 57 plus one digit per number, which leaves room for
+any slot count a single 1-Wire bus would carry. If you reword it, count the result —
+64 is the most that fits an unfragmented report, so raising the limit is not free.
 
 What is deliberately **not** mirrored: the unassigned-slot lines (three empty
 slots would push each other off a one-line mirror, and an empty slot is not a
