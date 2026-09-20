@@ -47,6 +47,15 @@ ZbSetting makeDelta() {
   return ZbSetting(14, NVS_KEY_DELTA, "Reporting delta (C)", TEMP_DELTA_DEFAULT_C, TEMP_DELTA_MIN_C,
                    TEMP_DELTA_MAX_C, TEMP_DELTA_STEP_C, ESP_ZB_ZCL_AI_TEMPERATURE_OTHER);
 }
+// The only setting whose range crosses zero, which is the reason it is tested at all
+// beyond the two above: every rule here - the clamp, the step rounding, the NaN
+// fallback, what NVS holds - has a second half on the negative side that a range
+// starting at 0 never reaches.
+ZbSetting makeCorrection() {
+  return ZbSetting(15, NVS_KEY_CORRECTION, "Temperature correction (C)", TEMP_CORRECTION_DEFAULT_C,
+                   TEMP_CORRECTION_MIN_C, TEMP_CORRECTION_MAX_C, TEMP_CORRECTION_STEP_C,
+                   ESP_ZB_ZCL_AI_TEMPERATURE_OTHER);
+}
 
 int main() {
   printf("interval sanitise (default 60, 10..3600 step 1)\n");
@@ -71,9 +80,32 @@ int main() {
          dl.sanitise(0.75f) == 0.75f && dl.sanitise(19.25f) == 19.25f ? "yes (ok)" : "no (FAIL)");
   if (!(dl.sanitise(0.75f) == 0.75f && dl.sanitise(19.25f) == 19.25f)) fails++;
 
+  printf("correction sanitise (default 0, -5..+5 step 0.25)\n");
+  ZbSetting cr = makeCorrection();
+  check("below min -> min",        cr.sanitise(-40),    TEMP_CORRECTION_MIN_C);
+  check("above max -> max",        cr.sanitise(40),     TEMP_CORRECTION_MAX_C);
+  // Rounding away from zero on both sides: -0.3 is nearer -0.25 than -0.5, and a
+  // roundf() that truncated instead would answer -0.25 here and 0 for -0.1, which is
+  // the asymmetry this pins down. -0.1 is under half a step, so it is no correction.
+  check("-0.30 -> -0.25",          cr.sanitise(-0.3f),  -0.25f);
+  check("-0.10 -> 0",              cr.sanitise(-0.1f),  0.0f);
+  check("+0.30 -> +0.25",          cr.sanitise(0.3f),   0.25f);
+  check("NaN -> code default",     cr.sanitise(NAN),    TEMP_CORRECTION_DEFAULT_C);
+  // 0 is the default and the value that switches the correction off, so it has to
+  // come back untouched rather than being nudged anywhere by the rounding.
+  check("0 untouched",             cr.sanitise(0.0f),   0.0f);
+  check("in range untouched",      cr.sanitise(-2.5f),  -2.5f);
+  // Both ends of the range, for the same reason the delta checks the positive ones:
+  // a value that is not exact in a float would be published back with a tail of
+  // digits, and a sign does not change that.
+  printf("  negative quarters survive the float exactly -> %s\n",
+         cr.sanitise(-0.75f) == -0.75f && cr.sanitise(-4.25f) == -4.25f ? "yes (ok)" : "no (FAIL)");
+  if (!(cr.sanitise(-0.75f) == -0.75f && cr.sanitise(-4.25f) == -4.25f)) fails++;
+
   printf("printed decimals follow the step\n");
   check("1 s step -> whole seconds",  iv.decimals(), 0);
   check("0.25 C step -> two decimals", dl.decimals(), 2);
+  check("the correction's step too",   cr.decimals(), 2);
 
   printf("load() precedence\n");
   Preferences p;
@@ -179,6 +211,40 @@ int main() {
   changed = e.applyPending(r);
   printf("  real write after a publish -> changed=%s\n", changed ? "true (ok)" : "false (FAIL)");
   if (!changed) fails++;
+
+  // The whole path once more for a value below zero, because a negative is the one
+  // thing that only the correction can store: sanitise(), NVS, load() and the
+  // mirror-back each carry the sign separately, and a lost minus sign would move a
+  // reading in the wrong direction by twice the correction.
+  printf("a negative value all the way through\n");
+  Preferences s;
+  ZbSetting cw = makeCorrection();
+  cw.load(s);
+  check("no NVS key -> no correction", cw.value(), TEMP_CORRECTION_DEFAULT_C);
+  cw.addEndpoint(onWritten);
+  target = &cw;
+  cw._ep.injectWrite(-1.75f);  // on the step, in range
+  changed = cw.applyPending(s);
+  printf("  write -1.75 -> changed=%s\n", changed ? "true (ok)" : "false (FAIL)");
+  if (!changed) fails++;
+  check("negative value applied", cw.value(), -1.75f);
+  check("negative persisted to NVS", s.getFloat(NVS_KEY_CORRECTION, NAN), -1.75f);
+  check("verbatim write left in the attribute", cw._ep.output, -1.75f);
+  // A reboot with that value in NVS: the sign has to come back out of the store as
+  // well, which is the half of the round trip the write above cannot show.
+  ZbSetting cl = makeCorrection();
+  cl.load(s);
+  check("read back after a reboot", cl.value(), -1.75f);
+
+  // Past the bottom of the range, which is where the clamp and the mirror-back meet:
+  // the device keeps -5 and the coordinator has to be told so, or its dial would sit
+  // at -20 while readings moved by a quarter of that.
+  target = &cw;
+  cw._ep.injectWrite(-20.0f);
+  cw.applyPending(s);
+  check("clamped at the bottom of the range", cw.value(), TEMP_CORRECTION_MIN_C);
+  check("the clamp is persisted", s.getFloat(NVS_KEY_CORRECTION, NAN), TEMP_CORRECTION_MIN_C);
+  check("and mirrored back", cw._ep.output, TEMP_CORRECTION_MIN_C);
 
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails != 0;

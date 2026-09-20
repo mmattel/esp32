@@ -121,7 +121,7 @@ blob, and a miss leaves the caller's `NAN` default in place. That is exactly wha
 the NAN sentinel in `ZbSetting::load()` depends on, so the stub has to keep this
 property for the precedence test to mean anything.
 
-Covers, for both the interval and the delta:
+Covers, across the interval, the delta and the temperature correction:
 
 - Step rounding and clamping at both ends of the range; `NAN` falls back to the
   code default.
@@ -130,6 +130,12 @@ Covers, for both the interval and the delta:
 - `applyPending()`: no-op without a pending write, change detection on a repeated
   write, persistence to NVS, and mirror-back of the effective value after a
   clamped write.
+- The negative half of all of that, which only the correction's range reaches:
+  rounding away from zero on the low side, a value below the minimum clamped to
+  it, 0 left exactly as it is since that is what switches the correction off, and
+  a negative value written, persisted, read back after a reboot and mirrored back
+  after a clamp — a lost minus sign would move every reading by twice the
+  correction, in the wrong direction.
 
 ### `zb_link` — parent link quality
 

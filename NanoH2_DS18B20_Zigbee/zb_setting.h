@@ -13,7 +13,7 @@
 class ZbSetting {
 public:
   // The endpoint reports ZB_MANUFACTURER / ZB_MODEL like every other endpoint
-  // of this device; the description is what tells the two settings apart on the
+  // of this device; the description is what tells the settings apart on the
   // coordinator.
   ZbSetting(uint8_t endpoint, const char *nvsKey, const char *description, float defaultValue, float minValue,
             float maxValue, float step, uint32_t applicationType);

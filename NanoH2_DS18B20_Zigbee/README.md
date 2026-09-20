@@ -23,6 +23,10 @@ count](#changing-the-sensor-count).
   - [Why the delta moves in quarters](#why-the-delta-moves-in-quarters)
   - [One decimal, everywhere](#one-decimal-everywhere)
   - [How the delta gates reporting](#how-the-delta-gates-reporting)
+- [Temperature correction](#temperature-correction)
+  - [One value for every sensor](#one-value-for-every-sensor)
+  - [Why the range is only ±5 °C](#why-the-range-is-only-5-c)
+  - [In Zigbee2MQTT](#in-zigbee2mqtt)
 - [Link quality and signal strength](#link-quality-and-signal-strength)
 - [Console mirror](#console-mirror)
 - [Serial console](#serial-console)
@@ -40,7 +44,7 @@ count](#changing-the-sensor-count).
 | File | Contents |
 | --- | --- |
 | `NanoH2_DS18B20_Zigbee.ino` | Application: link state machine, LED, sampling, button |
-| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, hold times |
+| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, correction, hold times |
 | `ds18b20_bus.h/.cpp` | Self-contained 1-Wire master and DS18B20 driver |
 | `slots.h/.cpp` | What each slot has read, and the lines that say which of the four states it is in |
 | `zb_setting.h/.cpp` | A setting with a code default, an NVS override and a Zigbee override |
@@ -319,21 +323,30 @@ With the default of three sensors:
 | 12 | Analog Input | LQI of the link to the parent, 0 … 255 (read-only) |
 | 13 | Analog Input | signal strength of that link, dBm (read-only) |
 | 14 | Analog Input + a text attribute | the [console mirror](#console-mirror): how many lines, and the last one (read-only) |
+| 15 | Analog Output | [temperature correction](#temperature-correction), °C, one value for every sensor |
 | 20, 21, 22 | Temperature Measurement | one per sensor slot |
 
 An Analog Output cluster carries a single value, and so does an Analog Input one,
 so every setting and every measurement needs an endpoint of its own.
 
-What describes the device comes first, what it measures last: the two settings,
-the two link measurements, the console mirror, then the temperature slots from
+What describes the device comes first, what it measures last: the settings, the
+two link measurements, the console mirror, then the temperature slots from
 `EP_TEMP_BASE` up. The numbers themselves carry no meaning — any assignment within
 1 … 240 is legal — so the order is a readability choice, and the endpoints are
 registered in the same order, because that is the order in which the stack reports
 them and the order a coordinator lists them in.
 
-The five low ones are fixed constants in `config.h`, deliberately *not* derived
+The temperature correction is the exception, and the reason is worth knowing
+before adding anything else here: it arrived after 10 … 14 had been in the field,
+and a coordinator names a setting after the endpoint it lives on, so giving it 12
+and pushing the link endpoints up would have renamed three exposes on every device
+that already knew this one. It took the next free number instead. Only its
+*number* sits apart — it is registered with the other two settings, so a
+coordinator still lists it beside them.
+
+The six low ones are fixed constants in `config.h`, deliberately *not* derived
 from the sensor count, so changing that count leaves them — and the names a
-coordinator derives from their numbers — untouched. The gap between 14 and
+coordinator derives from their numbers — untouched. The gap between 15 and
 `EP_TEMP_BASE` leaves room for further settings.
 
 Each temperature endpoint exposes all three required identifiers:
@@ -344,7 +357,8 @@ Each temperature endpoint exposes all three required identifiers:
 - **sensor internal ID** — the DS18B20's 64-bit ROM code as 16 hex digits, in
   the Basic cluster's **LocationDescription** attribute (0x0010), e.g.
   `28FF641E1234ABCD`. Unassigned slots read `UNASSIGNED`.
-- **temperature** — the measured value, read on the configured interval and
+- **temperature** — the measured value, read on the configured interval, shifted
+  by the [temperature correction](#temperature-correction) if one is set, and
   published when it moves by more than the delta.
 
 Every slot endpoint exists whether or not a sensor is plugged in, because the
@@ -389,10 +403,10 @@ holds, so it is a ceiling on the configuration rather than a limit worth raising
 the `static_assert` in the `.ino` says what to widen if it ever is.
 
 **Zero is a valid count.** With `MAX_DS18B20_SENSORS 0` there are no temperature
-endpoints, the settings, the two link endpoints and the mirror stay at 10 … 14, and
+endpoints, the settings, the two link endpoints and the mirror stay at 10 … 15, and
 `PIN_ONEWIRE` is never driven at all — no bus scan, no conversions, and
 `1-Wire bus unused, no slots to map a sensor onto` in place of the scan line. What is left is
-the Zigbee side, the two settings, the
+the Zigbee side, the three settings, the
 [link quality](#link-quality-and-signal-strength), the [console
 mirror](#console-mirror), the LED and the button,
 which is a useful way to bring up a board before any sensor is wired. The reading interval keeps ticking and finds nothing
@@ -408,7 +422,7 @@ reboot.
 
 What changes on the air:
 
-- **The settings, link and mirror endpoints stay where they are**, at 10 … 14, because
+- **The settings, link and mirror endpoints stay where they are**, at 10 … 15, because
   their numbers are fixed rather than derived from the count. Only the temperature
   endpoints change: a slot is added above the last one or removed from the top, so
   in Zigbee2MQTT the count of `temperature_2x` exposes changes and the rest of the
@@ -523,7 +537,9 @@ A write only prints when it moved something: the value in effect, or the number
 itself through rounding or clamping. A coordinator that rewrites the value already
 in effect stays silent on the console.
 
-Both resolve the same way, each source overriding the one above it:
+Both resolve the same way, each source overriding the one above it — and so does
+the [temperature correction](#temperature-correction), which is the third writable
+setting and follows every rule in this section:
 
 1. The code default in `config.h`.
 2. The value stored in NVS by a previous run.
@@ -539,14 +555,14 @@ conversion time of a 12-bit reading. Both live in NVS, so they survive a reboot;
 factory reset restores the code defaults.
 
 Which leaves the question of how a coordinator that did *not* write the value ever
-learns it. Nothing else reports these two endpoints — `applyReporting()` covers the
+learns it. Nothing else reports the setting endpoints — `applyReporting()` covers the
 temperature and link endpoints only, and the core's analog output cluster takes no
 reporting configuration — and the publish on join is too early to help: a report
 only reaches whoever is already bound, and Zigbee2MQTT binds while it interviews.
 That is why a freshly joined device showed an empty interval and delta until the
-first write. Both are therefore repeated every `SETTING_REPORT_HEARTBEAT_S`
-(60 s), which is what fills them in, and what refills them after a coordinator
-restart that lost its state.
+first write. All three settings are therefore repeated every
+`SETTING_REPORT_HEARTBEAT_S` (60 s), which is what fills them in, and what refills
+them after a coordinator restart that lost its state.
 
 ### Why the delta moves in quarters
 
@@ -625,6 +641,100 @@ delta of reality.
 Right after a join or a rejoin the deadband is bypassed once per sensor
 (`lastPublished` is reset to `NAN`), so the coordinator always starts with real
 values instead of waiting for the first threshold crossing.
+
+## Temperature correction
+
+A third writable setting, on its own endpoint: a value added to every reading
+before anything else happens to it. It is for aligning a device against a
+reference thermometer, or against the warmth its own enclosure adds.
+
+| | Correction |
+| --- | --- |
+| Code default | `TEMP_CORRECTION_DEFAULT_C` — 0.00 °C, no correction |
+| Range | −5 … +5 °C |
+| Step | 0.25 °C |
+| Endpoint | 15 |
+
+It resolves, rounds, clamps, persists and mirrors back exactly like the [interval
+and the delta](#reading-interval-and-reporting-delta) — same precedence, same
+quarter-degree step and the same reason for it, same NVS storage, same repeat every
+`SETTING_REPORT_HEARTBEAT_S`. A factory reset restores 0.
+
+```
+Temperature correction (C): 0.00 (code default)
+Temperature correction (C) written from Zigbee: -0.44 -> -0.50
+```
+
+The correction is added to the raw reading **before** it is rounded to
+`TEMP_PUBLISH_DECIMALS`, and everything downstream works on the result: the
+deadband, the temperature attribute, the report, what a later read failure calls
+the last good value, and the console. A coordinator told 21.2 °C therefore finds
+the same 21.2 °C everywhere else it is written down.
+
+One check deliberately stays on the raw value: the 85.00 °C power-on default is
+recognised from the sensor's own register before the correction is applied, so a
+correction cannot hide that fault — and it is the one place where the number being
+talked about is not the number published, since what goes out is 85 °C plus the
+correction.
+
+While a correction is in effect the console says what it was applied to, because a
+corrected reading is indistinguishable from an uncorrected one by looking at it:
+
+```
+slot 0  EP 20  28FF641E1234ABCD  21.2 C  published  (raw 21.4 C, correction -0.25)
+```
+
+That tail is console-only — the coordinator has the correction as an endpoint of
+its own — and it is left out entirely at 0, which is every device that never set
+one.
+
+**Changing the correction republishes immediately**, rather than waiting for a
+reading to move. It has to: a correction that changed makes every value the
+coordinator holds wrong by the amount of the change, and the deadband would hold
+the corrected readings back for as long as they stayed within delta of the
+uncorrected ones — a quarter-degree correction with a 0.25 °C delta might never
+arrive at all. So a write that changed the value forgets what was published and
+samples the bus at once, and the next log lines read `published (first)`.
+
+### One value for every sensor
+
+There is deliberately no per-sensor correction. A DS18B20 is accurate to ±0.5 °C,
+so what a correction compensates for is a reference to align against or an
+enclosure that runs warm, and both of those belong to the device rather than to one
+of its sensors.
+
+The other half of the reason is that a per-sensor value would have to be stored
+per *slot*, and a slot can change hands: [replacing a sensor](#replacing-a-sensor)
+leaves the old one's slot to its replacement, which would quietly hand the old
+sensor's correction to the new one. A device-wide value cannot go wrong that way.
+Sensors that genuinely need individual offsets want individual devices — or a
+template sensor on the coordinator, where per-entity arithmetic is cheap.
+
+### Why the range is only ±5 °C
+
+It is a correction, not a calibration curve. A range wide enough to publish a
+temperature nowhere near the sensor's would turn one mistyped value into
+plausible-looking data that nothing downstream could tell from a real reading — and
+a sensor that is off by more than a few degrees is faulty, not miscalibrated.
+
+The driver's plausibility limits stay where they are, at the DS18B20's own
+−55 … +125 °C, so a correction can publish a value a few degrees outside them.
+That is on purpose: those limits reject a *reading* the sensor cannot have taken,
+and a correction is not one — widening them to follow the correction would only
+blur what they are for. It is another reason to keep the range narrow.
+
+### In Zigbee2MQTT
+
+Endpoint 15 did not exist in earlier builds, and an endpoint list is fixed at
+`Zigbee.begin()`. After flashing this version the device has to be re-paired for
+the setting to appear: hold the button for 5 s and release to factory reset, delete
+the device in Z2M, then join again and let it re-interview. Without that, Z2M keeps
+serving its cached definition, which has no endpoint 15 in it.
+
+The [external converter](#adding-the-external-converter) needs the endpoint too —
+`15: 15` in `m.deviceEndpoints()` and the `temperature_correction_(c)` numeric — and
+the copy under `external_converters/` has to be updated along with the one kept
+beside the sketch.
 
 ## Link quality and signal strength
 
@@ -756,7 +866,7 @@ What is mirrored is what the console calls an event in its own right:
 | `Button on pin 9 … - ignoring it until it goes idle` | the pin reads pressed with nothing pressing it |
 | `Button: idle now, back in use` | that pin went idle again, so the button is real after all |
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
-| `Reading interval (s) written from Zigbee: 300.00 -> 300` | a coordinator changed the interval or the delta and it moved |
+| `Reading interval (s) written from Zigbee: 300.00 -> 300` | a coordinator changed the interval, the delta or the [correction](#temperature-correction) and it moved |
 | `slot 0 (28FF…): read failed, never read since boot`, `slot 1 (…) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
 | `temp sensors (3 slots): 1 on the bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
 | `slot 0 (28FF…): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
@@ -1004,6 +1114,7 @@ cluster used here. After pairing you get, under vendor `M5Stack` / model
 | --- | --- | --- | --- |
 | `analog_out_duration_10` | read/write | s | endpoint 10, reading interval |
 | `analog_out_temperature_11` | read/write | °C | endpoint 11, reporting delta |
+| `analog_out_temperature_15` | read/write | °C | endpoint 15, [temperature correction](#temperature-correction) |
 | `analog_in_count_12` | read | — | endpoint 12, parent link LQI |
 | `analog_input_13` | read | dBm | endpoint 13, parent link signal strength |
 | `analog_in_count_14` | read | — | endpoint 14, how many console lines were mirrored |
@@ -1023,7 +1134,9 @@ endpoints as the device reported them and groups the exposes by the cluster it
 meets first, so registering the settings and the link endpoints ahead of the
 temperature ones puts them first in the list rather than after the sensors. It is
 the *device's* endpoint order that decides this, not the numbering — the numbering
-just makes the two agree. Anything downstream is free to sort differently; Home
+just makes the two agree, with endpoint 15 as the exception that shows the rule: it
+is listed with the other two settings because it is *registered* with them, its
+higher number notwithstanding. Anything downstream is free to sort differently; Home
 Assistant, for one, orders entities its own way.
 
 The units and names come from the `applicationType` the sketch sets on each
@@ -1049,7 +1162,7 @@ Worth knowing:
   are reported explicitly — see [above](#how-the-delta-gates-reporting).
 - Z2M also tries to configure reporting on the Analog Output `presentValue`. If
   the Zigbee stack rejects it, `configure` is logged as failed and retried; the
-  two settings still work, since Z2M reads them on demand and the sketch reports
+  settings still work, since Z2M reads them on demand and the sketch reports
   them explicitly whenever they change. A `configure` that fails part way through
   does have a cost, though — see below.
 
@@ -1243,7 +1356,7 @@ board instead. See [Which button](#which-button).
   nothing to release: the hold then simply carries on towards the reset. See
   [replacing a sensor](#replacing-a-sensor).
 - **Hold 5 s** (`FACTORY_RESET_HOLD_MS`) **and release** — clear everything: the
-  commissioning flag, the interval, the delta and the slot ↔ ROM mapping from our
+  commissioning flag, all three settings and the slot ↔ ROM mapping from our
   NVS namespace, plus the Zigbee stack's own network credentials via
   `Zigbee.factoryReset()`. The device reboots into a factory-fresh state and
   flashes magenta again.
@@ -1326,7 +1439,7 @@ the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
 ## Notes and limits
 
 - **Readings never reach NVS.** Only configuration goes into flash: the
-  commissioning flag, the interval, the delta and the slot ↔ ROM mapping. Each
+  commissioning flag, the three settings and the slot ↔ ROM mapping. Each
   of those is written once, when it changes — the mapping when a new sensor takes
   a free slot, the flag on the first join, a setting only when the value actually
   moved. Temperatures live in RAM (`lastPublished[]`) and go out over the air,

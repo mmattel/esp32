@@ -11,7 +11,7 @@
 // for, and a mirror carrying them would show nothing but the last temperature.
 //
 // This declaration sits in a header of its own so that a file which only needs to
-// say something - zb_setting.cpp does, for the two settings a coordinator can
+// say something - zb_setting.cpp does, for the settings a coordinator can
 // write - is not made to know about the Zigbee endpoint behind it, and so the host
 // tests in ../test keep compiling those files against a stub of a few lines.
 
