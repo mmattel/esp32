@@ -25,6 +25,20 @@ void logEvent(const char *fmt, ...) {
   printf("\n");
 }
 
+// Every settings endpoint also puts FW_VERSION in its Basic cluster, because a
+// coordinator reads Basic from an endpoint of its own choosing and these are the ones
+// it is likeliest to pick - see zb_version.h. The attribute plumbing itself belongs to
+// the zb_version suite; what is worth checking here is that addEndpoint() asks for it
+// at all, and asks for this build's version rather than a string of its own.
+static int buildIdsOffered = 0;
+static char offeredBuildId[32] = "";
+
+bool SwBuildAnalog::addSoftwareBuildId(const char *version) {
+  buildIdsOffered++;
+  snprintf(offeredBuildId, sizeof(offeredBuildId), "%s", version);
+  return true;
+}
+
 static int fails = 0;
 static void check(const char *what, float got, float want) {
   bool ok = fabsf(got - want) < 1e-4f;
@@ -179,6 +193,9 @@ int main() {
   Preferences r;
   e.load(r);
   e.addEndpoint(onWritten);  // as the sketch does, so the core's setter can call back
+  printf("  endpoint says which firmware it is -> %s\n",
+         buildIdsOffered == 1 && strcmp(offeredBuildId, FW_VERSION) == 0 ? "yes (ok)" : "no (FAIL)");
+  if (buildIdsOffered != 1 || strcmp(offeredBuildId, FW_VERSION) != 0) fails++;
   target = &e;
   int reportsBefore = e._ep.reports;
   e._ep.injectWrite(1.5f);  // on the step, in range

@@ -20,16 +20,44 @@
  * the patch for a fix that changes nothing visible, the minor for a
  * feature that leaves the endpoint list and the expose names alone,
  * the major for anything that forces a re-pair or renames an expose -
- * a new endpoint being the usual reason.
+ * a new endpoint being the usual reason. 2.0.0 is one of those: it
+ * added EP_VERSION below, so a device on 1.x has to be reset and
+ * paired again to show it.
  *
- * Console only, on purpose. The only version the Zigbee library can
- * carry is the Basic cluster's application version, a single byte with
- * no room for three numbers, and the string a coordinator really does
- * read is ZB_MODEL further down - which has to stay exactly as it is,
- * because Zigbee2MQTT keys its device definition on it and would see
- * every release as a different product.
+ * Three numbers rather than one string, because the version does not
+ * stay on the console: it also goes on the air as text, in the Basic
+ * cluster's SWBuildID, and as a number on EP_VERSION - see zb_version.h
+ * and "Which build is running" in README.md. Both of those are derived
+ * from the three defines below, so there is one place to bump and no
+ * way for the string and the number to disagree.
+ *
+ * What still may not carry the version is ZB_MODEL further down: that
+ * string identifies the *product*, Zigbee2MQTT keys its device
+ * definition on it, and a version in it would make every release look
+ * like a different device.
  * ------------------------------------------------------------------ */
-#define FW_VERSION "1.1.3"
+#define FW_VERSION_MAJOR 2
+#define FW_VERSION_MINOR 0
+#define FW_VERSION_PATCH 0
+
+// "2.0.0", built from the three numbers above. Two macros because a macro
+// argument is stringified as it was written: the outer one exists so that
+// FW_VERSION_MAJOR is expanded to its value before the inner one turns it
+// into text, which a single #x would not do.
+#define FW_VERSION_STRINGIFY_(x) #x
+#define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
+#define FW_VERSION                                                                        \
+  FW_VERSION_STRINGIFY(FW_VERSION_MAJOR) "." FW_VERSION_STRINGIFY(FW_VERSION_MINOR) "."   \
+    FW_VERSION_STRINGIFY(FW_VERSION_PATCH)
+
+// The same version as one number that sorts, 2.0.0 -> 20000: two digits each
+// for the minor and the patch, so 2.0.0 is above 1.9.9 and below 2.0.1. That is
+// what a coordinator can compare, put a condition on or graph - a string can
+// only be looked at - and it is what EP_VERSION carries as its value.
+//
+// Two digits is the ceiling this encoding has, which the sketch asserts rather
+// than leaving to be noticed: a minor of 100 would collide with the next major.
+#define FW_VERSION_NUMBER (FW_VERSION_MAJOR * 10000 + FW_VERSION_MINOR * 100 + FW_VERSION_PATCH)
 
 /* ------------------------------------------------------------------
  * Pins - M5Stack NanoH2 (SKU C149)
@@ -311,7 +339,8 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // Endpoint numbers. Any assignment within 1..240 is legal - the numbers carry no
 // meaning of their own - and this one puts what describes the device first and
 // the measurements last: the writable settings, then the two link measurements,
-// then the console mirror, then one endpoint per temperature slot above them.
+// then the console mirror, then the firmware version, then one endpoint per
+// temperature slot above them.
 //
 // The block below is fixed rather than derived from the sensor count, so
 // changing MAX_DS18B20_SENSORS no longer moves it. That matters because a
@@ -332,6 +361,14 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // other two settings at 10 and 11. Only the number sits apart: it is registered
 // with them in setupEndpoints(), which is the order a coordinator lists.
 #define EP_CONFIG_CORRECTION 15
+
+// Which firmware the device is running, on the next free number for the same
+// reason the correction above has one: 10 .. 15 were in the field, and a number
+// that moves renames the expose it belongs to on every coordinator that already
+// knows this device. Unlike the correction, its number and its place in the
+// registration order agree: it is added after the console mirror, with the other
+// things that are read rather than set.
+#define EP_VERSION 16
 
 // Temperature sensors occupy EP_TEMP_BASE .. EP_TEMP_BASE+MAX-1. The gap above
 // the block leaves room for further settings without moving the sensors.
@@ -488,6 +525,39 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // 0 disables the repeat.
 #define MIRROR_REPORT_MIN_INTERVAL_S 1
 #define MIRROR_REPORT_HEARTBEAT_S 3600
+
+/* ------------------------------------------------------------------
+ * Firmware version endpoint
+ *
+ * FW_VERSION at the top of this file, put where a coordinator can see
+ * it: EP_VERSION carries FW_VERSION_NUMBER as the value of an Analog
+ * Input cluster and the string itself in a text attribute beside it,
+ * exactly as the console mirror carries its line.
+ *
+ * Independently of this endpoint, every endpoint the sketch builds from
+ * a ZbSetting - and this one - also puts FW_VERSION in the Basic
+ * cluster's SWBuildID attribute (0x4000), which is where a coordinator
+ * already looks: Zigbee2MQTT shows it as "Firmware build ID" on the
+ * device page, with no converter and no binding, because it is read
+ * once during the interview. Switching this endpoint off does not take
+ * that away. See zb_version.h for why it is worth having both.
+ * ------------------------------------------------------------------ */
+// 1 creates the endpoint, 0 leaves the version to the boot banner and to
+// SWBuildID. Turning it on or off changes the endpoint list, which costs a
+// re-pair - the same as for the link and mirror endpoints above.
+#define ZB_VERSION_ENDPOINT 1
+
+// The attribute the version string lives in. Deliberately the same number as
+// MIRROR_TEXT_ATTR_ID: attributes are per endpoint and per cluster, so there is
+// no collision, and one number for "the text this endpoint carries" keeps the
+// read-it-by-hand recipe in README.md the same for both.
+#define VERSION_TEXT_ATTR_ID 0xF000
+
+// The Basic cluster's SWBuildID, by number rather than by the SDK's name for it.
+// The number is fixed by the ZCL specification and cannot change; the SDK's
+// spelling of the macro is not something this build can check without the board,
+// and the wrong guess is a compile error on a machine that is not this one.
+#define VERSION_SW_BUILD_ID_ATTR 0x4000
 
 /* ------------------------------------------------------------------
  * Serial console

@@ -137,6 +137,13 @@ Covers, across the interval, the delta and the temperature correction:
   a negative value written, persisted, read back after a reboot and mirrored back
   after a clamp — a lost minus sign would move every reading by twice the
   correction, in the wrong direction.
+- That the endpoint says which firmware it is: `addEndpoint()` offers `FW_VERSION`
+  to the Basic cluster exactly once. The suite defines
+  `SwBuildAnalog::addSoftwareBuildId()` itself as a recorder rather than compiling
+  [`zb_version.cpp`](../NanoH2_DS18B20_Zigbee/zb_version.cpp) in, so the check
+  costs an assertion instead of a second set of stubs. A settings endpoint that
+  stopped carrying the version would be silent on the board — a coordinator reads
+  Basic from one endpoint of its choosing, and it does not have to be this one.
 
 ### `zb_link` — parent link quality
 
@@ -191,9 +198,10 @@ Covers:
   attribute is added under no manufacturer code at all, so that is what the report has
   to ask for. The core's own helpers never set it
   ([arduino-esp32#12917](https://github.com/espressif/arduino-esp32/issues/12917)),
-  which is why the sketch builds this command itself and why the check is here. The test fills the stack with a pattern first (`poisonStack()`) so a
-  field nobody set reads as garbage here rather than as a lucky zero — with a pattern
-  chosen not to collide with the value that is actually correct.
+  which is why the sketch builds this command itself and why the check is here. The
+  test fills the stack with a pattern first (`poisonStack()`) so a field nobody set
+  reads as garbage here rather than as a lucky zero — with a pattern chosen not to
+  collide with the value that is actually correct.
 - The deadband: a line repeated three times costs one report and does not move the
   count; the line before last counts as new again.
 - A leading indent is dropped, and a line longer than `MIRROR_TEXT_LEN` is cut, not
@@ -214,13 +222,59 @@ Covers:
 - `logEvent()` formats once for both the console and the mirror, and a line past its
   own buffer is cut at both ends of that path rather than overrunning either.
 
+### `zb_version` — firmware version endpoint
+
+The suite for [`zb_version.cpp`](../NanoH2_DS18B20_Zigbee/zb_version.cpp): the two
+attributes it creates and what goes on the air when it publishes. The attribute
+creation calls are recorded rather than performed, because what matters is exactly
+what the sketch asks the stack for — which cluster, which attribute, which type,
+which access, and a ZCL character string whose leading length byte agrees with the
+characters after it. That length byte is the part no compiler checks and the board
+cannot be asked about. The `Zigbee.h` stub keeps `_cluster_list` protected, as the
+core has it: that is the whole reason `SwBuildAnalog` is a subclass, and if the core
+ever makes it public this suite says so.
+
+Covers:
+
+- That the version on the console and the version on the air are one: `FW_VERSION`
+  parses into three numbers, `FW_VERSION_NUMBER` encodes the same three, and the
+  string fits `VERSION_TEXT_MAX`. Both come from the defines in `config.h` and so
+  cannot disagree — unless somebody replaces one with a literal, which is what this
+  catches.
+- `SWBuildID` as `addSoftwareBuildId()` creates it: on the **Basic** cluster, at
+  `0x4000`, a character string, read-only and *not* reportable — Basic is read
+  during the interview, so reporting access would be asking for something unused —
+  with a length byte that matches and nothing padded onto it.
+- The three ways the stack can answer: no Basic cluster at all is refused with
+  nothing created; an SDK that already made `0x4000` refuses the add, and then the
+  value is updated instead, so the attribute holds this build's version either way;
+  both refused is refused.
+- A version too long is refused outright rather than cut — a cut version reads as a
+  different version. The longest string that fits is taken whole, one character more
+  is not, and nothing is created when it is not.
+- The text attribute as `addText()` creates it: on the **analog input** cluster, at
+  `VERSION_TEXT_ATTR_ID`, read-only **and** reportable — unlike `SWBuildID`, since
+  publishing after a join is what keeps the expose from sitting empty until somebody
+  presses read — and created at its own length, unpadded. The mirror pads because a
+  longer line comes later; a version cannot change without a reflash.
+- `publish()`: the number written, one report each, and **the text before the
+  number**, so a coordinator acting on the number already has the string. Every
+  field of the report command is checked, `manuf_code` included, for the same reason
+  as in `zb_mirror` and with the same `poisonStack()` first.
+- Off the air: nothing written, nothing reported, and nothing held back for later
+  either — the next join publishes it again, and the answer cannot have changed in
+  between.
+- Without the text attribute the number still goes out, which is the half that works
+  with no converter, since it is the cluster's own value.
+
 ## What these tests do not cover
 
 They are host tests with stubs, so anything that only exists on the device is out
 of scope: real 1-Wire timing and interrupt masking, the Zigbee stack (including
 whether the neighbour table actually holds a parent entry when we look, whether it
-really stores a character string by its length byte, and whether a coordinator binds
-the cluster the mirrored line rides on), the cluster
+really stores a character string by its length byte, whether a coordinator binds
+the cluster the mirrored line rides on, and which endpoint it reads Basic from), the
+cluster
 attribute plumbing in `zb_link_endpoint.cpp`, NVS itself, the RGB LED, and the
 sketch's own state machines (link state, joining, sampling phases, button handling,
 and the bus scan that maps ROM codes onto slots and decides when a read is retried)

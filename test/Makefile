@@ -10,7 +10,7 @@ CXX ?= g++
 CXXFLAGS := -std=c++17 -Wall -Wextra -Wno-unused-parameter -O1
 
 SKETCH := ../NanoH2_DS18B20_Zigbee
-SUITES := onewire slots zb_setting zb_link zb_mirror
+SUITES := onewire slots zb_setting zb_link zb_mirror zb_version
 BINARIES := $(addsuffix /run,$(SUITES))
 
 .PHONY: all clean
@@ -32,7 +32,8 @@ slots/run: slots/test.cpp slots/Arduino.h \
 	$(CXX) $(CXXFLAGS) -Islots -o $@ $<
 
 zb_setting/run: zb_setting/test.cpp zb_setting/Arduino.h zb_setting/Preferences.h zb_setting/Zigbee.h \
-                $(SKETCH)/zb_setting.cpp $(SKETCH)/zb_setting.h $(SKETCH)/config.h $(SKETCH)/console.h
+                $(SKETCH)/zb_setting.cpp $(SKETCH)/zb_setting.h $(SKETCH)/zb_version.h $(SKETCH)/config.h \
+                $(SKETCH)/console.h
 	$(CXX) $(CXXFLAGS) -Izb_setting -o $@ $<
 
 zb_link/run: zb_link/test.cpp zb_link/Arduino.h zb_link/Zigbee.h \
@@ -42,6 +43,10 @@ zb_link/run: zb_link/test.cpp zb_link/Arduino.h zb_link/Zigbee.h \
 zb_mirror/run: zb_mirror/test.cpp zb_mirror/Arduino.h zb_mirror/Zigbee.h \
                $(SKETCH)/zb_mirror.cpp $(SKETCH)/zb_mirror.h $(SKETCH)/config.h $(SKETCH)/console.h
 	$(CXX) $(CXXFLAGS) -Izb_mirror -o $@ $<
+
+zb_version/run: zb_version/test.cpp zb_version/Arduino.h zb_version/Zigbee.h \
+                $(SKETCH)/zb_version.cpp $(SKETCH)/zb_version.h $(SKETCH)/config.h
+	$(CXX) $(CXXFLAGS) -Izb_version -o $@ $<
 
 clean:
 	rm -f $(BINARIES)

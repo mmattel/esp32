@@ -1,10 +1,10 @@
 // Zigbee2MQTT external definition for the NanoH2 DS18B20 Zigbee sketch.
 //
 // Z2M generated the body of this (device page -> Dev console -> Generate external
-// definition) for a build with MAX_DS18B20_SENSORS = 3. Exactly one thing was added
-// by hand: the m.text() entry at the end, for attribute 0xF000 on endpoint 14 - the
-// mirrored console line. Z2M cannot generate that, because a generated definition can
-// express a number but not a string.
+// definition) for a build with MAX_DS18B20_SENSORS = 3. Two things were added by hand,
+// both m.text() entries and both for an attribute 0xF000: the mirrored console line on
+// endpoint 14, and the firmware version string on endpoint 16. Z2M cannot generate
+// either, because a generated definition can express a number but not a string.
 //
 // The endpoint 14 counter is named mirror_line_count by the generator itself, from the
 // Analog Input cluster's description attribute, which the sketch sets to "Mirror line
@@ -29,12 +29,14 @@ export default {
     zigbeeModel: ['NanoH2-DS18B20'],
     model: 'NanoH2-DS18B20',
     vendor: 'M5Stack',
-    description: 'DS18B20 temperatures over Zigbee, with settings, link quality and a console mirror',
+    description: 'DS18B20 temperatures over Zigbee, with settings, link quality, a console mirror and its firmware version',
     extend: [
-        // 10 to 15 are fixed. Everything from 20 up is one endpoint per configured
+        // 10 to 16 are fixed. Everything from 20 up is one endpoint per configured
         // sensor slot, so this list and the m.temperature() one below have to hold
         // exactly MAX_DS18B20_SENSORS of them - see the comment there.
-        m.deviceEndpoints({endpoints: {10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 20: 20, 21: 21, 22: 22}}),
+        m.deviceEndpoints({
+            endpoints: {10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16, 20: 20, 21: 21, 22: 22},
+        }),
         m.identify(),
         m.numeric({
             name: 'reading_interval_(s)',
@@ -125,6 +127,29 @@ export default {
             access: 'STATE_GET',
             endpointNames: ['14'],
         }),
+        // Endpoint 16, presentValue: the firmware version as one number that sorts,
+        // 2.0.0 -> 20000, two digits each for the minor and the patch. This is the half
+        // an automation can put a condition on; the string beside it is the readable
+        // one, and Z2M's own "Firmware build ID" on the device page is a third copy of
+        // the same version, read from the Basic cluster during the interview.
+        //
+        // The device sends both after every join - which is the only moment the answer
+        // can have changed, since changing it means flashing - so the reporting entry
+        // below is Z2M's own doing and changes nothing about that.
+        m.numeric({
+            name: 'firmware_version_number',
+            label: 'Firmware version number',
+            valueMin: 0,
+            valueMax: 999999,
+            valueStep: 1,
+            cluster: 'genAnalogInput',
+            attribute: 'presentValue',
+            reporting: {min: 'MIN', max: 'MAX', change: 1},
+            description: 'Analog Input Firmware version number on endpoint 16',
+            access: 'STATE_GET',
+            endpointNames: ['16'],
+            entityCategory: 'diagnostic',
+        }),
         // Endpoints 20, 21 and 22: one slot each, whether or not a sensor is in it. A
         // slot with nothing connected stays N/A rather than reporting a wrong value.
         //
@@ -149,6 +174,23 @@ export default {
             description: 'Last console line worth an event, space padded',
             access: 'STATE_GET',
             endpointName: '14',
+            entityCategory: 'diagnostic',
+        }),
+        // Endpoint 16, attribute 0xF000: the firmware version as it is printed in the
+        // boot banner. The same attribute number as the mirrored line above, on a
+        // different endpoint - attributes are per endpoint and per cluster, so there is
+        // nothing to keep apart. Not space padded, unlike the line: the version is fixed
+        // at compile time, so the attribute is created at exactly its length.
+        //
+        // No reporting entry, for the same reason as the mirrored line: the device
+        // reports this attribute itself, here after every join.
+        m.text({
+            name: 'firmware_version',
+            cluster: 'genAnalogInput',
+            attribute: {ID: 0xf000, type: 0x42},
+            description: 'Firmware version this device is running',
+            access: 'STATE_GET',
+            endpointName: '16',
             entityCategory: 'diagnostic',
         }),
     ],
