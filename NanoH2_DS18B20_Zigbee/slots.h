@@ -60,6 +60,13 @@ void slotsReportReadFailure(uint8_t slot, const char *rom);
 // answer to "when did this last work".
 void slotsSensorGone(uint8_t slot);
 
+// The slot is empty again: its ROM code has been dropped, so a different sensor
+// may claim it next. Everything remembered about it goes, the last good reading
+// included - unlike slotsSensorGone(), which expects the same sensor back. Called
+// when a missing slot is released by the button, and by nothing else: as long as
+// the ROM code is stored, the history belongs to the sensor that is still expected.
+void slotsForgetSlot(uint8_t slot);
+
 // A duration as an age for a console line: "17 s", "42 min", "3 h 5 min". Writes
 // at most cap bytes including the terminator. Printed, never parsed.
 void ageText(uint32_t ms, char *out, size_t cap);

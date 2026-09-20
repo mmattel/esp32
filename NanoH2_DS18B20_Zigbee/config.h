@@ -96,6 +96,7 @@ static const LedColor COLOR_RESET_ARMED = {40, 0, 0};      // red:     factory-r
 static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   held long enough, release to reset
 static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: cannot run, see serial
 static const LedColor COLOR_SENSOR_FAULT = {0, 0, 40};     // blue, flashing: a sensor that worked is gone
+static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    release the button to free its slot
 
 // Length of one on/off period for the flashing states, and how much of
 // that period the LED is lit.
@@ -213,16 +214,33 @@ static const LedColor COLOR_SENSOR_FAULT = {0, 0, 40};     // blue, flashing: a 
 /* ------------------------------------------------------------------
  * Pushbutton
  *
- * The button has exactly one job: the factory reset, which clears the
- * stored configuration and the Zigbee credentials and is therefore how
- * the device leaves a network. Nothing else is bound to it, and joining
- * a network never involves it - the device does that by itself.
+ * Two jobs, told apart by how long it is held: a short hold releases the
+ * slots of sensors that have gone missing, a long one is the factory
+ * reset, which clears the stored configuration and the Zigbee
+ * credentials and is therefore how the device leaves a network. Joining
+ * a network never involves the button - the device does that by itself.
  * ------------------------------------------------------------------ */
 // Hold this long and then release to wipe all stored configuration and re-pair.
 // The reset fires on the release, not during the hold: a pin that never reads
 // idle - a shorted contact, or BUTTON_ACTIVE_HIGH set the wrong way round -
 // then cannot wipe the network by itself.
 #define FACTORY_RESET_HOLD_MS 5000
+
+// Hold this long, but less than FACTORY_RESET_HOLD_MS, and release to free the
+// slots of sensors that are missing: their stored ROM codes are dropped and the
+// slots are open for a replacement. That is what makes swapping a dead sensor
+// possible without a factory reset, which would take the other slots and the
+// device's place in the network with it - see "Replacing a sensor" in README.md.
+//
+// It only does anything while a sensor really is missing, and the LED says so:
+// the flashing blue that reports the fault goes solid while the hold is inside
+// this window. So the gesture reads as acknowledging what the LED is showing,
+// and a hold on a healthy device is the same as before - on its way to a reset.
+//
+// Must sit between FACTORY_RESET_HINT_MS and FACTORY_RESET_HOLD_MS, and far
+// enough from both that a hand can aim for it; the static_asserts in the sketch
+// check the order but not the margin.
+#define SLOT_RELEASE_HOLD_MS 2000
 
 // Hold this long before the LED starts showing that a reset is armed.
 #define FACTORY_RESET_HINT_MS 500

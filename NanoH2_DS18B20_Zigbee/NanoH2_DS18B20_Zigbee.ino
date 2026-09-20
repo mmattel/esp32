@@ -26,9 +26,11 @@
  *   internal pull-up holds it high while the contact is open. That is either the
  *   on-board button on G9 (the default) or an external one on the Grove port
  *   (G2) - one define, no code change, see "Which button" in config.h for what
- *   to expect from each. It does one thing: held for FACTORY_RESET_HOLD_MS and
- *   released, it wipes all stored configuration and the Zigbee credentials, which
- *   is how the device is excluded from a network. A short press does nothing.
+ *   to expect from each. It does two things, told apart by how long it is held
+ *   before being released: SLOT_RELEASE_HOLD_MS frees the slots of sensors that
+ *   have gone missing, so a dead one can be replaced, and FACTORY_RESET_HOLD_MS
+ *   wipes all stored configuration and the Zigbee credentials, which is how the
+ *   device is excluded from a network. A short press does nothing.
  * - The on-board RGB LED shows the Zigbee link state, and blue-flashing on a
  *   link that is up means a sensor that once worked is missing or unreadable.
  *
@@ -122,6 +124,12 @@ static_assert(LINK_RETRY_MS <= LINK_INTERVAL_S * 1000L, "the link retry has to b
 static_assert(BUTTON_STUCK_MS > FACTORY_RESET_HOLD_MS, "the stuck threshold has to be above the reset hold");
 static_assert(FACTORY_RESET_HOLD_MS > FACTORY_RESET_HINT_MS, "the reset hold has to be above the hint");
 
+// The button's two jobs are told apart by how long it is held, so the release
+// window has to lie between the hint and the reset: at or above the reset hold it
+// would never be reached, at or below the hint it would swallow every short press.
+static_assert(SLOT_RELEASE_HOLD_MS < FACTORY_RESET_HOLD_MS, "the slot release has to happen before the reset hold");
+static_assert(SLOT_RELEASE_HOLD_MS > FACTORY_RESET_HINT_MS, "the slot release has to be above the hint");
+
 TempEndpoint *zbTemp[DS18B20_SLOT_ARRAY_LEN] = {nullptr};
 
 // Writable settings, each on its own analog output endpoint.
@@ -208,8 +216,9 @@ bool linkAssumedLogged = false;  // so has the note about an unflagged parent
 // handleSettingReports() for why they need one.
 uint32_t lastSettingReportMs = 0;
 
-bool resetArmed = false;  // pushbutton held long enough to show LED feedback
-bool resetReady = false;  // held the full time: releasing it now resets
+bool resetArmed = false;    // pushbutton held long enough to show LED feedback
+bool releaseArmed = false;  // held into the release window, and a sensor is missing
+bool resetReady = false;    // held the full time: releasing it now resets
 
 // Set while the button reads pressed with no press that could explain it - at
 // startup, where nobody can have been holding it since before power-on, or for
@@ -272,10 +281,18 @@ bool anySensorLost() {
 }
 
 void updateLed() {
-  // White means the hold is long enough and the reset happens on release, red
-  // that it is not there yet. Both outrank the link state.
+  // What the LED says while the button is held is what releasing it would do, so
+  // these are in the order the hold passes through them - and all of them outrank
+  // the link state, since the hold is the thing happening right now. White: the
+  // hold is long enough, releasing resets. Solid blue: releasing frees the slots
+  // of the missing sensors instead, which is the flashing blue below going steady
+  // to say the fault it reports is about to be acknowledged. Red: neither yet.
   if (resetReady) {
     ledWrite(COLOR_RESET_DONE);
+    return;
+  }
+  if (releaseArmed) {
+    ledWrite(COLOR_SLOT_RELEASE);
     return;
   }
   if (resetArmed) {
@@ -436,6 +453,14 @@ void scanSensors() {
 
   lastCount = count;
   lastPresent = present;
+
+  // The summary is about the bus as a whole, the indented lines above are about one
+  // sensor each, so it is set apart from them rather than reading as one more of
+  // them. Only when something was actually printed: a scan that found nothing new
+  // says nothing at all, and a blank line on its own would be the only trace of it.
+  if (headerDone) {
+    Serial.println();
+  }
   slotsReportSummary(slotRom, slotPresent);
 }
 
@@ -1133,9 +1158,70 @@ void factoryReset() {
   }
 }
 
-// Hold for FACTORY_RESET_HOLD_MS and release to factory reset. That is the whole
-// button: nothing is bound to a short press, so a press that was never meant -
-// or never happened - changes nothing.
+// Drops the stored ROM code of every slot whose sensor is missing, so the next scan
+// treats those slots as never used and a replacement sensor can claim one. Reached
+// only from a released hold inside the release window - see handleButton().
+//
+// This is what makes a dead sensor replaceable: without it the slot keeps waiting
+// for a ROM code that will never answer again, the replacement is turned away with
+// "all N slots taken", and the only way out is a factory reset, which also takes the
+// working slots, the settings and the device's place in the network - see "Replacing
+// a sensor" in README.md.
+//
+// Only the missing slots are touched. A sensor that is on the bus keeps its slot,
+// its endpoint and its history, which is what makes the gesture safe to use on a
+// device that is otherwise working: the one thing it can cost is the identity of a
+// sensor that was about to come back, and that sensor is then simply reassigned -
+// to another slot, and so to another endpoint, which is the part worth knowing.
+void releaseMissingSlots() {
+  uint8_t released = 0;
+
+  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+    if (slotRom[i] == 0 || slotPresent[i]) {
+      continue;
+    }
+    char rom[DS18B20Bus::ROM_CHARS];
+    DS18B20Bus::romToChars(slotRom[i], rom);
+
+    slotRom[i] = 0;
+    prefs.remove(romKey(i).c_str());  // so a reboot does not bring the ROM code back
+    lastPublished[i] = NAN;           // the next sensor here publishes its first reading
+    slotsForgetSlot(i);               // and starts with no history of its own
+
+    if (Zigbee.started()) {
+      // The endpoint stays, with nothing behind it until a sensor claims the slot.
+      // Saying so beats leaving the old ROM code on the air, where it would read as
+      // a sensor that has gone quiet.
+      zbTemp[i]->setSensorId(sensorId(i));
+    }
+    // 58 characters with a 16-digit ROM code and a one-digit slot, inside the
+    // MIRROR_TEXT_LEN of 64, so the line reaches the coordinator whole. One line per
+    // slot: which sensor was given up on cannot be reconstructed afterwards.
+    logEvent("slot %u (%s) released, ready for a new sensor", (unsigned)i, rom);
+    released++;
+  }
+
+  if (released == 0) {
+    // The hold armed on a missing sensor and a rescan found it again before the
+    // release. Nothing to do, and saying so is better than silence after a gesture
+    // that was clearly deliberate.
+    logEvent("Button: no sensor is missing any more, nothing released");
+    return;
+  }
+
+  // Look at the bus now rather than at the next rescan interval: the sensor has
+  // usually just been swapped, and this is the moment the user is watching the LED.
+  // The summary line goes out first, so the counts move even if the bus has not.
+  slotsReportSummary(slotRom, slotPresent);
+  sampleNow = true;
+  lastRescanMs = millis() - ONEWIRE_RESCAN_INTERVAL_MS;
+}
+
+// Two lengths of hold, told apart on the release: SLOT_RELEASE_HOLD_MS frees the
+// slots of missing sensors, FACTORY_RESET_HOLD_MS resets. Nothing is bound to a
+// short press, so a press that was never meant - or never happened - changes
+// nothing, and the shorter hold arms only while a sensor really is missing: on a
+// healthy device it is a hold on its way to the reset, exactly as it was before.
 //
 // The reset fires on the *release*, which is what makes a faulty pin harmless. An
 // inverted or shorted pin reads pressed and never lets go, so it never produces a
@@ -1166,11 +1252,17 @@ void handleButton() {
       logEvent("Button: idle now, back in use");
     } else {
       bool wasArmed = resetArmed;
+      bool wasRelease = releaseArmed;
       bool wasReady = resetReady;
       resetArmed = false;
+      releaseArmed = false;
       resetReady = false;
+      // In the order the hold passes through: the longest hold reached wins, which is
+      // also what the LED was showing at the moment of the release.
       if (wasReady) {
         factoryReset();  // does not return
+      } else if (wasRelease) {
+        releaseMissingSlots();
       } else if (wasArmed) {
         logEvent("Button: released before the hold was over, no reset");
       }
@@ -1194,7 +1286,19 @@ void handleButton() {
     logEvent("Button: held long enough - release to factory reset");
     Serial.println();
   }
+
+  // The release window is left as soon as the reset hold is reached, so holding on
+  // past it takes the offer back - and the LED goes from solid blue to white to say
+  // so. anySensorLost() is asked on every pass rather than once at the start of the
+  // window: a rescan that finds the sensor again while the button is down disarms it,
+  // which is the same condition the flashing blue is showing.
+  bool release = !ready && held >= SLOT_RELEASE_HOLD_MS && anySensorLost();
+  if (release && !releaseArmed) {
+    logEvent("Button: release now to free the slots of the missing sensors");
+    Serial.println("  keep holding to factory reset instead");
+  }
   resetArmed = held >= FACTORY_RESET_HINT_MS;
+  releaseArmed = release;
   resetReady = ready;
 }
 
