@@ -100,11 +100,16 @@ Covers:
   in, said again after a real reading in between or after the slot lost its sensor,
   counted per slot, and with the advice line kept off the air.
 - The two read failures told apart: never read since boot versus a last good value,
-  the last good value surviving the sensor going missing (a slot's ROM cannot change
-  without a factory reset, so it is that sensor's reading and no other's), forgotten
-  by `slotsBegin()`, and per slot rather than per device. The age of the reading is
+  the last good value surviving the sensor going missing (the slot keeps its ROM
+  code, so it is still that sensor's reading and no other's), forgotten by
+  `slotsBegin()`, and per slot rather than per device. The age of the reading is
   printed but never mirrored, since it changes on every attempt and would cost a
   report each time.
+- `slotsForgetSlot()` against `slotsSensorGone()`, which is the difference between a
+  sensor that is expected back and a slot that has been released for a replacement:
+  a released slot reports "never read since boot" for whatever reads there next,
+  since carrying the old value over to a new sensor's ROM code would be the one
+  wrong answer available. Neighbouring slots keep their own history.
 - `ageText()` at every boundary it has — under a second, the switch to minutes, the
   switch to hours, and 49 days, the far end of `millis()` — that the longest of them
   fits `AGE_TEXT_CHARS`, and that a buffer too small is cut rather than overrun.

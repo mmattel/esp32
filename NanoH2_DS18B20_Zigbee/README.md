@@ -1,8 +1,8 @@
 # NanoH2 DS18B20 Zigbee sensor
 
 Three DS18B20 temperature sensors on one 1-Wire bus, published over Zigbee from
-an M5Stack NanoH2 (ESP32-H2, SKU C149), with a pushbutton for factory reset and
-the on-board RGB LED as a link-state indicator.
+an M5Stack NanoH2 (ESP32-H2, SKU C149), with a pushbutton for replacing a sensor
+and for the factory reset, and the on-board RGB LED as a state indicator.
 
 Three is only the default; see [Changing the sensor
 count](#changing-the-sensor-count).
@@ -18,6 +18,7 @@ count](#changing-the-sensor-count).
 - [Joining a network](#joining-a-network)
 - [Zigbee endpoints](#zigbee-endpoints)
 - [Changing the sensor count](#changing-the-sensor-count)
+- [Replacing a sensor](#replacing-a-sensor)
 - [Reading interval and reporting delta](#reading-interval-and-reporting-delta)
   - [Why the delta moves in quarters](#why-the-delta-moves-in-quarters)
   - [One decimal, everywhere](#one-decimal-everywhere)
@@ -39,7 +40,7 @@ count](#changing-the-sensor-count).
 | File | Contents |
 | --- | --- |
 | `NanoH2_DS18B20_Zigbee.ino` | Application: link state machine, LED, sampling, button |
-| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, hold time |
+| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, hold times |
 | `ds18b20_bus.h/.cpp` | Self-contained 1-Wire master and DS18B20 driver |
 | `slots.h/.cpp` | What each slot has read, and the lines that say which of the four states it is in |
 | `zb_setting.h/.cpp` | A setting with a code default, an NVS override and a Zigbee override |
@@ -222,8 +223,9 @@ button](#which-button).
 | Joined and on the air | solid green |
 | Joined, and a sensor that once worked is missing or unreadable | blue, flashing on a 2 s cycle |
 | Joined before, radio lost | yellow, flashing on a 3 s cycle |
-| Factory-reset hold in progress | solid red |
-| Factory-reset hold long enough, release to reset | solid white |
+| Button hold in progress | solid red |
+| Held past `SLOT_RELEASE_HOLD_MS` with a sensor missing, release to free its slot | solid blue |
+| Held past `FACTORY_RESET_HOLD_MS`, release to reset | solid white |
 | Cannot run at all | red, flashing on a 3 s cycle; reason on the serial console |
 
 Cycle length and duty are `LED_FLASH_CYCLE_MS` / `LED_FLASH_DUTY_PCT`, the blue
@@ -246,11 +248,12 @@ network there is nobody to tell about the sensor either way. The faster cycle is
 deliberate too: blue and magenta at this brightness are not far apart behind a
 diffuser, and a rhythm is readable where a colour is not.
 
-It stays blue until the sensor answers again or the slot is forgotten, which is
-what a factory reset does — the stored ROM code is what the device is still
-waiting for. Removing a sensor for good therefore means a factory reset and a
-re-pair if you want the LED green again; see [changing the sensor
-count](#changing-the-sensor-count).
+It stays blue until the sensor answers again or the slot is forgotten — the stored
+ROM code is what the device is still waiting for. Forgetting the slot is a **2 s
+button hold**, and the flashing blue is what tells you the hold will do anything:
+holding into the release window turns it **solid**, so the gesture reads as
+acknowledging what the LED is reporting, and letting go frees the slot. See
+[replacing a sensor](#replacing-a-sensor).
 
 ## Joining a network
 
@@ -431,6 +434,64 @@ Two smaller things:
 - **The 1-Wire side does not care.** All sensors convert in parallel, so the
   sampling time is the same for one sensor as for ten. The practical ceiling is
   the bus itself — total cable length and the single pull-up — not the firmware.
+
+## Replacing a sensor
+
+A sensor's identity here is its **ROM code**, and the slot ↔ ROM mapping is stored
+in NVS so that a slot keeps its sensor — and therefore its endpoint — across
+reboots. A replacement sensor has a different ROM code, so it is a stranger to the
+device: the old slot goes on waiting for a sensor that will never answer again
+(`is configured but missing`, LED [flashing blue](#led)), and on a device with every
+slot filled the new sensor is turned away with `ignored, all 3 slots taken`.
+
+**A 2 s button hold fixes that**, without the factory reset and re-pair that used to
+be the only way out:
+
+1. Wire the replacement in, in place of the dead sensor. It is fine to do this with
+   the device running.
+2. Wait for the LED to flash blue, which is the device saying it has noticed the
+   loss. That takes up to `ONEWIRE_RESCAN_INTERVAL_MS`.
+3. **Hold the button for 2 s** (`SLOT_RELEASE_HOLD_MS`). The flashing blue goes
+   solid to say that letting go now frees the slot.
+4. **Release.** The stored ROM code of every missing slot is dropped and the bus is
+   rescanned at once, so the replacement claims the freed slot immediately.
+
+```
+Button: release now to free the slots of the missing sensors
+  keep holding to factory reset instead
+slot 1 (2800000BDEADBEEF) released, ready for a new sensor
+temp sensors (3 slots): 2 on the bus, 0 missing, 1 never seen
+1-Wire scan: 3 DS18B20 found
+  28FF1234567890AB assigned to slot 1 (stored)
+temp sensors (3 slots): 3 on the bus, 0 missing, 0 never seen
+```
+
+What it leaves alone is the point of it: slots whose sensors are on the bus keep
+their ROM codes, their endpoints and their history, and the network, the interval
+and the delta are untouched. **Nothing has to be re-paired** — the endpoint list is
+unchanged, and only the `sensor_id` expose of the one endpoint moves, from the old
+ROM code to the new one.
+
+Three details worth knowing:
+
+- **The hold only arms while a sensor really is missing** — that is what the solid
+  blue confirms. On a healthy device the hold does nothing new and carries on
+  towards the [factory reset](#pushbutton), exactly as before.
+- **Missing means what the blue LED means:** a slot whose sensor stopped answering
+  the bus scan, *or* one whose sensor answers and fails every read. Both are slots
+  waiting on a sensor that is not delivering, and both are released. See [telling an
+  empty slot from a sensor that has
+  failed](#telling-an-empty-slot-from-a-sensor-that-has-failed).
+- **Release frees *all* missing slots**, not one. With a single sensor gone the
+  replacement lands in the slot the old one had, so the endpoint stays the same.
+  With two or more released at once, the sensors are assigned in the order the bus
+  scan finds them, which is by ROM code and not by where they hang on the cable — so
+  which endpoint each one ends up on is not something to predict. Release them one
+  at a time if the endpoint mapping matters.
+
+The freed slot keeps nothing of the old sensor, its last good reading included: the
+next reading from that slot belongs to a different sensor, and reporting the old
+value against the new ROM code would be the one wrong answer available.
 
 ## Reading interval and reporting delta
 
@@ -686,8 +747,11 @@ What is mirrored is what the console calls an event in its own right:
 | --- | --- |
 | `Zigbee connected` | every join and rejoin |
 | `Zigbee link lost` | the radio contact went |
+| `Button: release now to free the slots of the missing sensors` | the hold reached `SLOT_RELEASE_HOLD_MS` and a sensor is missing |
 | `Button: held long enough - release to factory reset` | the hold reached `FACTORY_RESET_HOLD_MS` |
 | `Button: released before the hold was over, no reset` | released too early |
+| `slot 1 (28FF…) released, ready for a new sensor` | one line per slot freed by that release, see [replacing a sensor](#replacing-a-sensor) |
+| `Button: no sensor is missing any more, nothing released` | the missing sensor turned up again during the hold |
 | `Button on pin 9 … - ignoring it until it goes idle` | the pin reads pressed with nothing pressing it |
 | `Button: idle now, back in use` | that pin went idle again, so the button is real after all |
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
@@ -833,6 +897,11 @@ Both also show on the board itself: on a link that is up, either one flashes the
 LED **blue** on a 2 s cycle instead of holding it green, so a sensor problem is
 visible without a console and without a coordinator. A slot that was never filled
 does not do that — see [LED](#led).
+
+Once a sensor is condemned, swapping it in takes a **2 s button hold** to free its
+slot: the replacement has a ROM code of its own and cannot claim a slot that is
+still reserved for the dead one. See [replacing a
+sensor](#replacing-a-sensor).
 
 `read failed` means every attempt failed. A bad CRC on one read is the ordinary
 result of a noisy edge on a long cable, and the conversion it belongs to is still
@@ -1156,8 +1225,9 @@ it is the better move than editing the two lists by hand.
 
 ## Pushbutton
 
-The button does **one** thing: the factory reset, which is how the device leaves a
-network. It has no part in joining one — see [Joining a
+The button does **two** things, told apart by how long it is held: it frees the
+slots of sensors that have gone missing, and it factory-resets, which is how the
+device leaves a network. It has no part in joining one — see [Joining a
 network](#joining-a-network) — and nothing at all is bound to a short press.
 
 Everything here holds for whichever button `PIN_BUTTON` points at, external or
@@ -1165,6 +1235,12 @@ on-board, with one exception: on the on-board `G9` — the default — the hold 
 happen on a running device, because holding that pin through power-up flashes the
 board instead. See [Which button](#which-button).
 
+- **Hold 2 s** (`SLOT_RELEASE_HOLD_MS`) **and release** — drop the stored ROM code
+  of every slot whose sensor is missing, so those slots are free for a replacement
+  and the bus is rescanned at once. Slots whose sensors are on the bus keep
+  everything, the network is untouched, and a device with nothing missing has
+  nothing to release: the hold then simply carries on towards the reset. See
+  [replacing a sensor](#replacing-a-sensor).
 - **Hold 5 s** (`FACTORY_RESET_HOLD_MS`) **and release** — clear everything: the
   commissioning flag, the interval, the delta and the slot ↔ ROM mapping from our
   NVS namespace, plus the Zigbee stack's own network credentials via
@@ -1173,10 +1249,12 @@ board instead. See [Which button](#which-button).
 - **Anything shorter** — nothing happens. `Button: released before the hold was
   over, no reset` if the hold had already been armed.
 
-The LED follows the hold: red once it passes `FACTORY_RESET_HINT_MS`, then white
-at `FACTORY_RESET_HOLD_MS` to say the reset happens as soon as you let go.
+The LED follows the hold, in the order the hold passes through: red once it passes
+`FACTORY_RESET_HINT_MS`, solid blue while the release window is open *and* a sensor
+is actually missing, then white at `FACTORY_RESET_HOLD_MS`. Whatever it shows is
+what letting go now would do, so holding on past the blue takes that offer back.
 
-**The reset fires on the release, not during the hold.** That is deliberate, and
+**Both actions fire on the release, not during the hold.** That is deliberate, and
 it is what makes a faulty pin harmless: a pin stuck at the active level reads
 pressed and never lets go, so it never produces a release. Firing during the hold
 instead meant such a pin wiped the credentials five seconds into *every* boot and
@@ -1273,7 +1351,9 @@ the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
   the first free slot, starts reporting temperature straight away, and its ROM
   code is written into that endpoint's LocationDescription immediately — no
   reboot and no re-interview. A coordinator that cached the attribute will still
-  show the old value until it reads it again.
+  show the old value until it reads it again. A slot only becomes free again by
+  being released with the [2 s button hold](#replacing-a-sensor) or by a factory
+  reset, since until then it is still reserved for the sensor that went missing.
 - **An empty bus is silent.** When no slot holds a sensor — nothing connected
   yet, or no slots configured — the interval passes without starting a
   conversion, so there is no failed-conversion line every interval. The periodic

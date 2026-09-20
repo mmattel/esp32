@@ -122,3 +122,13 @@ void slotsReportReadFailure(uint8_t slot, const char *rom) {
 void slotsSensorGone(uint8_t slot) {
   porReported[slot] = false;
 }
+
+void slotsForgetSlot(uint8_t slot) {
+  // The same state slotsBegin() sets up, for one slot: the slot is as it was at boot
+  // before anything was discovered. The last good reading goes too, which is the
+  // whole difference from slotsSensorGone() - a replacement sensor in this slot must
+  // not be told it read 21.5 C four minutes ago, because that was a different sensor.
+  lastGoodC[slot] = NAN;
+  lastGoodMs[slot] = 0;
+  porReported[slot] = false;
+}

@@ -264,15 +264,36 @@ int main() {
     check("the same failure produces the same line", mirrorCount == before + 1
                                                        && strcmp(mirrored[before], mirrored[before - 1]) == 0);
 
-    // The slot's ROM code cannot change without a factory reset, so the last good
-    // reading is this sensor's and no other's - which is why losing the sensor does
-    // not throw it away.
+    // A slot keeps its ROM code while its sensor is only missing, so the last good
+    // reading is still that sensor's and no other's - which is why losing the sensor
+    // does not throw it away.
     slotsSensorGone(0);
     slotsReportReadFailure(0, ROM_A);
     check("a sensor that went missing still has a last good reading", onAir("last good"));
     check("still without the age on the air", !onAir("ago"));
 
+    // Releasing the slot does throw it away, and that is the whole difference: the
+    // ROM code is gone, so whatever reads here next is a different sensor and has
+    // never read anything. Reporting the old value against the new sensor's ROM code
+    // would be the one wrong answer available.
+    slotsForgetSlot(0);
+    console[0] = '\0';  // only the console: the slot keeps what it was just left with
+    slotsReportReadFailure(0, ROM_B);
+    check("a released slot has no history to report",
+          strcmp(lastMirrored(), "slot 0 (2800000BDEADBEEF): read failed, never read since boot") == 0);
+    check("and so no age to print", !printed("ago"));
+
+    // Per slot, like everything else here: releasing one slot leaves the next alone.
+    reset();
+    slotsNoteReading(0, ROM_A, 21.5f, false);
+    slotsNoteReading(1, ROM_B, 30.0f, false);
+    slotsForgetSlot(0);
+    slotsReportReadFailure(1, ROM_B);
+    check("the neighbouring slot keeps its own history", onAir("last good"));
+
     // What the hardware has done is forgotten only on a reboot.
+    reset();
+    slotsNoteReading(0, ROM_A, 21.5f, false);
     slotsBegin();
     slotsReportReadFailure(0, ROM_A);
     check("after slotsBegin() there is nothing to remember", onAir("never read since boot"));
