@@ -1050,8 +1050,18 @@ void handleLinkQuality() {
     // because "empty" and "holds entries, none of them usable" are different
     // faults and only this line tells them apart.
     if (!linkWaitLogged) {
-      Serial.printf("link: no parent to read, neighbour table holds %u entr%s" CONSOLE_EOL, link.entries,
-                    link.entries == 1 ? "y" : "ies");
+      if (link.unmeasured) {
+        // The parent is known and the link to it is not, which is a different wait
+        // from an empty table and says so: the address is already worth having, and
+        // publishing what the entry holds meanwhile would put LQI 0 with RSSI
+        // +127 dBm on the air - a dead link and an impossible signal level, neither
+        // of them measured. See measured() in zb_link.cpp.
+        Serial.printf("link: parent 0x%04X found, no measurement in it yet - waiting for one" CONSOLE_EOL,
+                      link.parentAddr);
+      } else {
+        Serial.printf("link: no parent to read, neighbour table holds %u entr%s" CONSOLE_EOL, link.entries,
+                      link.entries == 1 ? "y" : "ies");
+      }
       linkWaitLogged = true;
     }
     lastLinkMs = now - linkIntervalMs() + LINK_RETRY_MS;

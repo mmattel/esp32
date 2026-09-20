@@ -157,6 +157,13 @@ Covers:
 - `entries` is the size of the whole table, not how far the search got: 0 when it is
   empty, 2 for two non-parent entries, and 3 when the parent sits in the middle.
 - `lqi` 255 and `rssi` -128 pass through untruncated, with the sign kept.
+- An entry with no measurement in it — LQI 0 with RSSI +127, what the stack holds
+  between creating the parent's entry at the join and hearing a frame from it — is
+  `unmeasured` rather than valid, keeps the parent's address so the wait can name it,
+  and passes no numbers on. The sole-entry fallback makes the same distinction
+  instead of publishing the nonsense with `assumed` set, a measured parent behind
+  such an entry is still found, and LQI 0 with RSSI 0 stays a measurement: only the
+  impossible sign is evidence.
 
 ### `zb_mirror` — console mirror
 

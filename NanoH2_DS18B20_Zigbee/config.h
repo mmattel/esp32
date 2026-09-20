@@ -29,7 +29,7 @@
  * because Zigbee2MQTT keys its device definition on it and would see
  * every release as a different product.
  * ------------------------------------------------------------------ */
-#define FW_VERSION "1.1.2"
+#define FW_VERSION "1.1.3"
 
 /* ------------------------------------------------------------------
  * Pins - M5Stack NanoH2 (SKU C149)
