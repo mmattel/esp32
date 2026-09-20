@@ -68,6 +68,13 @@ public:
   DS18B20Reading read(uint64_t rom);
 
   // 16 uppercase hex digits, family code first: "28FF641E1234ABCD".
+  //
+  // Two spellings of the same thing. The buffer one is what the read loop and
+  // every logEvent() use: they run for as long as the device does, and a String
+  // per failed read is a heap allocation per failed read. ROM_CHARS is the size
+  // to declare, terminator included.
+  static const uint8_t ROM_CHARS = 17;
+  static void romToChars(uint64_t rom, char *out);
   static String romToString(uint64_t rom);
 
 private:
