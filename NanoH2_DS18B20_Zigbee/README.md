@@ -426,7 +426,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v1.1.2
+M5Stack NanoH2 - DS18B20 over Zigbee v1.1.3
 Sensor slots: 3
 ```
 
@@ -877,6 +877,15 @@ Worth knowing:
   printed once per join however many retries it takes. The count is in the line
   because an empty table and a table whose entries are all unusable are different
   faults, and nothing else tells them apart.
+- **`link: parent 0x2EC6 found, no measurement in it yet - waiting for one`** is
+  that same wait one step further on. The parent's entry exists — so its address is
+  already known and the line names it — but the radio has not heard a frame from it
+  since the entry was created, and what the entry holds meanwhile is LQI 0 with RSSI
+  +127: the `int8` maximum standing in for "nothing measured". Published, that would
+  read as a dead link at an impossible signal level, so it is held back like the
+  empty table above, with the same `LINK_RETRY_MS` retry. Only a *positive* RSSI is
+  taken as unmeasured — LQI 0 is a legal worst case and 0 dBm is the top of the
+  endpoint's range, so the impossible sign is the only evidence there is.
 - **Both are repeated every `LINK_REPORT_HEARTBEAT_S`** even when neither has
   moved. That is not cosmetic: a good link sits still for days, so the deadbands
   would otherwise leave the join-time report as the only one ever sent — and that
@@ -995,7 +1004,10 @@ Worth knowing:
   mirror that has stopped working then looks exactly like a coordinator that is
   ignoring it, which is the one difference worth knowing before looking anywhere
   else. Said once per spell because whatever stops the mirror stops every line:
-  a failure per reading would bury the line that explains it.
+  a failure per reading would bury the line that explains it. A *quiet* console
+  while the line still never turns up in Z2M says the other thing: the report left
+  here and was dropped on the way, for want of a binding — see [an expose that
+  stays N/A](#an-expose-that-stays-na).
 - **Turning the endpoint off or on changes the endpoint list**, so it costs a
   factory reset and a re-pair, exactly like the two link endpoints. It leaves every
   other endpoint number alone.
@@ -1044,7 +1056,7 @@ See [Console mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v1.1.2
+M5Stack NanoH2 - DS18B20 over Zigbee v1.1.3
 Sensor slots: 3
 ```
 
@@ -1053,7 +1065,7 @@ is the one value that changes with every release — and bumping it belongs in t
 same commit as the change it names:
 
 ```c
-#define FW_VERSION "1.1.2"
+#define FW_VERSION "1.1.3"
 ```
 
 Read the three numbers against what a coordinator already knows about the device:
@@ -1325,11 +1337,29 @@ has its reports discarded at the source. Z2M creates those bindings in
   reporting configuration on endpoint 10 can cost the bindings for 12, 13, 14 and
   the temperatures behind it. Look for `failed to configure` in the Z2M log, then press
   **Reconfigure** on the device page.
+- **A factory reset empties the binding table, and Z2M does not notice.** The table
+  is the device's, kept in its NVS, so the 5 s button hold and
+  `Zigbee.factoryReset()` take every binding with it. The device keeps its IEEE
+  address though, so the rejoin afterwards looks to Z2M like a device it has
+  already interviewed, and `configure` is not run again: Z2M believes the bindings
+  are in place while the device has none. Press **Reconfigure**, or remove the
+  device from Z2M and pair it again, which forces a full interview.
 - **A binding can be added by hand.** Device → *Bind*, source endpoint `12`, `13`
   or `14`, cluster `genAnalogInput`, destination *Coordinator*.
 - **A read needs no binding at all**, which makes it the quickest proof that the
   device holds the value: dev console → endpoint `12` → `genAnalogInput` → read
   `presentValue`.
+
+**How many exposes are stale is itself a diagnosis.** One that is quiet while the
+others move is about that endpoint — or about an empty slot. *Nothing* updating on
+its own while every value reads correctly on a manual refresh is not about any
+endpoint at all: it says reads work, so the radio and the converter are both fine,
+and only the reports are going nowhere. That is the binding table, every time, and
+the two causes above are the ones to check in that order. A useful second opinion
+is `mirror_line_count`: it is reported by the library's own
+`reportAnalogInput()`, with none of the hand-built command the mirrored text needs,
+so a count that also only moves on a refresh rules the converter and that command
+out together.
 
 After a binding change the value arrives at the next heartbeat at the latest
 (`LINK_REPORT_HEARTBEAT_S`, an hour), without waiting for the link to move — that
@@ -1524,7 +1554,11 @@ board instead. See [Which button](#which-button).
   commissioning flag, all three settings and the slot ↔ ROM mapping from our
   NVS namespace, plus the Zigbee stack's own network credentials via
   `Zigbee.factoryReset()`. The device reboots into a factory-fresh state and
-  flashes magenta again.
+  flashes magenta again. It clears the **binding table** as well, which is the one
+  consequence that is not visible on the device: rejoining restores the network but
+  not the bindings, and nothing this device sends by itself arrives until the
+  coordinator has put them back — see [an expose that stays
+  N/A](#an-expose-that-stays-na).
 - **Anything shorter** — nothing happens. `Button: released before the hold was
   over, no reset` if the hold had already been armed.
 

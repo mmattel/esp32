@@ -123,6 +123,40 @@ int main() {
   check("flagged parent wins over the first entry", l.parentAddr == 0x2222);
   check("flagged parent is not assumed", !l.assumed);
 
+  printf("an entry with no measurement in it\n");
+  // What the stack holds between creating the parent's entry at the join and hearing
+  // a frame from it: LQI 0 with RSSI +127, the int8 maximum for "nothing measured".
+  // Reported as no reading, because publishing it would show a dead link at an
+  // impossible signal level - and the address is known, so the wait can say whose.
+  tableLen = 0;
+  addNeighbour(ESP_ZB_NWK_RELATIONSHIP_PARENT, 0x2EC6, 0, 127);
+  l = readParentLink();
+  check("not valid", !l.valid);
+  check("said to be unmeasured", l.unmeasured);
+  check("the parent's address is still reported", l.parentAddr == 0x2EC6);
+  check("no measurement is passed on", l.lqi == 0 && l.rssi == 0);
+  check("lock released", locksHeld == 0);
+
+  // The sole-entry fallback has to make the same distinction: taking an unmeasured
+  // entry as the parent would publish the same nonsense with assumed set.
+  tableLen = 0;
+  addNeighbour(ESP_ZB_NWK_RELATIONSHIP_OTHERS, 0x2EC6, 0, 127);
+  l = readParentLink();
+  check("sole unmeasured entry -> not valid", !l.valid);
+  check("sole unmeasured entry -> not assumed", !l.assumed);
+  check("sole unmeasured entry -> unmeasured", l.unmeasured);
+  check("sole unmeasured entry -> address kept", l.parentAddr == 0x2EC6);
+
+  // A measured parent behind an unmeasured entry is still found, and a measured one
+  // is never called unmeasured.
+  tableLen = 0;
+  addNeighbour(ESP_ZB_NWK_RELATIONSHIP_OTHERS, 0x1111, 0, 127);
+  addNeighbour(ESP_ZB_NWK_RELATIONSHIP_PARENT, 0x2222, 150, -60);
+  l = readParentLink();
+  check("measured parent found past it", l.valid && l.parentAddr == 0x2222);
+  check("and not called unmeasured", !l.unmeasured);
+  check("its measurement is the one reported", l.lqi == 150 && l.rssi == -60);
+
   printf("edge values pass through\n");
   tableLen = 0;
   addNeighbour(ESP_ZB_NWK_RELATIONSHIP_PARENT, 0xABCD, 255, -128);
@@ -130,6 +164,15 @@ int main() {
   check("lqi 255 not truncated", l.lqi == 255);
   check("rssi -128 not truncated", l.rssi == -128);
   check("router parent address", l.parentAddr == 0xABCD);
+
+  // The two values either end of the measured range, which the guard above must not
+  // mistake for the unmeasured entry: 0 dBm is the top of the RSSI endpoint's range,
+  // and LQI 0 is a legal worst case rather than a missing measurement.
+  tableLen = 0;
+  addNeighbour(ESP_ZB_NWK_RELATIONSHIP_PARENT, 0xABCD, 0, 0);
+  l = readParentLink();
+  check("lqi 0 with rssi 0 is a measurement", l.valid && !l.unmeasured);
+  check("and passes through as it is", l.lqi == 0 && l.rssi == 0);
 
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails ? 1 : 0;
