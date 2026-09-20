@@ -29,7 +29,8 @@
  *   to expect from each. It does one thing: held for FACTORY_RESET_HOLD_MS and
  *   released, it wipes all stored configuration and the Zigbee credentials, which
  *   is how the device is excluded from a network. A short press does nothing.
- * - The on-board RGB LED shows the Zigbee link state.
+ * - The on-board RGB LED shows the Zigbee link state, and blue-flashing on a
+ *   link that is up means a sensor that once worked is missing or unreadable.
  *
  * Arduino IDE settings:
  *   Board            ESP32H2 Dev Module   (there is no NanoH2 variant yet)
@@ -237,9 +238,37 @@ void ledBegin() {
   rgbLedWrite(PIN_RGB, COLOR_OFF.r, COLOR_OFF.g, COLOR_OFF.b);
 }
 
-bool flashOn() {
-  uint32_t phase = millis() % LED_FLASH_CYCLE_MS;
-  return phase < ((uint32_t)LED_FLASH_CYCLE_MS * LED_FLASH_DUTY_PCT) / 100;
+// Which half of the flash cycle we are in. The cycle length is a parameter so the
+// sensor fault can have a rhythm of its own; everything else uses the default.
+bool flashOn(uint32_t cycleMs = LED_FLASH_CYCLE_MS) {
+  uint32_t phase = millis() % cycleMs;
+  return phase < (cycleMs * LED_FLASH_DUTY_PCT) / 100;
+}
+
+// A slot that once held a sensor and does not have it now: either it stopped
+// answering the bus scan, or it answers and fails every read. The LED makes no
+// distinction between the two - from across the room both are the same news, a
+// sensor that worked is not delivering - and the console says which it is, see
+// "Telling an empty slot from a sensor that has failed" in README.md.
+//
+// A slot that has never held a sensor is not a fault and is not counted here,
+// which is what makes a fresh board with one sensor in a three-slot build show
+// green rather than blue. That is the difference from anySlotMissing() below,
+// which asks a different question - whether a rescan is still worth running.
+//
+// Read from the two slot arrays rather than from a fault flag of its own, so
+// there is one source of truth for what a slot is doing. The one visible effect
+// of that: a sensor that answers the ROM search and then fails its read is
+// briefly not a fault - the rescan sets slotPresent, the read clears it again
+// about a conversion later - so the LED shows a green blip of under a second per
+// rescan interval. Harmless, and cheaper than a second copy of the state.
+bool anySensorLost() {
+  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+    if (slotRom[i] != 0 && !slotPresent[i]) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void updateLed() {
@@ -254,7 +283,19 @@ void updateLed() {
     return;
   }
   switch (linkState) {
-    case LINK_CONNECTED:      ledWrite(COLOR_CONNECTED); break;
+    case LINK_CONNECTED:
+      // A sensor fault replaces the steady green rather than outranking the two
+      // flashing link states: one LED cannot flash two things at once, and a
+      // device that is off the air has a more urgent problem than a sensor - the
+      // coordinator cannot be told about the sensor either way. So blue means
+      // the network is fine and the 1-Wire side is not, which is exactly when
+      // looking at the board rather than at Zigbee2MQTT is what helps.
+      if (anySensorLost()) {
+        ledWrite(flashOn(LED_SENSOR_FAULT_CYCLE_MS) ? COLOR_SENSOR_FAULT : COLOR_OFF);
+      } else {
+        ledWrite(COLOR_CONNECTED);
+      }
+      break;
     case LINK_UNCOMMISSIONED: ledWrite(flashOn() ? COLOR_UNCOMMISSIONED : COLOR_OFF); break;
     case LINK_LOST:           ledWrite(flashOn() ? COLOR_LINK_LOST : COLOR_OFF); break;
   }

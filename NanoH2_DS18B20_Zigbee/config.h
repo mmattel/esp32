@@ -95,11 +95,19 @@ static const LedColor COLOR_LINK_LOST = {40, 30, 0};       // yellow:  joined on
 static const LedColor COLOR_RESET_ARMED = {40, 0, 0};      // red:     factory-reset hold in progress
 static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   held long enough, release to reset
 static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: cannot run, see serial
+static const LedColor COLOR_SENSOR_FAULT = {0, 0, 40};     // blue, flashing: a sensor that worked is gone
 
 // Length of one on/off period for the flashing states, and how much of
 // that period the LED is lit.
 #define LED_FLASH_CYCLE_MS 3000
 #define LED_FLASH_DUTY_PCT 50
+
+// The sensor fault flashes on a cycle of its own, faster than the link states
+// above. Two reasons: it is the only state shown while the link is up, so it
+// cannot be confused with them anyway, and a different rhythm is readable from
+// across a room where a colour is not - blue and magenta at 40/255 are not far
+// apart on a WS2812 behind a diffuser. Same duty as the rest.
+#define LED_SENSOR_FAULT_CYCLE_MS 2000
 
 /* ------------------------------------------------------------------
  * Temperature sensors

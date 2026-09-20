@@ -220,13 +220,37 @@ button](#which-button).
 | --- | --- |
 | Never joined a network | magenta, flashing on a 3 s cycle |
 | Joined and on the air | solid green |
+| Joined, and a sensor that once worked is missing or unreadable | blue, flashing on a 2 s cycle |
 | Joined before, radio lost | yellow, flashing on a 3 s cycle |
 | Factory-reset hold in progress | solid red |
 | Factory-reset hold long enough, release to reset | solid white |
 | Cannot run at all | red, flashing on a 3 s cycle; reason on the serial console |
 
-Cycle length and duty are `LED_FLASH_CYCLE_MS` / `LED_FLASH_DUTY_PCT`; all
-colours are `LedColor` constants at the top of `config.h`.
+Cycle length and duty are `LED_FLASH_CYCLE_MS` / `LED_FLASH_DUTY_PCT`, the blue
+one is `LED_SENSOR_FAULT_CYCLE_MS`; all colours are `LedColor` constants at the
+top of `config.h`.
+
+**Blue means the network is fine and the 1-Wire side is not.** A slot only holds
+a ROM code because a scan once found that sensor, so blue is never a slot that was
+simply never used: something that worked is not delivering now — unplugged, a
+contact gone, or a supply that cannot hold the sensor through a conversion. It
+covers both failures the console tells apart, a sensor missing from the scan and
+one that answers the scan and fails every read, since across a room they are the
+same news; the [console](#telling-an-empty-slot-from-a-sensor-that-has-failed)
+and the [mirrored line](#console-mirror) say which.
+
+It shows **only while the link is up**, replacing the steady green rather than
+outranking the flashing yellow or magenta. One LED cannot flash two things at
+once, and a device that is off the air has the more urgent problem — with no
+network there is nobody to tell about the sensor either way. The faster cycle is
+deliberate too: blue and magenta at this brightness are not far apart behind a
+diffuser, and a rhythm is readable where a colour is not.
+
+It stays blue until the sensor answers again or the slot is forgotten, which is
+what a factory reset does — the stored ROM code is what the device is still
+waiting for. Removing a sensor for good therefore means a factory reset and a
+re-pair if you want the LED green again; see [changing the sensor
+count](#changing-the-sensor-count).
 
 ## Joining a network
 
@@ -804,6 +828,11 @@ impossible value: a marginal contact rather than a missing device.
 **Which of those two you get is itself the diagnosis.** A sensor that is gone
 goes missing at the scan; a sensor that is dying answers the scan and fails the
 read, over and over as the rescan keeps finding it again.
+
+Both also show on the board itself: on a link that is up, either one flashes the
+LED **blue** on a 2 s cycle instead of holding it green, so a sensor problem is
+visible without a console and without a coordinator. A slot that was never filled
+does not do that — see [LED](#led).
 
 `read failed` means every attempt failed. A bad CRC on one read is the ordinary
 result of a noisy edge on a long cable, and the conversion it belongs to is still
