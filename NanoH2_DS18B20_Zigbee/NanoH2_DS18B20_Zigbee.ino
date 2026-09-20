@@ -131,6 +131,13 @@ static_assert(EP_CONFIG_CORRECTION != EP_LINK_LQI && EP_CONFIG_CORRECTION != EP_
 static_assert(EP_LINK_LQI != EP_LINK_RSSI && EP_LINK_LQI != EP_MIRROR && EP_LINK_RSSI != EP_MIRROR,
               "a link or mirror endpoint number is used twice");
 
+// 0 means "every channel"; anything else is a single 2.4 GHz Zigbee channel, and
+// those are 11 to 26. A number outside that range would be shifted into a mask
+// with no channel in it at all, which is a device that scans nothing and waits
+// for a network for ever - the one outcome that looks like bad reception.
+static_assert(ZB_CHANNEL == 0 || (ZB_CHANNEL >= 11 && ZB_CHANNEL <= 26),
+              "ZB_CHANNEL has to be 0 for all channels, or a channel from 11 to 26");
+
 // The retry shortens the wait for the next link reading, so a value above the
 // interval it shortens would mean "retry every loop" instead.
 static_assert(LINK_RETRY_MS <= LINK_INTERVAL_S * 1000L, "the link retry has to be shorter than the link interval");
@@ -1441,6 +1448,14 @@ void setup() {
   // A sleepy end device could not receive the setting writes, so keep the
   // receiver on. The board is USB powered anyway.
   Zigbee.setRxOnWhenIdle(true);
+
+  // Both the channel and the printed line have to happen before begin(): the
+  // mask is read when the stack starts, and the line belongs above the one that
+  // says the stack is up, so a log reads in the order things happened.
+  if (ZB_CHANNEL != 0) {
+    Zigbee.setPrimaryChannelMask(1UL << ZB_CHANNEL);
+    Serial.printf("Zigbee: looking on channel %u only" CONSOLE_EOL, ZB_CHANNEL);
+  }
 
   if (!Zigbee.begin(ZIGBEE_END_DEVICE)) {
     logEvent("Zigbee failed to start, rebooting");
