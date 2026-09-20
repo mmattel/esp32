@@ -29,7 +29,7 @@
  * because Zigbee2MQTT keys its device definition on it and would see
  * every release as a different product.
  * ------------------------------------------------------------------ */
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.1.0"
 
 /* ------------------------------------------------------------------
  * Pins - M5Stack NanoH2 (SKU C149)
@@ -350,9 +350,32 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
  * Joining
  *
  * The stack retries network steering once a second until it succeeds,
- * but only logs that at Core Debug Level "Info". These control what the
- * sketch itself prints while it has no network.
+ * but only logs that at Core Debug Level "Info". These control which
+ * channels it tries and what the sketch itself prints while it has no
+ * network.
  * ------------------------------------------------------------------ */
+// Which channel to look for a network on. 0 scans all of 11 to 26, which is
+// the default and the right value unless joining is giving trouble.
+//
+// Every steering attempt scans the whole mask, so naming the one channel the
+// coordinator is on turns a sweep of 16 channels into a look at one: joining
+// gets faster and, more to the point, repeatable. This is worth reaching for
+// when a device sees the network in the scan table - open, with room for an
+// end device - and still does not get in; a join that needs several attempts
+// is the symptom. The channel is the "CH" column of the scan, and on
+// Zigbee2MQTT it is also under Settings -> Network.
+//
+// The cost is that a pinned device cannot follow its network: a coordinator
+// that changes channel becomes unreachable until this is changed and the
+// device reflashed. A coordinator does not do that by itself, but it is a
+// reason to leave this at 0 once joining works.
+//
+// Only the primary mask is set. The stack keeps its own secondary mask, so a
+// pinned channel is where it looks first rather than the only place it can
+// ever look - which is another reason this is not a way to keep a device off
+// a particular network.
+#define ZB_CHANNEL 0
+
 // How often to report that the device is still looking, in seconds.
 // 0 turns the reporting off, scan included.
 #define JOIN_HINT_INTERVAL_S 30

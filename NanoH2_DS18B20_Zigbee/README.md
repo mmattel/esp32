@@ -16,6 +16,7 @@ count](#changing-the-sensor-count).
 - [Arduino IDE settings](#arduino-ide-settings)
 - [LED](#led)
 - [Joining a network](#joining-a-network)
+  - [Pinning the channel](#pinning-the-channel)
 - [Zigbee endpoints](#zigbee-endpoints)
 - [Changing the sensor count](#changing-the-sensor-count)
 - [Replacing a sensor](#replacing-a-sensor)
@@ -47,7 +48,7 @@ count](#changing-the-sensor-count).
 | File | Contents |
 | --- | --- |
 | `NanoH2_DS18B20_Zigbee.ino` | Application: link state machine, LED, sampling, button |
-| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, correction, hold times, `FW_VERSION` and `CONSOLE_EOL` |
+| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, correction, hold times, Zigbee channel, `FW_VERSION` and `CONSOLE_EOL` |
 | `ds18b20_bus.h/.cpp` | Self-contained 1-Wire master and DS18B20 driver |
 | `slots.h/.cpp` | What each slot has read, and the lines that say which of the four states it is in |
 | `zb_setting.h/.cpp` | A setting with a code default, an NVS override and a Zigbee override |
@@ -288,6 +289,7 @@ scan: 1 network in range
 
 | Knob | Default | Meaning |
 | --- | --- | --- |
+| `ZB_CHANNEL` | 0 | the channel to look on; 0 scans all of 11 to 26 — see [Pinning the channel](#pinning-the-channel) |
 | `JOIN_HINT_INTERVAL_S` | 30 | how often the wait is reported; 0 silences it, scan included |
 | `JOIN_SCAN_INTERVAL_S` | 30 | how often to scan; 0 keeps the hint and never scans |
 | `JOIN_SCAN_DURATION` | 3 | listening time per channel, 1 (fastest) to 4 (most thorough) |
@@ -305,8 +307,13 @@ How to read the scan:
 - **`room for an end device` = no** — the coordinator or router that answered has
   no free child slot. Joining has to happen through a different one, so move the
   board closer to another router.
-- All 16 channels are scanned, and joining is attempted on all of them, so a
-  coordinator on an unusual channel is not a reason for a failed join.
+- **Two networks listed** — only their own `joining open` column matters. A device
+  never associates with a network that is not accepting anyone, so a neighbour's
+  network is not competition for the join; on another channel it is not even noise
+  in yours.
+- By default all 16 channels are scanned and joining is attempted on all of them,
+  so a coordinator on an unusual channel is not in itself a reason for a failed
+  join — but see below for when it is worth naming the channel anyway.
 
 The scan shares the single radio with the join attempts, which is why it runs far
 less often than the hint, and not at all once joined.
@@ -314,6 +321,40 @@ less often than the hint, and not at all once joined.
 The same hint appears when a device that *has* joined loses its parent, worded
 `still looking for its network` — there the LED is yellow, permit-join has
 nothing to do with it, and the scan is a range check.
+
+### Pinning the channel
+
+The awkward case is a scan that lists the network as open, with room for an end
+device, while the join still does not happen — or happens only on the third
+power-up. Steering scans the whole channel mask on every attempt, and by default
+that is 16 channels for a coordinator that is only ever on one of them. Naming the
+channel turns the sweep into a single look:
+
+```c
+#define ZB_CHANNEL 11   // 0 = scan all of 11 to 26, the default
+```
+
+It comes from the `CH` column of the scan above, and on Zigbee2MQTT from
+**Settings → Network**. The device says so at boot, before the line about the stack
+being up:
+
+```
+Zigbee: looking on channel 11 only
+Zigbee started, waiting to be commissioned
+```
+
+Faster is the smaller half of it; repeatable is the point. Only the *primary* mask
+is set, so a pinned channel is where the stack looks first rather than the only
+place it can ever look — which is also why this is no way to keep a device off a
+particular network.
+
+The cost: a pinned device cannot follow its own network. A coordinator that changes
+channel — which it does not do by itself, but a human can — becomes unreachable
+until this is changed and the board reflashed. So it is worth setting while joining
+is being fought with, and worth putting back to 0 afterwards. A value that is
+neither 0 nor a real channel fails to compile rather than producing a mask with no
+channel in it, since that device would scan nothing and wait for ever, looking
+exactly like one with bad reception.
 
 ## Zigbee endpoints
 
@@ -385,7 +426,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v1.0.0
+M5Stack NanoH2 - DS18B20 over Zigbee v1.1.0
 Sensor slots: 3
 ```
 
@@ -988,7 +1029,7 @@ See [Console mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v1.0.0
+M5Stack NanoH2 - DS18B20 over Zigbee v1.1.0
 Sensor slots: 3
 ```
 
@@ -997,7 +1038,7 @@ is the one value that changes with every release — and bumping it belongs in t
 same commit as the change it names:
 
 ```c
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.1.0"
 ```
 
 Read the three numbers against what a coordinator already knows about the device:
