@@ -30,8 +30,10 @@ count](#changing-the-sensor-count).
 - [Link quality and signal strength](#link-quality-and-signal-strength)
 - [Console mirror](#console-mirror)
 - [Serial console](#serial-console)
+  - [Which build is running](#which-build-is-running)
   - [Telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed)
   - [Why the first lines used to arrive mangled](#why-the-first-lines-used-to-arrive-mangled)
+  - [Why blank lines used to appear mid-output](#why-blank-lines-used-to-appear-mid-output)
 - [Zigbee2MQTT](#zigbee2mqtt)
   - [An expose that stays N/A](#an-expose-that-stays-na)
   - [Showing the mirrored line](#showing-the-mirrored-line)
@@ -44,7 +46,7 @@ count](#changing-the-sensor-count).
 | File | Contents |
 | --- | --- |
 | `NanoH2_DS18B20_Zigbee.ino` | Application: link state machine, LED, sampling, button |
-| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, correction, hold times |
+| `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, correction, hold times, `FW_VERSION` and `CONSOLE_EOL` |
 | `ds18b20_bus.h/.cpp` | Self-contained 1-Wire master and DS18B20 driver |
 | `slots.h/.cpp` | What each slot has read, and the lines that say which of the four states it is in |
 | `zb_setting.h/.cpp` | A setting with a code default, an NVS override and a Zigbee override |
@@ -382,7 +384,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee
+M5Stack NanoH2 - DS18B20 over Zigbee v1.0.0
 Sensor slots: 3
 ```
 
@@ -959,7 +961,7 @@ what keeps the lines that matter visible at 115200 baud:
 | a scan finding a different number, or a new ROM code | yes |
 | a scan whose slot counts changed, empty slots included | yes |
 | joining, losing the link, a factory reset, a fault | yes |
-| the banner and the configured slot count, once at boot | yes |
+| the banner with the firmware version and the configured slot count, once at boot | yes |
 
 ```c
 #define LOG_EVERY_READING 1
@@ -977,6 +979,42 @@ The rows that are events in their own right — joining, losing the link, what t
 button did, an error, a setting a coordinator changed — are exactly the ones that
 also go out on endpoint 14, so they are readable without a console attached at all.
 See [Console mirror](#console-mirror).
+
+### Which build is running
+
+The first line of every boot names the firmware version:
+
+```
+M5Stack NanoH2 - DS18B20 over Zigbee v1.0.0
+Sensor slots: 3
+```
+
+It comes from the first define in `config.h` — the file starts with it because it
+is the one value that changes with every release — and bumping it belongs in the
+same commit as the change it names:
+
+```c
+#define FW_VERSION "1.0.0"
+```
+
+Read the three numbers against what a coordinator already knows about the device:
+the **patch** for a fix that changes nothing visible, the **minor** for a feature
+that leaves the endpoint list and the expose names alone, the **major** for anything
+that forces a re-pair or renames an expose — a new endpoint is the usual reason, so
+[the temperature correction](#temperature-correction) would have been one.
+
+Why it is worth a line at all: a flashed board is the one thing in this project that
+cannot be asked what it is. A serial log pasted into an issue, or read a week later,
+otherwise gives no way to tell whether the board is running the sources in front of
+you — and the symptom of that mismatch is looking for a bug in code the device never
+had. A log whose banner carries no version at all predates this, which is its own
+answer.
+
+It stays on the console rather than going on the air. The only version the Zigbee
+library can carry is the Basic cluster's application version, a single byte with no
+room for three numbers, and the string a coordinator really does read is `ZB_MODEL`
+— which has to stay exactly as it is, since Zigbee2MQTT keys its device definition
+on it and would treat every release as a different product.
 
 ### Telling an empty slot from a sensor that has failed
 
@@ -1102,6 +1140,43 @@ The wait ends the moment the port is open, so a monitor that is already listenin
 costs nothing, and it is bounded so a headless device still boots. 0 restores the old
 behaviour. If your console driver never reports the host as connected, the wait just
 runs its full length and behaves like a plain delay, which is also fine.
+
+### Why blank lines used to appear mid-output
+
+Every console line ends in a bare LF. That looks like a detail and is not: a CR+LF
+pair was what put blank lines in the middle of otherwise correct output, in places
+that moved from boot to boot.
+
+```
+1-Wire scan: 3 DS18B20 found
+
+  2850225200000094 assigned to slot 0 (stored)
+
+  2861640A7D36ED93 assigned to slot 1 (stored)
+  28EFC3BD00000073 assigned to slot 2 (stored)
+```
+
+The two gaps above are not in the source, and the one between slots 1 and 2 —
+printed by the same statement in the same loop — is missing. That irregularity is
+the tell: the USB Serial/JTAG peripheral has no baud rate and no bridge chip, the
+host drains its FIFO in packets of up to 64 bytes while the CPU is still copying
+bytes in, and a CR that happens to fall on the end of a packet arrives separated
+from its LF. A monitor that ends a line on CR *and* on LF — the Arduino IDE's does
+— then counts one line ending too many and shows a blank line. Where the split
+lands depends on how the packets happened to divide, which is why it was the middle
+of the output and not the same place twice. A lone LF cannot be split.
+
+```c
+#define CONSOLE_EOL "\n"
+```
+
+So this is fixed in the firmware rather than in the monitor, and it is one define
+because a raw serial terminal may want the carriage return to return the cursor to
+column 1: set it to `"\r\n"` there, or leave it alone and have the terminal add the
+CR itself — `minicom` with Ctrl-A U, `picocom --imap lfcrlf`, `screen` and the
+Arduino IDE monitor need nothing. `CONSOLE_EOL` is the only place a line ending is
+spelled out; the sketch prints through `Serial.printf()` everywhere so there is no
+`println()` quietly ending a line its own way.
 
 ## Zigbee2MQTT
 

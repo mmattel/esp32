@@ -6,6 +6,32 @@
 #include <Arduino.h>
 
 /* ------------------------------------------------------------------
+ * Firmware version
+ *
+ * First in this file because it is the one define that changes with
+ * every release: it names the build, so it is edited more often than
+ * anything below it and should not have to be looked for.
+ *
+ * Printed with the banner on every boot, so that a pasted serial log
+ * says which build produced it - the one thing a log cannot be asked
+ * about afterwards. Bump it in the same commit as the change it names.
+ *
+ * Semantic versioning, read against what a coordinator already knows:
+ * the patch for a fix that changes nothing visible, the minor for a
+ * feature that leaves the endpoint list and the expose names alone,
+ * the major for anything that forces a re-pair or renames an expose -
+ * a new endpoint being the usual reason.
+ *
+ * Console only, on purpose. The only version the Zigbee library can
+ * carry is the Basic cluster's application version, a single byte with
+ * no room for three numbers, and the string a coordinator really does
+ * read is ZB_MODEL further down - which has to stay exactly as it is,
+ * because Zigbee2MQTT keys its device definition on it and would see
+ * every release as a different product.
+ * ------------------------------------------------------------------ */
+#define FW_VERSION "1.0.0"
+
+/* ------------------------------------------------------------------
  * Pins - M5Stack NanoH2 (SKU C149)
  *
  * The Grove HY2.0-4P port carries GND (black), 5V (red), G2 (yellow)
@@ -459,6 +485,30 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // case - has no host to wait for and must boot anyway. 0 skips the wait and prints
 // straight away, which is the old behaviour, garbling included.
 #define SERIAL_WAIT_MS 2000
+
+// How every console line is ended. A bare LF, and that is not a detail: a CR+LF
+// pair is what put blank lines in the middle of otherwise correct output.
+//
+// The console is the USB Serial/JTAG peripheral, which ships whatever is in its
+// FIFO in packets of up to 64 bytes, drained by the host as it polls. That drain
+// runs while the CPU is still copying the next bytes in, so where a packet ends is
+// a matter of timing rather than of where a line ends - and a CR that catches the
+// end of one packet arrives on the host separated from the LF that belongs with it.
+// A monitor that ends a line on CR *and* on LF, which the Arduino IDE's does, then
+// shows one line break too many: a blank line, in an arbitrary place, moving from
+// run to run. A lone LF cannot be split from anything, so the artefact disappears
+// rather than moving somewhere else.
+//
+// Printing "\n" and having the driver expand it is not an option either - neither
+// the USB CDC driver nor Print does that - so every line in this sketch ends with
+// this macro and nothing appends a CR anywhere.
+//
+// Set it to "\r\n" for a terminal that needs the carriage return to go back to
+// column 0: screen, minicom and picocom in their raw default state print a
+// staircase without it. minicom has Ctrl-A U for the same thing, and picocom
+// --imap lfcrlf; the Arduino IDE monitor, the VS Code and PlatformIO ones and
+// anything reading the port with Python need nothing.
+#define CONSOLE_EOL "\n"
 
 // The periodic work - reading the sensors, polling the link, rescanning the bus -
 // happens whether or not the result differs from the last one, and saying so
