@@ -276,11 +276,18 @@ DS18B20Reading DS18B20Bus::read(uint64_t rom) {
   return out;
 }
 
-String DS18B20Bus::romToString(uint64_t rom) {
-  char buf[17];
+void DS18B20Bus::romToChars(uint64_t rom, char *out) {
+  static const char hex[] = "0123456789ABCDEF";
   for (uint8_t i = 0; i < 8; i++) {
-    sprintf(&buf[i * 2], "%02X", (unsigned)((rom >> (8 * i)) & 0xFF));
+    uint8_t byte = (uint8_t)((rom >> (8 * i)) & 0xFF);
+    out[i * 2] = hex[byte >> 4];
+    out[i * 2 + 1] = hex[byte & 0x0F];
   }
-  buf[16] = '\0';
+  out[16] = '\0';
+}
+
+String DS18B20Bus::romToString(uint64_t rom) {
+  char buf[ROM_CHARS];
+  romToChars(rom, buf);
   return String(buf);
 }

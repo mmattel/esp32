@@ -95,11 +95,19 @@ static const LedColor COLOR_LINK_LOST = {40, 30, 0};       // yellow:  joined on
 static const LedColor COLOR_RESET_ARMED = {40, 0, 0};      // red:     factory-reset hold in progress
 static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   held long enough, release to reset
 static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: cannot run, see serial
+static const LedColor COLOR_SENSOR_FAULT = {0, 0, 40};     // blue, flashing: a sensor that worked is gone
 
 // Length of one on/off period for the flashing states, and how much of
 // that period the LED is lit.
 #define LED_FLASH_CYCLE_MS 3000
 #define LED_FLASH_DUTY_PCT 50
+
+// The sensor fault flashes on a cycle of its own, faster than the link states
+// above. Two reasons: it is the only state shown while the link is up, so it
+// cannot be confused with them anyway, and a different rhythm is readable from
+// across a room where a colour is not - blue and magenta at 40/255 are not far
+// apart on a WS2812 behind a diffuser. Same duty as the rest.
+#define LED_SENSOR_FAULT_CYCLE_MS 2000
 
 /* ------------------------------------------------------------------
  * Temperature sensors
@@ -118,6 +126,10 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 // button - a Zigbee-only build. How many sensors are actually plugged in is
 // a separate question and never a problem: a slot without its sensor stays
 // UNASSIGNED, and an empty bus is a defined state, not an error.
+//
+// 16 is the ceiling, checked at compile time in the .ino: the bus scan tracks
+// which slots are filled in a 16-bit mask, and a 17th slot would fall out of it
+// silently rather than failing.
 #define MAX_DS18B20_SENSORS 3
 
 // Length of the sketch's per-slot arrays. C++ has no zero-length array, so a
@@ -160,6 +172,17 @@ static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: can
 
 // How often to re-scan the bus while at least one slot has no sensor.
 #define ONEWIRE_RESCAN_INTERVAL_MS 60000
+
+// Extra attempts at a scratchpad read whose CRC or range came back bad, before
+// the slot is given up on until the next rescan. A read costs about 10 ms and a
+// single corrupted slot is what a long cable or a noisy edge produces now and
+// then, while the cost of believing it is high: the slot is then dark until a
+// rescan is due, which is ONEWIRE_RESCAN_INTERVAL_MS away. 0 disables retrying.
+//
+// This is not a fix for a bad bus. A retry that keeps rescuing readings is worth
+// investigating - the console says so with "read retried" - and the answer is
+// usually the pull-up, the cable or the supply.
+#define ONEWIRE_READ_RETRIES 1
 
 // ZCL reporting configuration for the temperature attributes. The deadband
 // above is enforced in software and every publish is reported explicitly, so

@@ -61,6 +61,53 @@ Covers:
   sensor's 125 °C with a good check byte, a ROM that is not on the bus (nobody
   answers MATCH ROM, the read slots return all ones, and `0xFF` × 9 fails the
   CRC), and an empty bus that fails at the reset.
+- `romToChars()` against `romToString()`: the same 16 digits from both, terminated
+  inside `ROM_CHARS`, family code first — the low byte of the packed value — and
+  every hex digit exercised in every position, since a gap in the digit table
+  would misprint one sensor's address in sixteen.
+
+### `slots` — what the sensor slots are doing
+
+The suite for [`slots.cpp`](../NanoH2_DS18B20_Zigbee/slots.cpp): which of the four
+states a slot is in, and which line says so. Two things are watched separately and
+they are not the same. What went **on the air** is what went through `logEvent()`,
+which the test captures; what only the **console** saw is everything else printed,
+which the stub `Serial` captures as well. Several of the rules here are exactly
+that split — the mirror carries one line, so a detail that changes on every
+attempt has to stay off it — and a test that read the console alone would pass
+while the mirror filled with noise.
+
+`MAX_DS18B20_SENSORS` and `LOG_EVERY_READING` are **pinned** in the test rather
+than taken from `config.h`: both are knobs a build is expected to change (no slots
+at all is a documented configuration), and these tests are about the rules, not
+about the numbers they happened to be run with. `config.h` is included first so
+the real values are what gets replaced. `millis()` comes from a variable the test
+sets, so the age of a reading is checked without waiting for it.
+
+Covers:
+
+- The summary counts: every state in one line, the three numbers always adding up
+  to the configured slot count, and a slot that answers the bus counted as on it.
+- The summary's **length budget**. It is the one line built from four numbers, and
+  the one that has overflowed while being worded: the test pins it at 57
+  characters plus a digit per number and checks that against `MIRROR_TEXT_LEN`, so
+  a rewording that spends the slack fails here instead of arriving truncated at the
+  coordinator.
+- The summary deadband: an unchanged bus costs one line rather than one per scan, a
+  sensor turning up or going missing is reported, and `slotsForgetSummary()` sends
+  the same counts again — which is what gets the summary out after a join.
+- The 85 °C power-on default: said once per spell of it however many readings come
+  in, said again after a real reading in between or after the slot lost its sensor,
+  counted per slot, and with the advice line kept off the air.
+- The two read failures told apart: never read since boot versus a last good value,
+  the last good value surviving the sensor going missing (a slot's ROM cannot change
+  without a factory reset, so it is that sensor's reading and no other's), forgotten
+  by `slotsBegin()`, and per slot rather than per device. The age of the reading is
+  printed but never mirrored, since it changes on every attempt and would cost a
+  report each time.
+- `ageText()` at every boundary it has — under a second, the switch to minutes, the
+  switch to hours, and 49 days, the far end of `millis()` — that the longest of them
+  fits `AGE_TEXT_CHARS`, and that a buffer too small is cut rather than overrun.
 
 ### `zb_setting` — writable settings
 
@@ -153,6 +200,6 @@ really stores a character string by its length byte, and whether a coordinator b
 the cluster the mirrored line rides on), the cluster
 attribute plumbing in `zb_link_endpoint.cpp`, NVS itself, the RGB LED, and the
 sketch's own state machines (link state, joining, sampling phases, button handling,
-and the slot bookkeeping that turns a `powerOnReset` or a failed read into a
-console line) which live in the `.ino` and are not compiled here. A green run
+and the bus scan that maps ROM codes onto slots and decides when a read is retried)
+which live in the `.ino` and are not compiled here. A green run
 is not a substitute for flashing the board.

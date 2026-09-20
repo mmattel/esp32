@@ -367,6 +367,37 @@ int main() {
   showReading("read() on an empty bus", r);
   if (r.valid) fails++;
 
+  // ---- romToChars() / romToString(): the same 16 digits, two ways ----
+  // 15. The buffer form is what every log line uses, so it has to agree with the
+  //     String form digit for digit, and it has to terminate inside ROM_CHARS. The
+  //     expected text is spelled out once: a ROM code is printed family code first,
+  //     which is the low byte of the packed value, so a byte order mistake here
+  //     would produce a plausible-looking address that matches nothing on the bus.
+  {
+    // The packed form is little-endian, so the family code 0x28 is the low byte and
+    // comes out first: this is the sensor printed everywhere as 28FF641E1234ABCD.
+    uint64_t packed = 0xCDAB34121E64FF28ULL;
+    char buf[DS18B20Bus::ROM_CHARS];
+    memset(buf, 'x', sizeof(buf));
+    DS18B20Bus::romToChars(packed, buf);
+    printf("romToChars(0xCDAB34121E64FF28) = %s\n", buf);
+    if (strcmp(buf, "28FF641E1234ABCD") != 0) fails++;
+    if (strlen(buf) != DS18B20Bus::ROM_CHARS - 1) fails++;
+    if (DS18B20Bus::romToString(packed) != std::string(buf)) fails++;
+
+    // Every digit position, both nibbles: a table with a hole in it prints the wrong
+    // address for one sensor in sixteen.
+    for (int nibble = 0; nibble < 16; nibble++) {
+      uint64_t all = 0;
+      for (int i = 0; i < 16; i++) all |= (uint64_t)nibble << (4 * i);
+      DS18B20Bus::romToChars(all, buf);
+      char want[DS18B20Bus::ROM_CHARS];
+      for (int i = 0; i < 16; i++) want[i] = "0123456789ABCDEF"[nibble];
+      want[16] = '\0';
+      if (strcmp(buf, want) != 0) { printf("  nibble %X printed as %s\n", nibble, buf); fails++; }
+    }
+  }
+
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails != 0;
 }

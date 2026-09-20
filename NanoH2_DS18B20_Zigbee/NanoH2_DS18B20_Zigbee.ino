@@ -29,7 +29,8 @@
  *   to expect from each. It does one thing: held for FACTORY_RESET_HOLD_MS and
  *   released, it wipes all stored configuration and the Zigbee credentials, which
  *   is how the device is excluded from a network. A short press does nothing.
- * - The on-board RGB LED shows the Zigbee link state.
+ * - The on-board RGB LED shows the Zigbee link state, and blue-flashing on a
+ *   link that is up means a sensor that once worked is missing or unreadable.
  *
  * Arduino IDE settings:
  *   Board            ESP32H2 Dev Module   (there is no NanoH2 variant yet)
@@ -59,6 +60,7 @@
 #include "ds18b20_bus.h"
 #include "zb_link.h"
 #include "zb_link_endpoint.h"
+#include "slots.h"
 #include "zb_mirror.h"
 #include "zb_setting.h"
 #include "zb_temp_endpoint.h"
@@ -83,6 +85,16 @@ DS18B20Bus owBus(PIN_ONEWIRE);
 // the only bad count is a negative one, which would otherwise pass silently as
 // "no slots" instead of as the typo it is.
 static_assert(MAX_DS18B20_SENSORS >= 0, "the sensor count cannot be negative");
+
+// The other end of the same range. scanSensors() tracks which slots are filled in a
+// 16-bit mask, so slot 16 would shift out of it and be reported as permanently
+// unfilled instead of failing - a silent wrong answer, which is the one outcome a
+// configuration mistake must not have. 16 sensors on one bit-banged 1-Wire bus is
+// already well past what a single pull-up holds, so this is a ceiling on the
+// configuration rather than a limit worth raising: to go higher, widen lastPresent
+// in scanSensors() and check DS18B20Bus::discover()'s search guard with it.
+static_assert(MAX_DS18B20_SENSORS <= 16,
+              "at most 16 sensor slots: the bus scan tracks the filled ones in a 16-bit mask");
 
 // The temperature block is the one that grows with the sensor count, so it is the
 // one that can run off the end of the endpoint range.
@@ -157,21 +169,6 @@ float lastPublished[DS18B20_SLOT_ARRAY_LEN];
 // while the readings stay inside the deadband.
 uint32_t lastTempReportMs[DS18B20_SLOT_ARRAY_LEN] = {0};
 
-// The last reading that came back valid, per slot, and when it did. For the
-// console only, and deliberately separate from lastPublished above: that one is
-// what the coordinator has, which the deadband can hold well behind the sensor,
-// and its timestamp is the time of a report rather than of a read. Telling "this
-// sensor has never worked" from "this sensor worked until four minutes ago" needs
-// the read. NAN means no valid reading since boot - which is not the same as an
-// empty slot, because a ROM code in NVS only says a sensor was once discovered,
-// not that it ever answered with a temperature.
-float lastGoodC[DS18B20_SLOT_ARRAY_LEN];
-uint32_t lastGoodMs[DS18B20_SLOT_ARRAY_LEN] = {0};
-
-// Whether the 85 C power-on value has already been reported for this slot, so a
-// sensor sitting at it costs one line rather than one per interval.
-bool porReported[DS18B20_SLOT_ARRAY_LEN] = {false};
-
 // Forget what the coordinator has: the next valid reading of every slot is
 // published whatever the deadband says.
 void resetPublished() {
@@ -180,27 +177,8 @@ void resetPublished() {
   }
 }
 
-// Called once, from setup(). Not folded into resetPublished(), which also runs on
-// every join: what the coordinator knows is forgotten then, but what the hardware
-// has done is not - a rejoin says nothing about whether a sensor ever worked.
-void initSlotHistory() {
-  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
-    lastGoodC[i] = NAN;
-  }
-}
-
-// A duration as an age for a console line: seconds below a minute, then minutes,
-// then hours and minutes. Printed, never parsed.
-String ageText(uint32_t ms) {
-  uint32_t seconds = ms / 1000UL;
-  if (seconds < 60) {
-    return String(seconds) + " s";
-  }
-  if (seconds < 3600) {
-    return String(seconds / 60) + " min";
-  }
-  return String(seconds / 3600) + " h " + String((seconds % 3600) / 60) + " min";
-}
+// What each slot has read and what that says about it lives in slots.cpp, next to
+// the lines it produces - slotsBegin(), slotsNoteReading() and the rest below.
 
 LinkState linkState = LINK_UNCOMMISSIONED;
 bool commissioned = false;
@@ -260,9 +238,37 @@ void ledBegin() {
   rgbLedWrite(PIN_RGB, COLOR_OFF.r, COLOR_OFF.g, COLOR_OFF.b);
 }
 
-bool flashOn() {
-  uint32_t phase = millis() % LED_FLASH_CYCLE_MS;
-  return phase < ((uint32_t)LED_FLASH_CYCLE_MS * LED_FLASH_DUTY_PCT) / 100;
+// Which half of the flash cycle we are in. The cycle length is a parameter so the
+// sensor fault can have a rhythm of its own; everything else uses the default.
+bool flashOn(uint32_t cycleMs = LED_FLASH_CYCLE_MS) {
+  uint32_t phase = millis() % cycleMs;
+  return phase < (cycleMs * LED_FLASH_DUTY_PCT) / 100;
+}
+
+// A slot that once held a sensor and does not have it now: either it stopped
+// answering the bus scan, or it answers and fails every read. The LED makes no
+// distinction between the two - from across the room both are the same news, a
+// sensor that worked is not delivering - and the console says which it is, see
+// "Telling an empty slot from a sensor that has failed" in README.md.
+//
+// A slot that has never held a sensor is not a fault and is not counted here,
+// which is what makes a fresh board with one sensor in a three-slot build show
+// green rather than blue. That is the difference from anySlotMissing() below,
+// which asks a different question - whether a rescan is still worth running.
+//
+// Read from the two slot arrays rather than from a fault flag of its own, so
+// there is one source of truth for what a slot is doing. The one visible effect
+// of that: a sensor that answers the ROM search and then fails its read is
+// briefly not a fault - the rescan sets slotPresent, the read clears it again
+// about a conversion later - so the LED shows a green blip of under a second per
+// rescan interval. Harmless, and cheaper than a second copy of the state.
+bool anySensorLost() {
+  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+    if (slotRom[i] != 0 && !slotPresent[i]) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void updateLed() {
@@ -277,7 +283,19 @@ void updateLed() {
     return;
   }
   switch (linkState) {
-    case LINK_CONNECTED:      ledWrite(COLOR_CONNECTED); break;
+    case LINK_CONNECTED:
+      // A sensor fault replaces the steady green rather than outranking the two
+      // flashing link states: one LED cannot flash two things at once, and a
+      // device that is off the air has a more urgent problem than a sensor - the
+      // coordinator cannot be told about the sensor either way. So blue means
+      // the network is fine and the 1-Wire side is not, which is exactly when
+      // looking at the board rather than at Zigbee2MQTT is what helps.
+      if (anySensorLost()) {
+        ledWrite(flashOn(LED_SENSOR_FAULT_CYCLE_MS) ? COLOR_SENSOR_FAULT : COLOR_OFF);
+      } else {
+        ledWrite(COLOR_CONNECTED);
+      }
+      break;
     case LINK_UNCOMMISSIONED: ledWrite(flashOn() ? COLOR_UNCOMMISSIONED : COLOR_OFF); break;
     case LINK_LOST:           ledWrite(flashOn() ? COLOR_LINK_LOST : COLOR_OFF); break;
   }
@@ -316,55 +334,6 @@ uint32_t intervalMs() {
 
 /* --------------------------- 1-Wire slots ------------------------- */
 
-// What reportSlotState() last put on the air. 0xFF is not a reachable count -
-// MAX_DS18B20_SENSORS caps all three - so the first call always reports, the same
-// trick scanSensors() uses for its own first pass.
-uint8_t lastOnBus = 0xFF;
-uint8_t lastMissing = 0xFF;
-uint8_t lastNeverSeen = 0xFF;
-
-// The three slot states as one mirrored line, because the console mirror holds a
-// single line and the per-slot detail in scanSensors() would arrive as whichever
-// line came last. Sent when the counts change, which includes the first scan after
-// boot, and again after a join - see forgetSlotState().
-//
-//   on the bus  answered the last ROM search
-//   missing     a ROM code in NVS, so a sensor was here, and it is not answering
-//   never seen  no sensor has ever claimed the slot
-//
-// A sensor that answers the search but fails every read alternates between the
-// first two as the rescan finds it and readAndPublish() drops it again, and is
-// reported by name there rather than here.
-void reportSlotState() {
-  uint8_t onBus = 0, missing = 0, neverSeen = 0;
-  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
-    if (slotPresent[i]) {
-      onBus++;
-    } else if (slotRom[i] != 0) {
-      missing++;
-    } else {
-      neverSeen++;
-    }
-  }
-
-  if (onBus == lastOnBus && missing == lastMissing && neverSeen == lastNeverSeen && !LOG_EVERY_READING) {
-    return;
-  }
-  lastOnBus = onBus;
-  lastMissing = missing;
-  lastNeverSeen = neverSeen;
-  logEvent("slots: %u on the bus, %u missing, %u never seen", onBus, missing, neverSeen);
-}
-
-// Whatever was last said about the slots went to the previous coordinator, or to
-// nobody at all - scanSensors() runs once in setup(), before the radio is up.
-// Making the remembered counts impossible again has the next scan repeat it. That
-// is one rescan interval away while any slot is empty, and never while all of them
-// are reading, where the temperatures themselves are the better answer anyway.
-void forgetSlotState() {
-  lastOnBus = lastMissing = lastNeverSeen = 0xFF;
-}
-
 // Maps whatever is on the bus onto the persistent slots: a known ROM keeps its
 // slot, an unknown ROM takes the first free one.
 //
@@ -375,11 +344,15 @@ void forgetSlotState() {
 // below it, which keeps the indented lines under a header of their own.
 void scanSensors() {
   static uint8_t lastCount = 0xFF;      // no real count, so the first scan reports
-  static uint16_t lastPresent = 0xFFFF;
+  static uint16_t lastPresent = 0xFFFF;  // one bit per filled slot, hence the 16-slot ceiling
   uint16_t present = 0;
 
   uint64_t found[MAX_DS18B20_SENSORS + 5];
   uint8_t count = owBus.discover(found, sizeof(found) / sizeof(found[0]));
+
+  // Reused by every line below: a ROM code is 16 hex digits and formatting it into
+  // a buffer keeps a scan that finds nothing new off the heap entirely.
+  char rom[DS18B20Bus::ROM_CHARS];
 
   bool headerDone = false;
   auto header = [&]() {
@@ -409,21 +382,21 @@ void scanSensors() {
           slot = i;
         }
       }
+      DS18B20Bus::romToChars(found[f], rom);
       if (slot < 0) {
         header();
-        logEvent("  %s ignored, all %u slots taken", DS18B20Bus::romToString(found[f]).c_str(), MAX_DS18B20_SENSORS);
+        logEvent("  %s ignored, all %u slots taken", rom, (unsigned)MAX_DS18B20_SENSORS);
         continue;
       }
       slotRom[slot] = found[f];
       prefs.putULong64(romKey(slot).c_str(), found[f]);
       header();
-      Serial.printf("  %s assigned to slot %d (stored)\r\n",
-                    DS18B20Bus::romToString(found[f]).c_str(), slot);
+      Serial.printf("  %s assigned to slot %d (stored)\r\n", rom, slot);
       if (Zigbee.started()) {
         // Tell the coordinator which sensor this endpoint now reads. Before
         // Zigbee.begin() there is nothing to update: setupEndpoints() reads the
         // slot mapping itself.
-        zbTemp[slot]->setSensorId(DS18B20Bus::romToString(found[f]).c_str());
+        zbTemp[slot]->setSensorId(rom);
       }
     }
     slotPresent[slot] = true;
@@ -432,18 +405,27 @@ void scanSensors() {
   }
 
   // The missing slots are listed as a set, so they are either all reported or all
-  // held back: one of them turning up changes the answer for the others too.
-  if (present != lastPresent || LOG_EVERY_READING) {
-    for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
-      if (slotRom[i] != 0 && !slotPresent[i]) {
-        header();
-        logEvent("  slot %u (%s) is configured but missing", i, DS18B20Bus::romToString(slotRom[i]).c_str());
-      }
+  // held back: one of them turning up changes the answer for the others too. The
+  // bookkeeping is not gated on that, though - whether the line is worth printing
+  // has nothing to do with the slot having lost its sensor.
+  bool report = (present != lastPresent || LOG_EVERY_READING);
+  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+    if (slotRom[i] == 0 || slotPresent[i]) {
+      continue;
     }
-    // A slot that has never held a sensor is not a fault, which is why it says
-    // so plainly and why it is printed rather than mirrored: three empty slots
-    // would otherwise push each other off a mirror that holds one line.
-    // reportSlotState() below is what goes on the air for this.
+    slotsSensorGone(i);
+    if (report) {
+      header();
+      DS18B20Bus::romToChars(slotRom[i], rom);
+      logEvent("  slot %u (%s) is configured but missing", (unsigned)i, rom);
+    }
+  }
+
+  // A slot that has never held a sensor is not a fault, which is why it says so
+  // plainly and why it is printed rather than mirrored: three empty slots would
+  // otherwise push each other off a mirror that holds one line. The summary line
+  // below is what goes on the air for this.
+  if (report) {
     for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
       if (slotRom[i] == 0) {
         header();
@@ -454,7 +436,7 @@ void scanSensors() {
 
   lastCount = count;
   lastPresent = present;
-  reportSlotState();
+  slotsReportSummary(slotRom, slotPresent);
 }
 
 bool anySlotMissing() {
@@ -642,9 +624,13 @@ void onZigbeeConnected() {
   resetPublished();
   sampleNow = true;
 
-  // And the slot summary, which a build with nothing on the bus would otherwise
-  // never send: the only scan that ran was the one in setup(), before the radio.
-  forgetSlotState();
+  // And the slot summary. Forgetting what was reported is not enough on its own:
+  // the summary is only computed by a scan, a scan only runs while a slot is empty,
+  // and the one that did run was the one in setup(), before the radio. So it is sent
+  // here from the state that scan left, which is current - nothing but a scan changes
+  // it - and every join then starts with the slots accounted for.
+  slotsForgetSummary();
+  slotsReportSummary(slotRom, slotPresent);
 
   // Same for the link: a rejoin may well be through a different parent, so the
   // old value says nothing about the new one.
@@ -812,43 +798,44 @@ void readAndPublish() {
     if (!slotPresent[i]) {
       continue;
     }
+    // Formatted once per slot and reused by every line below, so a slot that is
+    // reading normally and one that is failing both stay off the heap.
+    char rom[DS18B20Bus::ROM_CHARS];
+    DS18B20Bus::romToChars(slotRom[i], rom);
+
+    // A scratchpad read that comes back with a bad CRC is the ordinary result of a
+    // noisy edge on a long cable, and the conversion it belongs to is still in the
+    // sensor's register - so asking again costs about 10 ms and usually works. The
+    // alternative is dropping the slot until the next rescan, which is up to
+    // ONEWIRE_RESCAN_INTERVAL_MS of silence for one corrupted bit.
     DS18B20Reading r = owBus.read(slotRom[i]);
-    if (!r.valid) {
-      // Which of the two failures this is decides what to do about it: a sensor
-      // that has never read since boot is wired wrong or dead, one that read fine
-      // until a moment ago is a contact or a supply that is going. The mirrored
-      // line says which; the age of the last good reading is a console detail,
-      // because it changes on every attempt and would defeat the mirror's deadband.
-      String rom = DS18B20Bus::romToString(slotRom[i]);
-      if (isnan(lastGoodC[i])) {
-        logEvent("slot %u (%s): read failed, never read since boot", i, rom.c_str());
-      } else {
-        logEvent("slot %u (%s): read failed, last good %.*f C", i, rom.c_str(), TEMP_PUBLISH_DECIMALS, lastGoodC[i]);
-        Serial.printf("  that reading was %s ago\r\n", ageText(millis() - lastGoodMs[i]).c_str());
+    //
+    // Counted from 1 rather than to ONEWIRE_READ_RETRIES from 0, so that a build
+    // with retrying switched off compares 1 <= 0 - false, but not the kind of
+    // always-false the compiler warns about.
+    for (uint8_t retry = 1; !r.valid && retry <= ONEWIRE_READ_RETRIES; retry++) {
+      r = owBus.read(slotRom[i]);
+      if (r.valid) {
+        // Console-only, and deliberately so: a bus that needs this says something
+        // about the wiring, but it is not a fault the coordinator can act on, and
+        // it would cost a report every time the cable was noisy.
+        Serial.printf("slot %u (%s): read retried, attempt %u succeeded\r\n", i, rom, (unsigned)(retry + 1));
       }
+    }
+
+    if (!r.valid) {
+      slotsReportReadFailure(i, rom);
+      slotsSensorGone(i);
       slotPresent[i] = false;  // picked up again by the next rescan
       continue;
     }
 
     float celsius = roundReading(r.celsius);
-    lastGoodC[i] = celsius;
-    lastGoodMs[i] = millis();
 
-    // 85.00 C is the temperature register's power-on value, so a sensor stuck at it
-    // is one whose supply keeps dropping out, or one being read before its first
-    // conversion finished. It is also a temperature a sensor can really be at,
-    // which is why this says what the value means and still publishes it. Reported
-    // once per spell of it, so a sensor sitting there costs one line, not one per
-    // interval; the detail stays off the air for the same reason as above.
-    if (r.powerOnReset) {
-      if (!porReported[i]) {
-        porReported[i] = true;
-        logEvent("slot %u (%s): 85.00 C is the power-on default", i, DS18B20Bus::romToString(slotRom[i]).c_str());
-        Serial.println("  check the supply and the wiring");
-      }
-    } else {
-      porReported[i] = false;
-    }
+    // Records the reading as this slot's last good one, and says so if it is exactly
+    // the power-on default - see slots.h. Given the rounded value, so that what a
+    // later failure reports as "last good" is the number the coordinator was sent.
+    slotsNoteReading(i, rom, celsius, r.powerOnReset);
 
     // Deadband: leaving the attribute untouched is what suppresses the report,
     // so nothing can leak out below the threshold. The consequence is that the
@@ -879,8 +866,7 @@ void readAndPublish() {
     // worth a line - see LOG_EVERY_READING, which is what to raise while
     // choosing the deadband, since it also prints the readings held back.
     if (publish || LOG_EVERY_READING) {
-      Serial.printf("slot %u  EP %u  %s  %.*f C  %s\r\n", i, EP_TEMP_BASE + i,
-                    DS18B20Bus::romToString(slotRom[i]).c_str(), TEMP_PUBLISH_DECIMALS, celsius,
+      Serial.printf("slot %u  EP %u  %s  %.*f C  %s\r\n", i, EP_TEMP_BASE + i, rom, TEMP_PUBLISH_DECIMALS, celsius,
                     !publish ? "within deadband"
                              : first ? "published (first)" : heartbeat ? "published (heartbeat)" : "published");
     }
@@ -1253,7 +1239,7 @@ void setup() {
   checkButtonIdleAtBoot();
   createEndpoints();
   resetPublished();
-  initSlotHistory();  // before the first scan, which is the first thing that reads
+  slotsBegin();  // before the first scan, which is the first thing that reads
 
   if (!prefs.begin(NVS_NAMESPACE, false)) {
     logEvent("NVS open failed, running with code defaults");

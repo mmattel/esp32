@@ -41,6 +41,7 @@ count](#changing-the-sensor-count).
 | `NanoH2_DS18B20_Zigbee.ino` | Application: link state machine, LED, sampling, button |
 | `config.h` | Every tunable: pins, colours, flash cycle, sensor count, interval, delta, hold time |
 | `ds18b20_bus.h/.cpp` | Self-contained 1-Wire master and DS18B20 driver |
+| `slots.h/.cpp` | What each slot has read, and the lines that say which of the four states it is in |
 | `zb_setting.h/.cpp` | A setting with a code default, an NVS override and a Zigbee override |
 | `zb_temp_endpoint.h/.cpp` | Temperature endpoint that also publishes its sensor's ROM code |
 | `zb_link.h/.cpp` | LQI and RSSI of the link to the parent, from the neighbour table |
@@ -49,8 +50,8 @@ count](#changing-the-sensor-count).
 | `zb_mirror.h/.cpp` | The console mirror endpoint: the last line worth an event, as text |
 | `nanoh2-ds18b20.mjs` | Not firmware: the Zigbee2MQTT external converter, so the mirrored line becomes an expose |
 
-The pure-logic parts — the 1-Wire driver, the settings, the link lookup and the console mirror — have
-host tests in [`../test/`](../test/); run them with `cd test && make`.
+The pure-logic parts — the 1-Wire driver, the slot bookkeeping, the settings, the link lookup and the
+console mirror — have host tests in [`../test/`](../test/); run them with `cd test && make`.
 
 ## Wiring
 
@@ -219,13 +220,37 @@ button](#which-button).
 | --- | --- |
 | Never joined a network | magenta, flashing on a 3 s cycle |
 | Joined and on the air | solid green |
+| Joined, and a sensor that once worked is missing or unreadable | blue, flashing on a 2 s cycle |
 | Joined before, radio lost | yellow, flashing on a 3 s cycle |
 | Factory-reset hold in progress | solid red |
 | Factory-reset hold long enough, release to reset | solid white |
 | Cannot run at all | red, flashing on a 3 s cycle; reason on the serial console |
 
-Cycle length and duty are `LED_FLASH_CYCLE_MS` / `LED_FLASH_DUTY_PCT`; all
-colours are `LedColor` constants at the top of `config.h`.
+Cycle length and duty are `LED_FLASH_CYCLE_MS` / `LED_FLASH_DUTY_PCT`, the blue
+one is `LED_SENSOR_FAULT_CYCLE_MS`; all colours are `LedColor` constants at the
+top of `config.h`.
+
+**Blue means the network is fine and the 1-Wire side is not.** A slot only holds
+a ROM code because a scan once found that sensor, so blue is never a slot that was
+simply never used: something that worked is not delivering now — unplugged, a
+contact gone, or a supply that cannot hold the sensor through a conversion. It
+covers both failures the console tells apart, a sensor missing from the scan and
+one that answers the scan and fails every read, since across a room they are the
+same news; the [console](#telling-an-empty-slot-from-a-sensor-that-has-failed)
+and the [mirrored line](#console-mirror) say which.
+
+It shows **only while the link is up**, replacing the steady green rather than
+outranking the flashing yellow or magenta. One LED cannot flash two things at
+once, and a device that is off the air has the more urgent problem — with no
+network there is nobody to tell about the sensor either way. The faster cycle is
+deliberate too: blue and magenta at this brightness are not far apart behind a
+diffuser, and a rhythm is readable where a colour is not.
+
+It stays blue until the sensor answers again or the slot is forgotten, which is
+what a factory reset does — the stored ROM code is what the device is still
+waiting for. Removing a sensor for good therefore means a factory reset and a
+re-pair if you want the LED green again; see [changing the sensor
+count](#changing-the-sensor-count).
 
 ## Joining a network
 
@@ -351,8 +376,14 @@ it reads as the configuration it is and not as a count that failed to print.
 Everything else follows it — the endpoint objects, the temperature endpoint
 numbers, the `romN` keys in NVS, the slot arrays and every loop over them. Nothing
 else in the sources needs editing, and `static_assert`s in the sketch catch the
-ways of getting it wrong: a negative count, and a count so large that the
-temperature endpoints would run past the Zigbee maximum of 240.
+ways of getting it wrong: a negative count, a count so large that the temperature
+endpoints would run past the Zigbee maximum of 240, and anything above **16**,
+which is the ceiling. The bus scan tracks which slots are filled in a 16-bit mask,
+so a 17th slot would fall out of it and be reported as permanently unfilled — a
+silent wrong answer, which is the one outcome a configuration mistake must not
+have. 16 sensors on one bit-banged bus is already well past what a single pull-up
+holds, so it is a ceiling on the configuration rather than a limit worth raising:
+the `static_assert` in the `.ino` says what to widen if it ever is.
 
 **Zero is a valid count.** With `MAX_DS18B20_SENSORS 0` there are no temperature
 endpoints, the settings, the two link endpoints and the mirror stay at 10 … 14, and
@@ -662,7 +693,7 @@ What is mirrored is what the console calls an event in its own right:
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
 | `Reading interval (s) written from Zigbee: 300.00 -> 300` | a coordinator changed the interval or the delta and it moved |
 | `slot 0 (28FF…): read failed, never read since boot`, `slot 1 (…) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
-| `slots: 1 on the bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
+| `temp sensors (3 slots): 1 on the bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
 | `slot 0 (28FF…): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
 | `1-Wire: no device responded to CONVERT T` | nothing on the bus at all |
 | `FATAL: …`, `Flash partition '…' is missing`, `NVS open failed …`, `Zigbee failed to start …`, `scan: failed` | every error line the sketch prints |
@@ -746,7 +777,8 @@ what keeps the lines that matter visible at 115200 baud:
 | a reading past its deadband, published | yes |
 | a reading inside its deadband | no |
 | a value repeated by its heartbeat | yes, marked `(heartbeat)` |
-| a failed read, a slot going missing | yes, with what the slot had read before |
+| a read that a retry rescued | yes, `read retried`, console only |
+| a read that failed every attempt, a slot going missing | yes, with what the slot had read before |
 | a reading of exactly 85.00 °C, the register's power-on value | yes, once per spell of it |
 | a scan finding the same sensors as last time | no |
 | a scan finding a different number, or a new ROM code | yes |
@@ -783,8 +815,8 @@ Four states, and what each one prints:
 | --- | --- | --- |
 | never assigned | `slot 2 is unassigned, no sensor has ever claimed it` | no, see below |
 | assigned, not answering the bus scan | `slot 0 (28FF…) is configured but missing` | yes |
-| answering the scan, every read bad, none ever good | `slot 0 (28FF…): read failed, never read since boot` | yes |
-| answering the scan, every read bad, one was good | `slot 0 (28FF…): read failed, last good 21.4 C` + `that reading was 7 min ago` | the first line only |
+| answering the scan, every attempt bad, none ever good | `slot 0 (28FF…): read failed, never read since boot` | yes |
+| answering the scan, every attempt bad, one was good | `slot 0 (28FF…): read failed, last good 21.4 C` + `that reading was 7 min ago` | the first line only |
 
 The middle two are the useful pair. A slot only holds a ROM code because a scan
 once found that sensor and wrote the code to NVS, so **`configured but missing`
@@ -797,18 +829,48 @@ impossible value: a marginal contact rather than a missing device.
 goes missing at the scan; a sensor that is dying answers the scan and fails the
 read, over and over as the rescan keeps finding it again.
 
+Both also show on the board itself: on a link that is up, either one flashes the
+LED **blue** on a 2 s cycle instead of holding it green, so a sensor problem is
+visible without a console and without a coordinator. A slot that was never filled
+does not do that — see [LED](#led).
+
+`read failed` means every attempt failed. A bad CRC on one read is the ordinary
+result of a noisy edge on a long cable, and the conversion it belongs to is still
+sitting in the sensor's register, so asking again costs about 10 ms and usually
+works — against a slot that would otherwise stay dark until the next rescan, up to
+`ONEWIRE_RESCAN_INTERVAL_MS` away. `ONEWIRE_READ_RETRIES` in `config.h` is how
+many extra attempts a slot gets (1 by default, 0 disables it), and a retry that
+worked says so on the console:
+
+```
+slot 0 (28FF641E1234ABCD): read retried, attempt 2 succeeded
+```
+
+Console-only, deliberately: it is not a fault a coordinator can act on, and it
+would cost a report every time the cable was noisy. It is still worth watching. A
+bus that keeps needing the retry is telling you about the pull-up, the cable or
+the supply, and the retry is rescuing readings rather than fixing anything.
+
 Since the mirror holds exactly one line, the per-slot detail cannot all fit on
 it, so one summary line goes out whenever the counts change:
 
 ```
-slots: 1 on the bus, 1 missing, 1 never seen
+temp sensors (3 slots): 1 on the bus, 1 missing, 1 never seen
 ```
 
-That is the whole picture in one line, it is stable while nothing changes — so
-the mirror's deadband suppresses the repeats — and it is sent again after every
-join, because the only scan that ran before the radio came up was the one in
-`setup()`, whose result reached nobody. With every slot reading, the counts stop
-changing and the temperatures themselves are the better answer anyway.
+That is the whole picture in one line: the slot count is `MAX_DS18B20_SENSORS` and
+the three that follow add up to it, which is what makes `0 on the bus` readable —
+without the total it could equally be a build with no slots at all. It is stable
+while nothing changes — so the mirror's deadband suppresses the repeats — and it is
+sent again after every join, because the only scan that ran before the radio came up
+was the one in `setup()`, whose result reached nobody. With every slot reading, the
+counts stop changing and the temperatures themselves are the better answer anyway.
+
+The wording is as short as it is on purpose: at 61 characters it is inside the
+mirror's `MIRROR_TEXT_LEN` of 64, so the copy on endpoint 14 is the whole line
+rather than a cut one. It costs 57 plus one digit per number, which leaves room for
+any slot count a single 1-Wire bus would carry. If you reword it, count the result —
+64 is the most that fits an unfragmented report, so raising the limit is not free.
 
 What is deliberately **not** mirrored: the unassigned-slot lines (three empty
 slots would push each other off a one-line mirror, and an empty slot is not a
@@ -1217,9 +1279,10 @@ the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
   conversion, so there is no failed-conversion line every interval. The periodic
   rescan (`1-Wire scan: 0 DS18B20 found`) is the only output until a sensor turns
   up, and the device stays joined and answers reads the whole time.
-- **Failed reads keep the last value.** A CRC error or a missing sensor is
-  logged and the slot is retried on the next rescan (`ONEWIRE_RESCAN_INTERVAL_MS`);
-  the endpoint keeps its previous temperature rather than publishing a bogus one.
+- **Failed reads keep the last value.** A CRC error is retried straight away
+  (`ONEWIRE_READ_RETRIES`); a slot that fails every attempt is logged and dropped
+  until the next rescan (`ONEWIRE_RESCAN_INTERVAL_MS`), and the endpoint keeps its
+  previous temperature rather than publishing a bogus one.
 - **A device flashed with the first version of this sketch** stored the interval
   as a `uint32`, where it is now a float blob. The typed read fails cleanly and
   the interval falls back to the code default once, then persists normally. A
