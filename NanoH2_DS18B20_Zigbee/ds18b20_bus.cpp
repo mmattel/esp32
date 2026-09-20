@@ -239,8 +239,14 @@ bool DS18B20Bus::startConversionAll() {
   return true;
 }
 
+// The temperature register's power-on reset value, +85.0 C in the DS18B20's
+// 1/16th-degree units (datasheet, "Memory"). A sensor that has just been powered
+// up, or has just reset because its supply dipped, hands this back with a
+// perfectly good CRC - which is why read() flags it instead of rejecting it.
+static const int16_t RAW_POWER_ON_RESET = 0x0550;
+
 DS18B20Reading DS18B20Bus::read(uint64_t rom) {
-  DS18B20Reading out = {false, NAN};
+  DS18B20Reading out = {false, NAN, false};
 
   if (!reset()) {
     return out;
@@ -266,6 +272,7 @@ DS18B20Reading DS18B20Bus::read(uint64_t rom) {
 
   out.valid = true;
   out.celsius = celsius;
+  out.powerOnReset = (raw == RAW_POWER_ON_RESET);
   return out;
 }
 

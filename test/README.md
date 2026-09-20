@@ -26,7 +26,16 @@ The stub `Arduino.h` redirects `digitalWrite`, `digitalRead` and
 semantics from the call sequence and the recorded low-pulse length — a long low
 is a reset, ~60 µs is a write-0, a short low is either a write-1 or a read slot,
 resolved by whether a read follows — and answers as a collective of slaves.
-That makes the real ROM search and CRC-8 run end to end.
+That makes the real ROM search, CRC-8 and scratchpad read run end to end.
+
+Every bit the master writes goes through one `sim_masterBit()`, whichever way it
+was signalled, so the write-0 and write-1 paths cannot drift apart as commands
+are added. The commands modelled are SEARCH ROM (`0xF0`), MATCH ROM (`0x55`),
+SKIP ROM (`0xCC`), WRITE SCRATCHPAD (`0x4E`, counted and dropped) and READ
+SCRATCHPAD (`0xBE`). Each device carries a nine-byte scratchpad set by
+`sim_setScratch(dev, raw, goodCrc)`, which fills in the rest of the bytes as a
+12-bit DS18B20 holds them and computes the check byte — or corrupts it on
+request.
 
 Covers:
 
@@ -37,6 +46,21 @@ Covers:
 - An empty bus: nothing found, no hang.
 - Mixed families: a DS18S20 (`0x10`) sharing the bus is skipped, the DS18B20
   (`0x28`) is not.
+- `read()` addressing: two devices with different scratchpads on the bus, each
+  read by its own ROM code. A driver that ignored the ROM would answer from
+  whichever device came first, and would fail this.
+- `read()` conversion: a positive value (`0x0158` → 21.5 °C) and a negative one
+  (`0xFF5E` → −10.125 °C), both exact in a float so the comparison is safe.
+- The `powerOnReset` flag: `0x0550` is +85.00 °C, the temperature register's
+  power-on value, so it comes back **valid and flagged** — the CRC is good and
+  85 °C is a temperature a sensor can really be at, which is why the driver
+  reports it rather than dropping it. One sixteenth either side (`0x054F`,
+  `0x0551`) is not flagged, which is what makes it an exact-value test rather
+  than a threshold.
+- `read()` rejections, one per cause: a corrupted check byte, a value past the
+  sensor's 125 °C with a good check byte, a ROM that is not on the bus (nobody
+  answers MATCH ROM, the read slots return all ones, and `0xFF` × 9 fails the
+  CRC), and an empty bus that fails at the reset.
 
 ### `zb_setting` — writable settings
 
@@ -128,6 +152,7 @@ whether the neighbour table actually holds a parent entry when we look, whether 
 really stores a character string by its length byte, and whether a coordinator binds
 the cluster the mirrored line rides on), the cluster
 attribute plumbing in `zb_link_endpoint.cpp`, NVS itself, the RGB LED, and the
-sketch's own state machines (link state, joining, sampling phases, button handling)
-which live in the `.ino` and are not compiled here. A green run
+sketch's own state machines (link state, joining, sampling phases, button handling,
+and the slot bookkeeping that turns a `powerOnReset` or a failed read into a
+console line) which live in the `.ino` and are not compiled here. A green run
 is not a substitute for flashing the board.

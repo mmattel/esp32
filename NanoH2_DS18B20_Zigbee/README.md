@@ -25,6 +25,7 @@ count](#changing-the-sensor-count).
 - [Link quality and signal strength](#link-quality-and-signal-strength)
 - [Console mirror](#console-mirror)
 - [Serial console](#serial-console)
+  - [Telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed)
   - [Why the first lines used to arrive mangled](#why-the-first-lines-used-to-arrive-mangled)
 - [Zigbee2MQTT](#zigbee2mqtt)
   - [An expose that stays N/A](#an-expose-that-stays-na)
@@ -660,7 +661,9 @@ What is mirrored is what the console calls an event in its own right:
 | `Button: idle now, back in use` | that pin went idle again, so the button is real after all |
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
 | `Reading interval (s) written from Zigbee: 300.00 -> 300` | a coordinator changed the interval or the delta and it moved |
-| `slot 0 (28FF…): read failed`, `slot 1 (…) is configured but missing` | a sensor stopped answering |
+| `slot 0 (28FF…): read failed, never read since boot`, `slot 1 (…) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
+| `slots: 1 on the bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
+| `slot 0 (28FF…): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
 | `1-Wire: no device responded to CONVERT T` | nothing on the bus at all |
 | `FATAL: …`, `Flash partition '…' is missing`, `NVS open failed …`, `Zigbee failed to start …`, `scan: failed` | every error line the sketch prints |
 
@@ -743,9 +746,11 @@ what keeps the lines that matter visible at 115200 baud:
 | a reading past its deadband, published | yes |
 | a reading inside its deadband | no |
 | a value repeated by its heartbeat | yes, marked `(heartbeat)` |
-| a failed read, a slot going missing | yes |
+| a failed read, a slot going missing | yes, with what the slot had read before |
+| a reading of exactly 85.00 °C, the register's power-on value | yes, once per spell of it |
 | a scan finding the same sensors as last time | no |
 | a scan finding a different number, or a new ROM code | yes |
+| a scan whose slot counts changed, empty slots included | yes |
 | joining, losing the link, a factory reset, a fault | yes |
 | the banner and the configured slot count, once at boot | yes |
 
@@ -765,6 +770,70 @@ The rows that are events in their own right — joining, losing the link, what t
 button did, an error, a setting a coordinator changed — are exactly the ones that
 also go out on endpoint 14, so they are readable without a console attached at all.
 See [Console mirror](#console-mirror).
+
+### Telling an empty slot from a sensor that has failed
+
+A temperature expose with no value looks the same either way: a slot nothing was
+ever plugged into, and a sensor that worked for a month and then stopped, both
+read N/A. The console and the mirror are where the difference is stated.
+
+Four states, and what each one prints:
+
+| State | Line | On the air |
+| --- | --- | --- |
+| never assigned | `slot 2 is unassigned, no sensor has ever claimed it` | no, see below |
+| assigned, not answering the bus scan | `slot 0 (28FF…) is configured but missing` | yes |
+| answering the scan, every read bad, none ever good | `slot 0 (28FF…): read failed, never read since boot` | yes |
+| answering the scan, every read bad, one was good | `slot 0 (28FF…): read failed, last good 21.4 C` + `that reading was 7 min ago` | the first line only |
+
+The middle two are the useful pair. A slot only holds a ROM code because a scan
+once found that sensor and wrote the code to NVS, so **`configured but missing`
+is proof the sensor existed** — a slot that was never filled cannot produce that
+line. And `read failed` says the sensor still answers the ROM search, so it is
+powered and addressable, but the scratchpad came back with a bad CRC or an
+impossible value: a marginal contact rather than a missing device.
+
+**Which of those two you get is itself the diagnosis.** A sensor that is gone
+goes missing at the scan; a sensor that is dying answers the scan and fails the
+read, over and over as the rescan keeps finding it again.
+
+Since the mirror holds exactly one line, the per-slot detail cannot all fit on
+it, so one summary line goes out whenever the counts change:
+
+```
+slots: 1 on the bus, 1 missing, 1 never seen
+```
+
+That is the whole picture in one line, it is stable while nothing changes — so
+the mirror's deadband suppresses the repeats — and it is sent again after every
+join, because the only scan that ran before the radio came up was the one in
+`setup()`, whose result reached nobody. With every slot reading, the counts stop
+changing and the temperatures themselves are the better answer anyway.
+
+What is deliberately **not** mirrored: the unassigned-slot lines (three empty
+slots would push each other off a one-line mirror, and an empty slot is not a
+fault), and the age of the last good reading (it changes on every attempt, which
+would make every failed read a fresh report). Both are on the console, where
+there is room.
+
+**85.00 °C is not a temperature, usually.** That exact value is what a DS18B20's
+temperature register holds after a power-on reset, with a perfectly good CRC — so
+it is what a sensor whose supply dips returns, and what any sensor returns if it
+is read before its first conversion finishes. It is also a temperature a sensor
+can legitimately be at, so the driver flags it rather than dropping it
+(`DS18B20Reading::powerOnReset`) and the sketch publishes the value and says what
+it means:
+
+```
+slot 0 (28FF641E1234ABCD): 85.00 C is the power-on default
+  check the supply and the wiring
+```
+
+Once per spell of it, not once per interval, and the check is for that exact
+value: 84.9375 °C and 85.0625 °C are one sixteenth of a degree away and are
+treated as real readings. The usual cause is a pull-up or a supply that cannot
+hold the sensor through a conversion — see [supply
+voltage](#supply-voltage--check-this-before-powering-up).
 
 ### Why the first lines used to arrive mangled
 
@@ -887,6 +956,13 @@ After a binding change the value arrives at the next heartbeat at the latest
 (`LINK_REPORT_HEARTBEAT_S`, an hour), without waiting for the link to move — that
 is what the heartbeat is there for. The temperature exposes work exactly the same
 way and only look healthier because a temperature keeps moving.
+
+A temperature expose is also the one case where `N/A` is often not a fault at
+all: there is an endpoint per configured slot whether or not a sensor is in it,
+so an empty slot has nothing to publish and stays `N/A` by design. Which of the
+two it is, the console and the mirror say outright — see [telling an empty slot
+from a sensor that has
+failed](#telling-an-empty-slot-from-a-sensor-that-has-failed).
 
 The [console mirror](#console-mirror) rides on this same mechanism, which is why
 its text sits in a `genAnalogInput` cluster rather than in a cluster of its own: the

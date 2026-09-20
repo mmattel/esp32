@@ -157,12 +157,49 @@ float lastPublished[DS18B20_SLOT_ARRAY_LEN];
 // while the readings stay inside the deadband.
 uint32_t lastTempReportMs[DS18B20_SLOT_ARRAY_LEN] = {0};
 
+// The last reading that came back valid, per slot, and when it did. For the
+// console only, and deliberately separate from lastPublished above: that one is
+// what the coordinator has, which the deadband can hold well behind the sensor,
+// and its timestamp is the time of a report rather than of a read. Telling "this
+// sensor has never worked" from "this sensor worked until four minutes ago" needs
+// the read. NAN means no valid reading since boot - which is not the same as an
+// empty slot, because a ROM code in NVS only says a sensor was once discovered,
+// not that it ever answered with a temperature.
+float lastGoodC[DS18B20_SLOT_ARRAY_LEN];
+uint32_t lastGoodMs[DS18B20_SLOT_ARRAY_LEN] = {0};
+
+// Whether the 85 C power-on value has already been reported for this slot, so a
+// sensor sitting at it costs one line rather than one per interval.
+bool porReported[DS18B20_SLOT_ARRAY_LEN] = {false};
+
 // Forget what the coordinator has: the next valid reading of every slot is
 // published whatever the deadband says.
 void resetPublished() {
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     lastPublished[i] = NAN;
   }
+}
+
+// Called once, from setup(). Not folded into resetPublished(), which also runs on
+// every join: what the coordinator knows is forgotten then, but what the hardware
+// has done is not - a rejoin says nothing about whether a sensor ever worked.
+void initSlotHistory() {
+  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+    lastGoodC[i] = NAN;
+  }
+}
+
+// A duration as an age for a console line: seconds below a minute, then minutes,
+// then hours and minutes. Printed, never parsed.
+String ageText(uint32_t ms) {
+  uint32_t seconds = ms / 1000UL;
+  if (seconds < 60) {
+    return String(seconds) + " s";
+  }
+  if (seconds < 3600) {
+    return String(seconds / 60) + " min";
+  }
+  return String(seconds / 3600) + " h " + String((seconds % 3600) / 60) + " min";
 }
 
 LinkState linkState = LINK_UNCOMMISSIONED;
@@ -279,6 +316,55 @@ uint32_t intervalMs() {
 
 /* --------------------------- 1-Wire slots ------------------------- */
 
+// What reportSlotState() last put on the air. 0xFF is not a reachable count -
+// MAX_DS18B20_SENSORS caps all three - so the first call always reports, the same
+// trick scanSensors() uses for its own first pass.
+uint8_t lastOnBus = 0xFF;
+uint8_t lastMissing = 0xFF;
+uint8_t lastNeverSeen = 0xFF;
+
+// The three slot states as one mirrored line, because the console mirror holds a
+// single line and the per-slot detail in scanSensors() would arrive as whichever
+// line came last. Sent when the counts change, which includes the first scan after
+// boot, and again after a join - see forgetSlotState().
+//
+//   on the bus  answered the last ROM search
+//   missing     a ROM code in NVS, so a sensor was here, and it is not answering
+//   never seen  no sensor has ever claimed the slot
+//
+// A sensor that answers the search but fails every read alternates between the
+// first two as the rescan finds it and readAndPublish() drops it again, and is
+// reported by name there rather than here.
+void reportSlotState() {
+  uint8_t onBus = 0, missing = 0, neverSeen = 0;
+  for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+    if (slotPresent[i]) {
+      onBus++;
+    } else if (slotRom[i] != 0) {
+      missing++;
+    } else {
+      neverSeen++;
+    }
+  }
+
+  if (onBus == lastOnBus && missing == lastMissing && neverSeen == lastNeverSeen && !LOG_EVERY_READING) {
+    return;
+  }
+  lastOnBus = onBus;
+  lastMissing = missing;
+  lastNeverSeen = neverSeen;
+  logEvent("slots: %u on the bus, %u missing, %u never seen", onBus, missing, neverSeen);
+}
+
+// Whatever was last said about the slots went to the previous coordinator, or to
+// nobody at all - scanSensors() runs once in setup(), before the radio is up.
+// Making the remembered counts impossible again has the next scan repeat it. That
+// is one rescan interval away while any slot is empty, and never while all of them
+// are reading, where the temperatures themselves are the better answer anyway.
+void forgetSlotState() {
+  lastOnBus = lastMissing = lastNeverSeen = 0xFF;
+}
+
 // Maps whatever is on the bus onto the persistent slots: a known ROM keeps its
 // slot, an unknown ROM takes the first free one.
 //
@@ -354,10 +440,21 @@ void scanSensors() {
         logEvent("  slot %u (%s) is configured but missing", i, DS18B20Bus::romToString(slotRom[i]).c_str());
       }
     }
+    // A slot that has never held a sensor is not a fault, which is why it says
+    // so plainly and why it is printed rather than mirrored: three empty slots
+    // would otherwise push each other off a mirror that holds one line.
+    // reportSlotState() below is what goes on the air for this.
+    for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
+      if (slotRom[i] == 0) {
+        header();
+        Serial.printf("  slot %u is unassigned, no sensor has ever claimed it\r\n", i);
+      }
+    }
   }
 
   lastCount = count;
   lastPresent = present;
+  reportSlotState();
 }
 
 bool anySlotMissing() {
@@ -545,6 +642,10 @@ void onZigbeeConnected() {
   resetPublished();
   sampleNow = true;
 
+  // And the slot summary, which a build with nothing on the bus would otherwise
+  // never send: the only scan that ran was the one in setup(), before the radio.
+  forgetSlotState();
+
   // Same for the link: a rejoin may well be through a different parent, so the
   // old value says nothing about the new one.
   linkPublished = false;
@@ -713,12 +814,41 @@ void readAndPublish() {
     }
     DS18B20Reading r = owBus.read(slotRom[i]);
     if (!r.valid) {
-      logEvent("slot %u (%s): read failed", i, DS18B20Bus::romToString(slotRom[i]).c_str());
+      // Which of the two failures this is decides what to do about it: a sensor
+      // that has never read since boot is wired wrong or dead, one that read fine
+      // until a moment ago is a contact or a supply that is going. The mirrored
+      // line says which; the age of the last good reading is a console detail,
+      // because it changes on every attempt and would defeat the mirror's deadband.
+      String rom = DS18B20Bus::romToString(slotRom[i]);
+      if (isnan(lastGoodC[i])) {
+        logEvent("slot %u (%s): read failed, never read since boot", i, rom.c_str());
+      } else {
+        logEvent("slot %u (%s): read failed, last good %.*f C", i, rom.c_str(), TEMP_PUBLISH_DECIMALS, lastGoodC[i]);
+        Serial.printf("  that reading was %s ago\r\n", ageText(millis() - lastGoodMs[i]).c_str());
+      }
       slotPresent[i] = false;  // picked up again by the next rescan
       continue;
     }
 
     float celsius = roundReading(r.celsius);
+    lastGoodC[i] = celsius;
+    lastGoodMs[i] = millis();
+
+    // 85.00 C is the temperature register's power-on value, so a sensor stuck at it
+    // is one whose supply keeps dropping out, or one being read before its first
+    // conversion finished. It is also a temperature a sensor can really be at,
+    // which is why this says what the value means and still publishes it. Reported
+    // once per spell of it, so a sensor sitting there costs one line, not one per
+    // interval; the detail stays off the air for the same reason as above.
+    if (r.powerOnReset) {
+      if (!porReported[i]) {
+        porReported[i] = true;
+        logEvent("slot %u (%s): 85.00 C is the power-on default", i, DS18B20Bus::romToString(slotRom[i]).c_str());
+        Serial.println("  check the supply and the wiring");
+      }
+    } else {
+      porReported[i] = false;
+    }
 
     // Deadband: leaving the attribute untouched is what suppresses the report,
     // so nothing can leak out below the threshold. The consequence is that the
@@ -1123,6 +1253,7 @@ void setup() {
   checkButtonIdleAtBoot();
   createEndpoints();
   resetPublished();
+  initSlotHistory();  // before the first scan, which is the first thing that reads
 
   if (!prefs.begin(NVS_NAMESPACE, false)) {
     logEvent("NVS open failed, running with code defaults");
