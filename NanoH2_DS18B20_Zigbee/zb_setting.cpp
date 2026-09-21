@@ -96,7 +96,7 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   // this is the one setting change nothing else announces, and the coordinator
   // that wrote it is not necessarily the one watching.
   if (changed || corrected) {
-    logEvent("%s written from Zigbee: %.2f -> %.*f", _description, requested, decimals(), applied);
+    logEvent("%s from Zigbee, was %.*f: %.2f -> %.*f", _description, decimals(), _value, requested, decimals(), applied);
   }
 
   _value = applied;
