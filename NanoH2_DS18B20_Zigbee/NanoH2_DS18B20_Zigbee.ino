@@ -732,11 +732,11 @@ void onZigbeeConnected() {
   cfgCorrection.publish();
   lastSettingReportMs = millis();
 
-  // And the firmware version, which is sent here and nowhere else: this is the only
-  // moment it can have changed, since changing it means flashing and flashing means
-  // a reboot and a fresh join. A coordinator that is not bound yet misses it and can
-  // read it whenever it likes - a read needs no binding, and the answer is the same
-  // until the next flash.
+  // And the firmware version. Sent here because this is the only moment it can have
+  // changed - a new version means flashing, flashing reboots, and a reboot rejoins.
+  // Also sent on the handleSettingReports() heartbeat, same reason as the settings:
+  // the coordinator binds while interviewing, so the publish here is too early for
+  // the text attribute to arrive, and the heartbeat is what actually delivers it.
   if (ZB_VERSION_ENDPOINT) {
     zbVersion.publish(FW_VERSION_NUMBER);
   }
@@ -912,6 +912,13 @@ void handleSettingReports() {
   cfgInterval.publish();
   cfgDelta.publish();
   cfgCorrection.publish();
+  // The version text attribute (0xF000) is reported explicitly and uses binding-based
+  // addressing, so the publish in onZigbeeConnected() is too early: the coordinator
+  // has not yet bound the cluster. The heartbeat here is what actually delivers it,
+  // exactly as it does for the three settings above.
+  if (ZB_VERSION_ENDPOINT) {
+    zbVersion.publish(FW_VERSION_NUMBER);
+  }
 }
 
 /* --------------------------- temperature -------------------------- */
