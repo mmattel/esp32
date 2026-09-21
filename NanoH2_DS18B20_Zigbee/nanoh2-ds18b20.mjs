@@ -97,6 +97,7 @@ export default {
             description: 'Analog Input Parent link LQI on endpoint 12',
             access: 'STATE_GET',
             endpointNames: ['12'],
+            entityCategory: 'diagnostic',
         }),
         m.numeric({
             name: 'parent_link_rssi',
@@ -111,6 +112,7 @@ export default {
             access: 'STATE_GET',
             endpointNames: ['13'],
             unit: 'dBm',
+            entityCategory: 'diagnostic',
         }),
         // Endpoint 14, presentValue: the sequence number of the mirrored line. A gap
         // in it is honest - it says lines were printed while the device was off the air.
@@ -126,6 +128,7 @@ export default {
             description: 'Analog Input Mirror line count on endpoint 14',
             access: 'STATE_GET',
             endpointNames: ['14'],
+            entityCategory: 'diagnostic',
         }),
         // Endpoint 16, presentValue: the firmware version as one number that sorts,
         // 2.0.0 -> 20000, two digits each for the minor and the patch. This is the half
