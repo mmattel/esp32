@@ -421,6 +421,7 @@ void scanSensors() {
   bool headerDone = false;
   auto header = [&]() {
     if (!headerDone) {
+      Serial.printf(CONSOLE_EOL);
       Serial.printf("1-Wire scan: %u DS18B20 found" CONSOLE_EOL, count);
       headerDone = true;
     }
@@ -938,6 +939,7 @@ void readAndPublish() {
   // between two slots would otherwise correct the rest of them and not the first.
   float correction = cfgCorrection.value();
 
+  bool anyPrinted = false;
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     if (!slotPresent[i]) {
       continue;
@@ -1034,7 +1036,11 @@ void readAndPublish() {
                     !publish ? "within deadband"
                              : first ? "published (first)" : heartbeat ? "published (heartbeat)" : "published",
                     applied);
+      anyPrinted = true;
     }
+  }
+  if (anyPrinted) {
+    Serial.printf(CONSOLE_EOL);
   }
 }
 
