@@ -1391,6 +1391,10 @@ Worth knowing:
   settings still work, since Z2M reads them on demand and the sketch reports
   them explicitly whenever they change. A `configure` that fails part way through
   does have a cost, though — see below.
+- **The spinner arrows on numeric fields do not transmit the new value** (Z2M
+  frontend bug [#2783](https://github.com/nurikk/zigbee2mqtt-frontend/issues/2783)).
+  Type the value directly into the field and click or tab away — that path works
+  correctly.
 
 ### An expose that stays N/A
 
