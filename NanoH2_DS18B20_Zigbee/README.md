@@ -120,7 +120,7 @@ The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G2` (yellow) and
 | Signal | Pin | Notes |
 | --- | --- | --- |
 | DS18B20 data | `G1` (Grove white) | all sensors in parallel, one 4.7 kΩ pull-up to their supply rail |
-| Pushbutton | `G9` (on-board) *or* `G2` (Grove yellow) | `G9` is the default and needs no wiring at all; an external one goes with one side to the pin, other side to `GND`, internal pull-up enabled in software — see [Which Button](#which-button) |
+| Pushbutton | `G9` (on-board) or<br>`G2` (Grove yellow) | `G9` is the default and needs no wiring at all;<br>an external one goes with one side to the pin, other side to `GND`, internal pull-up enabled in software — see [Which Button](#which-button) |
 | RGB LED | `G11` | on-board WS2812 |
 | RGB power | `G10` | on-board, must be driven high or the LED stays dark |
 
