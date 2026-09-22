@@ -1,49 +1,50 @@
-# NanoH2 DS18B20 Zigbee sensor
+# NanoH2 DS18B20 Zigbee Sensor
 
 DS18B20 temperature sensors on one 1-Wire bus, published over Zigbee from an
 M5Stack NanoH2 (ESP32-H2, SKU C149), with a pushbutton for replacing a sensor
 and for the factory reset, and the on-board RGB LED as a state indicator.
 
-The number of sensors is configurable and defaults to 3; see [Changing the sensor
-count](#changing-the-sensor-count).
+The number of sensors is configurable and defaults to 3; see [Changing the Sensor
+Count](#changing-the-sensor-count).
 
 ## Contents
 
 - [Components and Photos](#components-and-photos)
 - [Files](#files)
 - [Wiring](#wiring)
-  - [Which button](#which-button)
-  - [Supply voltage — check this before powering up](#supply-voltage--check-this-before-powering-up)
-- [Arduino IDE settings](#arduino-ide-settings)
+  - [Which Button](#which-button)
+  - [Supply Voltage — Check This Before Powering Up](#supply-voltage--check-this-before-powering-up)
+- [Arduino IDE Settings](#arduino-ide-settings)
 - [LED](#led)
-- [Joining a network](#joining-a-network)
-  - [Pinning the channel](#pinning-the-channel)
-- [Zigbee endpoints](#zigbee-endpoints)
-- [Changing the sensor count](#changing-the-sensor-count)
-- [Replacing a sensor](#replacing-a-sensor)
-- [Reading interval and reporting delta](#reading-interval-and-reporting-delta)
-  - [Why the delta moves in quarters](#why-the-delta-moves-in-quarters)
-  - [One decimal, everywhere](#one-decimal-everywhere)
-  - [How the delta gates reporting](#how-the-delta-gates-reporting)
-- [Temperature correction](#temperature-correction)
-  - [One value for every sensor](#one-value-for-every-sensor)
-  - [Why the range is only ±5 °C](#why-the-range-is-only-5-c)
+- [Joining a Network](#joining-a-network)
+  - [Pinning the Channel](#pinning-the-channel)
+- [Zigbee Endpoints](#zigbee-endpoints)
+- [Changing the Sensor Count](#changing-the-sensor-count)
+- [Replacing a Sensor](#replacing-a-sensor)
+- [Reading Interval and Reporting Delta](#reading-interval-and-reporting-delta)
+  - [Why the Delta Moves in Quarters](#why-the-delta-moves-in-quarters)
+  - [One Decimal, Everywhere](#one-decimal-everywhere)
+  - [How the Delta Gates Reporting](#how-the-delta-gates-reporting)
+- [Temperature Correction](#temperature-correction)
+  - [One Value for Every Sensor](#one-value-for-every-sensor)
+  - [Why the Range Is Only ±5 °C](#why-the-range-is-only-5-c)
   - [In Zigbee2MQTT](#in-zigbee2mqtt)
-- [Link quality and signal strength](#link-quality-and-signal-strength)
-- [Console mirror](#console-mirror)
-- [Firmware version](#firmware-version)
-- [Serial console](#serial-console)
-  - [Which build is running](#which-build-is-running)
-  - [Telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed)
-  - [Why the first lines used to arrive mangled](#why-the-first-lines-used-to-arrive-mangled)
-  - [Why blank lines used to appear mid-output](#why-blank-lines-used-to-appear-mid-output)
+- [Link Quality and Signal Strength](#link-quality-and-signal-strength)
+- [Console Mirror](#console-mirror)
+- [Firmware Version](#firmware-version)
+- [Serial Console](#serial-console)
+  - [Which Build Is Running](#which-build-is-running)
+  - [Flashing a New Version](#flashing-a-new-version)
+  - [Telling an Empty Slot From a Sensor That Has Failed](#telling-an-empty-slot-from-a-sensor-that-has-failed)
+  - [Why the First Lines Used to Arrive Mangled](#why-the-first-lines-used-to-arrive-mangled)
+  - [Why Blank Lines Used to Appear Mid-Output](#why-blank-lines-used-to-appear-mid-output)
 - [Zigbee2MQTT](#zigbee2mqtt)
-  - [An expose that stays N/A](#an-expose-that-stays-na)
-  - [Showing the mirrored line](#showing-the-mirrored-line)
-  - [Adding the external converter](#adding-the-external-converter)
-  - [When the endpoint list changes](#when-the-endpoint-list-changes)
+  - [An Expose That Stays N/A](#an-expose-that-stays-na)
+  - [Showing the Mirrored Line](#showing-the-mirrored-line)
+  - [Adding the External Converter](#adding-the-external-converter)
+  - [When the Endpoint List Changes](#when-the-endpoint-list-changes)
 - [Pushbutton](#pushbutton)
-- [Notes and limits](#notes-and-limits)
+- [Notes and Limits](#notes-and-limits)
 
 ## Components and Photos
 
@@ -119,7 +120,7 @@ The Grove HY2.0-4P port carries `GND` (black), `5V` (red), `G2` (yellow) and
 | Signal | Pin | Notes |
 | --- | --- | --- |
 | DS18B20 data | `G1` (Grove white) | all sensors in parallel, one 4.7 kΩ pull-up to their supply rail |
-| Pushbutton | `G9` (on-board) *or* `G2` (Grove yellow) | `G9` is the default and needs no wiring at all; an external one goes with one side to the pin, other side to `GND`, internal pull-up enabled in software — see [Which button](#which-button) |
+| Pushbutton | `G9` (on-board) *or* `G2` (Grove yellow) | `G9` is the default and needs no wiring at all; an external one goes with one side to the pin, other side to `GND`, internal pull-up enabled in software — see [Which Button](#which-button) |
 | RGB LED | `G11` | on-board WS2812 |
 | RGB power | `G10` | on-board, must be driven high or the LED stays dark |
 
@@ -169,7 +170,7 @@ the datasheet, and the datasheet is the one to trust here.)
 `G9` is in that strapping list, and it is where the on-board button sits — which is
 what gives the next section its one caveat.
 
-### Which button
+### Which Button
 
 The button can be an external one on the Grove port or the board's own, and
 `PIN_BUTTON` in `config.h` is the entire switch. **No code changes.**
@@ -214,7 +215,7 @@ Either choice is invisible to everything else: the endpoint list, the NVS conten
 and the Zigbee side do not know which pin the button is on, so switching costs no
 re-pair and no factory reset.
 
-### Supply voltage — check this before powering up
+### Supply Voltage — Check This Before Powering Up
 
 The sketch assumes **external (non-parasite) power**: `VDD` wired, `GND` wired,
 data pulled up to the same rail as `VDD`.
@@ -228,7 +229,7 @@ exposed; if not, add a small 3.3 V regulator off the Grove 5 V rail. Powering
 the sensors from 5 V while pulling up to 3.3 V is out of spec and only appears
 to work.
 
-## Arduino IDE settings
+## Arduino IDE Settings
 
 Two cores will build this sketch; either needs a 3.x release for the bundled
 `Zigbee` library.
@@ -312,7 +313,7 @@ holding into the release window turns it **solid**, so the gesture reads as
 acknowledging what the LED is reporting, and letting go frees the slot. See
 [replacing a sensor](#replacing-a-sensor).
 
-## Joining a network
+## Joining a Network
 
 A factory-fresh device flashes magenta and looks for a network to join. The stack
 retries that — *network steering* — once a second, indefinitely, and it logs the
@@ -338,7 +339,7 @@ scan: 1 network in range
 
 | Knob | Default | Meaning |
 | --- | --- | --- |
-| `ZB_CHANNEL` | 0 | the channel to look on; 0 scans all of 11 to 26 — see [Pinning the channel](#pinning-the-channel) |
+| `ZB_CHANNEL` | 0 | the channel to look on; 0 scans all of 11 to 26 — see [Pinning the Channel](#pinning-the-channel) |
 | `JOIN_HINT_INTERVAL_S` | 30 | how often the wait is reported; 0 silences it, scan included |
 | `JOIN_SCAN_INTERVAL_S` | 30 | how often to scan; 0 keeps the hint and never scans |
 | `JOIN_SCAN_DURATION` | 3 | listening time per channel, 1 (fastest) to 4 (most thorough) |
@@ -371,7 +372,7 @@ The same hint appears when a device that *has* joined loses its parent, worded
 `still looking for its network` — there the LED is yellow, permit-join has
 nothing to do with it, and the scan is a range check.
 
-### Pinning the channel
+### Pinning the Channel
 
 The awkward case is a scan that lists the network as open, with room for an end
 device, while the join still does not happen — or happens only on the third
@@ -405,7 +406,7 @@ neither 0 nor a real channel fails to compile rather than producing a mask with 
 channel in it, since that device would scan nothing and wait for ever, looking
 exactly like one with bad reception.
 
-## Zigbee endpoints
+## Zigbee Endpoints
 
 With the default of three sensors:
 
@@ -469,7 +470,7 @@ Every endpoint reports the *same* manufacturer and model — `ZB_MANUFACTURER` /
 coordinators key their device definition on it, so nothing instance-specific
 (such as a ROM code) may go in there; that is what LocationDescription is for.
 
-## Changing the sensor count
+## Changing the Sensor Count
 
 One line in `config.h`:
 
@@ -550,7 +551,7 @@ Two smaller things:
   sampling time is the same for one sensor as for ten. The practical ceiling is
   the bus itself — total cable length and the single pull-up — not the firmware.
 
-## Replacing a sensor
+## Replacing a Sensor
 
 A sensor's identity here is its **ROM code**, and the slot ↔ ROM mapping is stored
 in NVS so that a slot keeps its sensor — and therefore its endpoint — across
@@ -609,7 +610,7 @@ The freed slot keeps nothing of the old sensor, its last good reading included: 
 next reading from that slot belongs to a different sensor, and reporting the old
 value against the new ROM code would be the one wrong answer available.
 
-## Reading interval and reporting delta
+## Reading Interval and Reporting Delta
 
 Two separate knobs: the **interval** is how often the bus is read, the **delta**
 is how much a reading has to move before it is published.
@@ -671,7 +672,7 @@ first write. All three settings are therefore repeated every
 `SETTING_REPORT_HEARTBEAT_S` (60 s), which is what fills them in, and what refills
 them after a coordinator restart that lost its state.
 
-### Why the delta moves in quarters
+### Why the Delta Moves in Quarters
 
 An Analog Output `PresentValue` is a single-precision float, and a coordinator
 snaps what you type to the step it reads from the endpoint's `Resolution`
@@ -699,7 +700,7 @@ Watch that first case: the old minimum of 0.1 °C rounds to **0**, which publish
 every reading that moves at all. Set the delta again after upgrading if the second
 line names a value you cared about.
 
-### One decimal, everywhere
+### One Decimal, Everywhere
 
 A reading is rounded to `TEMP_PUBLISH_DECIMALS` — one decimal — the moment it comes
 off the bus, before the deadband looks at it:
@@ -718,7 +719,7 @@ finer than the 0.25 °C grid `TEMP_DELTA_STEP_C` puts the deadband on, so the
 deadband can still tell two readings apart. Raising the define brings those digits
 back; 0 rounds to whole degrees.
 
-### How the delta gates reporting
+### How the Delta Gates Reporting
 
 A reading is published only when it differs from the **last published** value by
 **more than** the delta. Within the deadband the temperature attribute is left
@@ -749,7 +750,7 @@ Right after a join or a rejoin the deadband is bypassed once per sensor
 (`lastPublished` is reset to `NAN`), so the coordinator always starts with real
 values instead of waiting for the first threshold crossing.
 
-## Temperature correction
+## Temperature Correction
 
 A third writable setting, on its own endpoint: a value added to every reading
 before anything else happens to it. It is for aligning a device against a
@@ -803,7 +804,7 @@ uncorrected ones — a quarter-degree correction with a 0.25 °C delta might nev
 arrive at all. So a write that changed the value forgets what was published and
 samples the bus at once, and the next log lines read `published (first)`.
 
-### One value for every sensor
+### One Value for Every Sensor
 
 There is deliberately no per-sensor correction. A DS18B20 is accurate to ±0.5 °C,
 so what a correction compensates for is a reference to align against or an
@@ -817,7 +818,7 @@ sensor's correction to the new one. A device-wide value cannot go wrong that way
 Sensors that genuinely need individual offsets want individual devices — or a
 template sensor on the coordinator, where per-entity arithmetic is cheap.
 
-### Why the range is only ±5 °C
+### Why the Range Is Only ±5 °C
 
 It is a correction, not a calibration curve. A range wide enough to publish a
 temperature nowhere near the sensor's would turn one mistyped value into
@@ -843,9 +844,9 @@ The [external converter](#adding-the-external-converter) needs the endpoint too 
 the copy under `external_converters/` has to be updated along with the one kept
 beside the sketch. Until it is, the setting does not appear even after a re-pair,
 because an external definition replaces the generated one rather than adding to it:
-see [When the endpoint list changes](#when-the-endpoint-list-changes).
+see [When the Endpoint List Changes](#when-the-endpoint-list-changes).
 
-## Link quality and signal strength
+## Link Quality and Signal Strength
 
 The device measures the link to its **parent** and reports both halves of it, the
 LQI on endpoint 12 (`EP_LINK_LQI`) and the signal strength on endpoint 13
@@ -959,7 +960,7 @@ Worth knowing:
   endpoint number alone, though: 12 and 13 are fixed, and nothing is derived from
   them.
 
-## Console mirror
+## Console Mirror
 
 Endpoint 14 puts the last console line worth an event on the air, as text. It is
 the same information the [serial console](#serial-console) shows, for the normal
@@ -1069,7 +1070,7 @@ Worth knowing:
   factory reset and a re-pair, exactly like the two link endpoints. It leaves every
   other endpoint number alone.
 
-## Firmware version
+## Firmware Version
 
 The version in the boot banner is also on the air, three times over, because the
 question "which build is this board running?" is asked from three places and only
@@ -1134,7 +1135,7 @@ Worth knowing:
   in Z2M is enough. Like the link and mirror endpoints, turning it off changes the
   endpoint list and therefore costs a factory reset and a re-pair.
 
-## Serial console
+## Serial Console
 
 Three things here happen on a timer whether or not the result differs from the
 last one: the sensors are read every interval, the link is polled every
@@ -1166,14 +1167,14 @@ That restores a line per reading and per link poll, the held-back ones included
 
 While the device has no network the wait is still reported every
 `JOIN_HINT_INTERVAL_S`, since there "nothing changed" is itself the news; see
-[Joining a network](#joining-a-network).
+[Joining a Network](#joining-a-network).
 
 The rows that are events in their own right — joining, losing the link, what the
 button did, an error, a setting a coordinator changed — are exactly the ones that
 also go out on endpoint 14, so they are readable without a console attached at all.
-See [Console mirror](#console-mirror).
+See [Console Mirror](#console-mirror).
 
-### Which build is running
+### Which Build Is Running
 
 The first line of every boot names the firmware version:
 
@@ -1192,12 +1193,9 @@ the same commit as the change they name:
 #define FW_VERSION_PATCH 0
 ```
 
-Read the three numbers against what a coordinator already knows about the device:
-the **patch** for a fix that changes nothing visible, the **minor** for a feature
-that leaves the endpoint list and the expose names alone, the **major** for anything
-that forces a re-pair or renames an expose — a new endpoint is the usual reason, so
-[the temperature correction](#temperature-correction) would have been one, and
-[endpoint 16](#firmware-version) is why this is 2.0.0.
+Read the three numbers against what a coordinator already knows about the device —
+see [Flashing a New Version](#flashing-a-new-version) for what each number means
+and what it costs on the Zigbee side.
 
 Why it is worth a line at all: a flashed board is the one thing in this project that
 cannot be asked what it is. A serial log pasted into an issue, or read a week later,
@@ -1213,7 +1211,22 @@ carry the version is `ZB_MODEL` — that string has to stay exactly as it is, si
 Zigbee2MQTT keys its device definition on it and would treat every release as a
 different product.
 
-### Telling an empty slot from a sensor that has failed
+### Flashing a New Version
+
+The version follows semantic versioning. Read the three numbers against what a
+coordinator already knows about the device: the **patch** for a fix that changes
+nothing visible, the **minor** for a feature that leaves the endpoint list and the
+expose names alone, the **major** for anything that forces a re-pair or renames an
+expose — a new endpoint is the usual reason, so [the temperature
+correction](#temperature-correction) would have been one, and [endpoint
+16](#firmware-version) is why this is 2.0.0.
+
+In practice: a **patch or minor** release can be flashed and the device rejoins on
+its own — no factory reset, no removing it from Zigbee2MQTT, no re-pairing. A
+**major** release changes the endpoint list or renames exposes, so it requires a
+factory reset and a re-pair before the coordinator sees the new layout correctly.
+
+### Telling an Empty Slot From a Sensor That Has Failed
 
 A temperature expose with no value looks the same either way: a slot nothing was
 ever plugged into, and a sensor that worked for a month and then stopped, both
@@ -1312,7 +1325,7 @@ treated as real readings. The usual cause is a pull-up or a supply that cannot
 hold the sensor through a conversion — see [supply
 voltage](#supply-voltage--check-this-before-powering-up).
 
-### Why the first lines used to arrive mangled
+### Why the First Lines Used to Arrive Mangled
 
 The NanoH2 has no USB-to-UART bridge; the console is the H2's own USB Serial/JTAG
 peripheral, which exists only while a host has the port open. A write issued before
@@ -1338,7 +1351,7 @@ costs nothing, and it is bounded so a headless device still boots. 0 restores th
 behaviour. If your console driver never reports the host as connected, the wait just
 runs its full length and behaves like a plain delay, which is also fine.
 
-### Why blank lines used to appear mid-output
+### Why Blank Lines Used to Appear Mid-Output
 
 Every console line ends in a bare LF. That looks like a detail and is not: a CR+LF
 pair was what put blank lines in the middle of otherwise correct output, in places
@@ -1398,8 +1411,8 @@ alone — see [showing the mirrored line](#showing-the-mirrored-line).
 
 The endpoint number is part of every name, which is why the settings and the link
 endpoints have fixed numbers: a different sensor count then renames nothing but the
-temperature exposes — see [Changing the sensor
-count](#changing-the-sensor-count).
+temperature exposes — see [Changing the Sensor
+Count](#changing-the-sensor-count).
 
 The order above is also the order Z2M generates them in. Its generator walks the
 endpoints as the device reported them and groups the exposes by the cluster it
@@ -1442,7 +1455,7 @@ Worth knowing:
   Type the value directly into the field and click or tab away — that path works
   correctly.
 
-### An expose that stays N/A
+### An Expose That Stays N/A
 
 `N/A` means Z2M has never had a value for that attribute. It says nothing about
 the endpoint being wrong, and the first question is which side is quiet. The
@@ -1509,7 +1522,7 @@ binding Z2M creates for the counter is what carries the text with it. A cluster 
 had never heard of would be bound by nothing, and every mirrored line would be
 discarded here at the source.
 
-### Showing the mirrored line
+### Showing the Mirrored Line
 
 Endpoint 14 sends two things on every new line: `presentValue`, which Z2M exposes
 as `mirror_line_count_14` — it names an expose after the cluster's `description`
@@ -1572,7 +1585,7 @@ with a matching `e.text('console_mirror', ea.STATE)` in the definition's exposes
 That is the whole cost of the text, and it is why the counter beside it is a plain
 number — it is the part that needs none of this.
 
-### Adding the external converter
+### Adding the External Converter
 
 **Prerequisite: external JavaScript has to be enabled.** Z2M ignores converter
 files silently while it is off, so this comes first. Either in
@@ -1630,7 +1643,7 @@ hides a sensor that is really reporting. Regenerating gets this right by
 construction, since Z2M reads the endpoint list off the device — which is also why
 it is the better move than editing the two lists by hand.
 
-### When the endpoint list changes
+### When the Endpoint List Changes
 
 **An external definition replaces the generated one; Z2M does not merge the two.**
 So an endpoint the firmware gained is invisible until the `.mjs` names it, and it
@@ -1677,7 +1690,7 @@ network](#joining-a-network) — and nothing at all is bound to a short press.
 Everything here holds for whichever button `PIN_BUTTON` points at, external or
 on-board, with one exception: on the on-board `G9` — the default — the hold must
 happen on a running device, because holding that pin through power-up flashes the
-board instead. See [Which button](#which-button).
+board instead. See [Which Button](#which-button).
 
 - **Hold 2 s** (`SLOT_RELEASE_HOLD_MS`) **and release** — drop the stored ROM code
   of every slot whose sensor is missing, so those slots are free for a replacement
@@ -1770,7 +1783,7 @@ An inhibited button starts working the moment the level goes idle (`Button: idle
 now, back in use`) — no reboot needed. If it goes idle only while you *press* it,
 the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
 
-## Notes and limits
+## Notes and Limits
 
 - **Readings never reach NVS.** Only configuration goes into flash: the
   commissioning flag, the three settings and the slot ↔ ROM mapping. Each
@@ -1822,7 +1835,7 @@ the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
   — so a burst of events is seen as its last member plus a counter that jumped.
   Reconstructing what happened in between needs the serial console, and boot-time
   lines never make it out at all, because the radio is not up when they are
-  printed. See [Console mirror](#console-mirror).
+  printed. See [Console Mirror](#console-mirror).
 - **Two open upstream issues touch this sketch.**
   [arduino-esp32#12917](https://github.com/espressif/arduino-esp32/issues/12917):
   seventeen of the core's report helpers leave `manuf_code` — the key the stack
