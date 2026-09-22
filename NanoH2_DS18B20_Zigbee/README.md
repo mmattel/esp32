@@ -1,14 +1,15 @@
 # NanoH2 DS18B20 Zigbee sensor
 
-Three DS18B20 temperature sensors on one 1-Wire bus, published over Zigbee from
-an M5Stack NanoH2 (ESP32-H2, SKU C149), with a pushbutton for replacing a sensor
+DS18B20 temperature sensors on one 1-Wire bus, published over Zigbee from an
+M5Stack NanoH2 (ESP32-H2, SKU C149), with a pushbutton for replacing a sensor
 and for the factory reset, and the on-board RGB LED as a state indicator.
 
-Three is only the default; see [Changing the sensor
+The number of sensors is configurable and defaults to 3; see [Changing the sensor
 count](#changing-the-sensor-count).
 
 ## Contents
 
+- [Components and Photos](#components-and-photos)
 - [Files](#files)
 - [Wiring](#wiring)
   - [Which button](#which-button)
@@ -43,6 +44,51 @@ count](#changing-the-sensor-count).
   - [When the endpoint list changes](#when-the-endpoint-list-changes)
 - [Pushbutton](#pushbutton)
 - [Notes and limits](#notes-and-limits)
+
+## Components and Photos
+
+<table>
+  <tr>
+    <td><img src="images/IMG_0846.jpeg" width="380" alt="NanoH2 with green LED connected to the AC/DC supply module"></td>
+    <td><img src="images/IMG_0847.jpeg" width="380" alt="Logic level converter and 5 V to 3.3 V step-down module"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>NanoH2 (green LED = connected) wired to the AL0505F AC/DC module</em></td>
+    <td align="center"><em>Logic level converter 3.3 V ↔ 5 V (larger board) and 5 V → 3.3 V step-down (smaller board)</em></td>
+  </tr>
+  <tr>
+    <td><img src="images/IMG_0848.jpeg" width="380" alt="DS18B20 sensor with Grove screw-terminal adapter and pull-up resistor"></td>
+    <td><img src="images/IMG_0849.jpeg" width="380" alt="Complete assembly inside an IP65 junction box, lid open"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>DS18B20 sensor, Grove screw-terminal adapter and 4.7 kΩ pull-up resistor</em></td>
+    <td align="center"><em>Complete assembly in an IP65 junction box — NanoH2 top right, power and logic boards centre</em></td>
+  </tr>
+</table>
+
+Sensor wiring is in a separate enclosure, joined to the main box with Wago 221
+lever connectors. Signal range with the NanoH2: full strength up to ~4 m
+(greater distances not tested).
+
+### Components
+
+Electrical items used (casings excluded), sourced from AliExpress:
+
+- <a href="https://de.aliexpress.com/item/1005006018534566.html" target="_blank" rel="noopener noreferrer">Step-down converter 5 V → 3.3 V</a>
+- <a href="https://de.aliexpress.com/item/1005006765742290.html" target="_blank" rel="noopener noreferrer">Logic level converter 3.3 V ↔ 5 V</a>
+- <a href="https://de.aliexpress.com/item/1005007804080645.html" target="_blank" rel="noopener noreferrer">Grove HY2.0 screw-terminal adapter</a>
+- <a href="https://de.aliexpress.com/item/1005012352441140.html" target="_blank" rel="noopener noreferrer">AC/DC converter — AL0505F (85–270 V AC → 5 V DC, 5 W)</a>
+- <a href="https://de.aliexpress.com/item/1005010653230229.html" target="_blank" rel="noopener noreferrer">M5Stack NanoH2 (ESP32-H2, SKU C149)</a>
+- <a href="https://de.aliexpress.com/item/1005007474983293.html" target="_blank" rel="noopener noreferrer">Grove cables</a>
+- <a href="https://de.aliexpress.com/item/1005010757932530.html" target="_blank" rel="noopener noreferrer">USB-C to 2-pin screw-on adapter (connects the 5 V supply to the NanoH2)</a>
+- <a href="https://de.aliexpress.com/item/1005008024174225.html" target="_blank" rel="noopener noreferrer">DS18B20 waterproof temperature sensor</a>
+- <a href="https://de.aliexpress.com/w/wholesale-wago-221.html" target="_blank" rel="noopener noreferrer">Wago 221 lever connectors (work well with the thin wires of the DS18B20)</a>
+- <a href="https://de.aliexpress.com/item/1005012362202788.html" target="_blank" rel="noopener noreferrer">External pushbutton module (for testing)</a>
+
+**Note on the logic level converter:**\
+Several versions exist — the converter must
+be bidirectional. Some variants have both TX (bidirectional) and RX
+(unidirectional) solder pads; only the bidirectional TX side is used here.
 
 ## Files
 
@@ -1794,3 +1840,7 @@ the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
   `esp_zigbee_zcl_command.c:263` instead of returning an error. That abort was
   seen here, right after a join, and its cause was never identified — if it comes
   back, erase the flash and pair fresh before looking anywhere else.
+
+---
+
+This project was co-created with the support of [Claude](https://claude.ai) by Anthropic.
