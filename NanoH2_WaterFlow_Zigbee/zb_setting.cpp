@@ -1,0 +1,130 @@
+#include "zb_setting.h"
+#include "config.h"
+#include "console.h"
+
+// All this file wants from config.h is the identity it puts on each endpoint, so a
+// config.h that predates those two names costs two errors rather than thirty - but
+// naming the file that is out of step still beats being told a string is undeclared.
+// The same check guards zb_mirror.h, where the cost is thirty.
+#if !defined(ZB_MANUFACTURER) || !defined(ZB_MODEL) || !defined(FW_VERSION)
+#error "config.h has no Zigbee identity - update the whole sketch folder from one commit"
+#endif
+
+ZbSetting::ZbSetting(uint8_t endpoint, const char *nvsKey, const char *description, float defaultValue,
+                     float minValue, float maxValue, float step, uint32_t applicationType)
+  : _ep(endpoint), _nvsKey(nvsKey), _description(description), _default(defaultValue), _minValue(minValue),
+    _maxValue(maxValue), _step(step), _appType(applicationType), _value(defaultValue) {}
+
+float ZbSetting::sanitise(float raw) const {
+  if (isnan(raw)) {
+    return _default;
+  }
+  float value = raw;
+  if (_step > 0) {
+    value = roundf(value / _step) * _step;
+  }
+  if (value < _minValue) {
+    value = _minValue;
+  }
+  if (value > _maxValue) {
+    value = _maxValue;
+  }
+  return value;
+}
+
+void ZbSetting::load(Preferences &prefs) {
+  // getFloat() stores and reads a blob, so a key written with a different type
+  // fails cleanly and leaves the NAN default in place.
+  float stored = prefs.getFloat(_nvsKey, NAN);
+  bool fromNvs = !isnan(stored);
+  _value = fromNvs ? sanitise(stored) : _default;
+  Serial.printf("%s: %.*f (%s)" CONSOLE_EOL, _description, decimals(), _value, fromNvs ? "from NVS" : "code default");
+
+  // A stored value the current build cannot represent - the step or the range
+  // changed between builds - is re-rounded above. Say so and store the result,
+  // otherwise the value in NVS and the value in use disagree for good, and the
+  // difference is silent on every boot. A stored deadband can land on 0 this way,
+  // which publishes every reading that moves at all, so it is worth a line.
+  if (fromNvs && _value != stored) {
+    Serial.printf("%s: stored %.2f does not fit this build's range and step, re-stored as %.*f" CONSOLE_EOL, _description,
+                  stored, decimals(), _value);
+    prefs.putFloat(_nvsKey, _value);
+  }
+}
+
+void ZbSetting::addEndpoint(void (*cb)(float)) {
+  _ep.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
+  // Which firmware this is, in the Basic cluster beside the manufacturer and the
+  // model. Here rather than only on EP_VERSION because a coordinator reads Basic
+  // from one endpoint of its choosing - Zigbee2MQTT takes the first it finds one on -
+  // and the settings are the endpoints registered first and numbered lowest, so they
+  // are the likely choice. Adding it to all of them costs a few bytes each and takes
+  // the guess out of it. Optional: a failure leaves the setting working and only that
+  // one endpoint silent about the version, so it is not worth a line of its own.
+  _ep.addSoftwareBuildId(FW_VERSION);
+  _ep.addAnalogOutput();
+  _ep.setAnalogOutputApplication(_appType);
+  _ep.setAnalogOutputDescription(_description);
+  _ep.setAnalogOutputResolution(_step);
+  _ep.setAnalogOutputMinMax(_minValue, _maxValue);
+  _ep.onAnalogOutputChange(cb);
+  _ep.setPowerSource(ZB_POWER_SOURCE_MAINS);
+  Zigbee.addEndpoint(&_ep);
+}
+
+bool ZbSetting::applyPending(Preferences &prefs) {
+  if (!_hasPending) {
+    return false;
+  }
+  _hasPending = false;
+
+  float requested = _pending;
+  float applied = sanitise(requested);
+  bool changed = fabsf(applied - _value) > (_step > 0 ? _step / 2 : 1e-6f);
+  // The write did not survive as sent: rounding to the step or clamping to the
+  // range moved it. The attribute in the stack still holds what was written, so
+  // this is what decides whether it has to be corrected.
+  bool corrected = applied != requested;
+
+  // Only a write that moved something is worth a line: one that moves the value,
+  // or one this took a liberty with. A coordinator repeating the value already in
+  // effect changes nothing anywhere and says nothing.
+  // The request keeps two decimals whatever the step is: it is what the
+  // coordinator asked for, and showing it unrounded is what makes a rounded or
+  // clamped write visible as one.
+  // logEvent(), so the new interval or delta also goes out on the console mirror:
+  // this is the one setting change nothing else announces, and the coordinator
+  // that wrote it is not necessarily the one watching.
+  if (changed || corrected) {
+    logEvent("%s from Zigbee, was %.*f: %.2f -> %.*f", _description, decimals(), _value, requested, decimals(), applied);
+  }
+
+  _value = applied;
+  if (changed) {
+    prefs.putFloat(_nvsKey, _value);
+  }
+  // Every write that changed something is reported back with the value now in
+  // effect. The device is what decides what a write became - rounded to the step,
+  // clamped to the range - so that value is the only one worth anybody's state,
+  // and a coordinator that does not hear it has to read the attribute before its
+  // own view agrees with the device's again.
+  //
+  // This used to be sent only for a write the device had corrected, on the grounds
+  // that the attribute already holds a verbatim one. True of the attribute, but not
+  // of the coordinator: nothing tells it the write was taken, so a value set from
+  // Zigbee2MQTT only turned up there after a manual read. One report per accepted
+  // write is a small price for the two ends agreeing by themselves. A write that
+  // changed nothing is still silent, so repeating the value in effect costs
+  // nothing.
+  if (changed || corrected) {
+    publish();
+  }
+  return changed;
+}
+
+void ZbSetting::publish() {
+  // setAnalogOutput() runs the change callback, which lands in note() - it
+  // recognises the value as the one already in effect and ignores it.
+  _ep.setAnalogOutput(_value);
+  _ep.reportAnalogOutput();
+}
