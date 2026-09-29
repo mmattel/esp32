@@ -39,7 +39,7 @@ export default {
         }),
         m.identify(),
         m.numeric({
-            name: 'reading_interval_(s)',
+            name: 'reading_interval_s',
             label: 'Reading interval (s)',
             valueMin: 10,
             valueMax: 3600,
@@ -53,7 +53,7 @@ export default {
             unit: 's',
         }),
         m.numeric({
-            name: 'reporting_delta_(c)',
+            name: 'reporting_delta_c',
             label: 'Reporting delta (C)',
             valueMin: 0,
             valueMax: 20,
@@ -72,7 +72,7 @@ export default {
         // the field - see EP_CONFIG_CORRECTION in config.h. It is one value for every
         // sensor on the device, not one per slot; ±5 °C in quarter steps, 0 for none.
         m.numeric({
-            name: 'temperature_correction_(c)',
+            name: 'temperature_correction_c',
             label: 'Temperature correction (C)',
             valueMin: -5,
             valueMax: 5,
