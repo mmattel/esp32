@@ -12,7 +12,7 @@ The version is three defines at the top of `config.h`:
 ```c
 #define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 1
+#define FW_VERSION_PATCH 2
 ```
 
 `FW_VERSION_NUMBER` is derived automatically as `major × 10000 + minor × 100 + patch`,
@@ -32,6 +32,12 @@ allowing two digits each for minor and patch (ceiling: 99 each). Never edit
 - `config.h` — the three `FW_VERSION_*` defines
 - `README.md` — every place the version appears as a literal (banner example, version
   table, `FW_VERSION_NUMBER` example). Search for the old version string to find them all.
+- `changelog/changelog.md` — add a new entry at the top (newest first) describing what
+  changed and why.
+
+**Converter-only changes** (fixes to `nanoh2-ds18b20.mjs` that require no firmware
+reflash) still get a patch bump and a changelog entry. Update `config.h` and `README.md`
+as normal; note clearly in the changelog that no reflash is needed.
 
 Bump the version in the same commit as the change it names, not in a separate commit.
 
