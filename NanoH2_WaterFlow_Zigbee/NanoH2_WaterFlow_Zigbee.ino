@@ -613,6 +613,11 @@ void handleFlow() {
   lastSampleMs = now;
 
   uint32_t pulses = flowSensor.takePulses();
+
+  if (LOG_IMPULSES) {
+    Serial.printf("impulses: %u/s" CONSOLE_EOL, pulses);
+  }
+
   float ipl = cfgImpulsesPerL.value();
 
   if (pulses > 0 && ipl > 0) {

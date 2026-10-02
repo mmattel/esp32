@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 1
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 0
+#define FW_VERSION_PATCH 1
 
 #define FW_VERSION_STRINGIFY_(x) #x
 #define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
@@ -227,6 +227,11 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 // 1 prints a line for every flow sample even when the value has not moved.
 // Useful for tuning the impulses-per-litre calibration.
 #define LOG_EVERY_SAMPLE 0
+
+// 1 prints "impulses: N/s" on every 1-second sample, including zero-flow
+// intervals.  Use this to confirm the sensor is wired correctly and generating
+// pulses before dealing with calibration or Zigbee.  Console only; no endpoint.
+#define LOG_IMPULSES 0
 
 /* ------------------------------------------------------------------
  * NVS

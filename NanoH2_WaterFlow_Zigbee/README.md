@@ -442,12 +442,18 @@ to endpoint 15.  Flow measurements print at every sample interval when
 `LOG_EVERY_SAMPLE` is `1`, or only when flow is detected when it is `0`
 (the default).
 
+Enable `LOG_IMPULSES 1` in `config.h` to print a bare `impulses: N/s` line
+on every 1-second sample, including zero-flow intervals.  This is useful for
+confirming that the sensor is wired correctly and generating pulses before
+dealing with calibration or Zigbee connectivity.  It is independent of
+`LOG_EVERY_SAMPLE` and has no Zigbee endpoint.
+
 ### Which Build Is Running
 
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v1.0.0 (build 10000)
+NanoH2-WaterFlow v1.0.1 (build 10001)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
