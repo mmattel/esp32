@@ -37,7 +37,6 @@ export default {
         m.deviceEndpoints({
             endpoints: {10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16, 20: 20, 21: 21, 22: 22},
         }),
-        m.identify(),
         m.numeric({
             name: 'reading_interval_s',
             label: 'Reading interval (s)',
@@ -93,7 +92,6 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
-            reporting: {min: 'MIN', max: 'MAX', change: 1},
             description: 'Analog Input Parent link LQI on endpoint 12',
             access: 'STATE_GET',
             endpointNames: ['12'],
@@ -107,7 +105,6 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
-            reporting: {min: 'MIN', max: 'MAX', change: 1},
             description: 'Analog Input Parent link RSSI on endpoint 13',
             access: 'STATE_GET',
             endpointNames: ['13'],
@@ -124,7 +121,6 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
-            reporting: {min: 'MIN', max: 'MAX', change: 1},
             description: 'Analog Input Mirror line count on endpoint 14',
             access: 'STATE_GET',
             endpointNames: ['14'],
@@ -137,8 +133,8 @@ export default {
         // the same version, read from the Basic cluster during the interview.
         //
         // The device sends both after every join - which is the only moment the answer
-        // can have changed, since changing it means flashing - so the reporting entry
-        // below is Z2M's own doing and changes nothing about that.
+        // can have changed, since changing it means flashing. No reporting entry: the
+        // device reports this attribute itself after every join.
         m.numeric({
             name: 'firmware_version_number',
             label: 'Firmware version number',
@@ -147,7 +143,6 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
-            reporting: {min: 'MIN', max: 'MAX', change: 1},
             description: 'Analog Input Firmware version number on endpoint 16',
             access: 'STATE_GET',
             endpointNames: ['16'],
@@ -162,7 +157,7 @@ export default {
         // disagrees: an endpoint listed here that the firmware does not have is an
         // expose that stays N/A for good, plus a binding Z2M logs as failed during
         // configure - and one left out hides a sensor that is really reporting.
-        m.temperature({endpointNames: ['20', '21', '22']}),
+        m.temperature({endpointNames: ['20', '21', '22'], reporting: false}),
         // Endpoint 14, attribute 0xF000: the mirrored line itself, a ZCL character
         // string (type 0x42). Note endpointName, singular, where the numerics above
         // take endpointNames - m.text() differs from m.numeric() there.
