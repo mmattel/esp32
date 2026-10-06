@@ -82,6 +82,20 @@ Z2M's generator cannot produce text exposes. See the top comment in
 directory. **Every change must be applied to both copies.** There is no automatic sync;
 it is manual.
 
+### Converter authoring rules
+
+**No `m.identify()`** — the device does not implement the identify cluster. Including it
+makes Z2M send extra bind and configure_reporting commands during its configure step for
+no benefit.
+
+**No `reporting:` on `STATE_GET` (`genAnalogInput`) endpoints** — the firmware calls
+`reportAnalogInput()` etc. explicitly and manages its own deadband and heartbeat
+entirely in software. Z2M's configure_reporting step for read-only endpoints is
+therefore wasted traffic. With many endpoints, this combined with the device's own
+post-join burst can overwhelm the Z-Stack coordinator and cause SRSP timeouts that
+crash Z2M. Keep `reporting:` only on writable (`access: 'ALL'`, `genAnalogOutput`)
+endpoints where Z2M needs to learn when the device changes a value.
+
 ---
 
 ## NVS Layout

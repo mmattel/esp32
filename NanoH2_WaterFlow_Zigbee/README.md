@@ -547,6 +547,25 @@ A copy of the converter lives with the sketch so that the definition and the
 firmware it belongs to stay in one place; Z2M keeps its own copy, so a change
 to one must be carried over to the other.
 
+### How the Converter Is Written
+
+Two rules that are not obvious from the Zigbee spec but matter for stability:
+
+**`m.identify()` is absent.**  The device does not implement the identify cluster.
+Including it makes Z2M send extra bind and configure_reporting commands on every
+restart for no benefit.
+
+**`reporting:` is absent from all read-only (`STATE_GET`) endpoints.**  The firmware
+calls `reportAnalogInput()` explicitly and manages its own deadband and heartbeat in
+software.  Z2M's configure_reporting step for read-only endpoints is therefore wasted
+traffic.  With many such endpoints — this device has nine (13, 14, 15, 16, 20, 21,
+22, 23, 24) — the combined burst of Z2M's configure commands and the device's own
+post-join reports can overwhelm the Z-Stack coordinator's serial interface, causing
+SRSP timeouts that crash Z2M and trigger a Docker restart loop.  The `reporting:`
+field is kept only on the writable (`access: 'ALL'`, `genAnalogOutput`) settings at
+endpoints 10, 11 and 12, where Z2M genuinely needs to learn when the device changes
+a value.
+
 ### When the Endpoint List Changes
 
 **An external definition replaces the generated one; Z2M does not merge the
