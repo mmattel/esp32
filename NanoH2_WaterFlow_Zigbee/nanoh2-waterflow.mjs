@@ -19,13 +19,23 @@
 //   - sketch folder (this file)
 //   - <z2m-data>/external_converters/nanoh2-waterflow.mjs
 
+// Converter version: 1.2
+//
+// Changelog (newest first):
+//   1.2  2026-10-06  Add README link to description for Info tab clickthrough
+//   1.1  2026-10-06  Remove m.identify(); remove reporting: from all STATE_GET
+//                    (genAnalogInput) endpoints to prevent Z-Stack coordinator
+//                    overload on join — see "How the Converter Is Written" in README
+//   1.0  (initial)   Generated from Z2M Dev console; m.text() entries added by
+//                    hand for console mirror (EP 15) and firmware version (EP 16)
+
 import * as m from 'zigbee-herdsman-converters/lib/modernExtend';
 
 export default {
     zigbeeModel: ['NanoH2-WaterFlow'],
     model: 'NanoH2-WaterFlow',
     vendor: 'M5Stack',
-    description: 'Hall-effect water flow sensor over Zigbee with settings, totals, link quality, console mirror and firmware version',
+    description: '[Hall-effect water flow sensor over Zigbee with settings, totals, link quality, console mirror and firmware version](https://github.com/mmattel/esp32/blob/main/NanoH2_WaterFlow_Zigbee/README.md)',
     extend: [
         // Fixed block 10-16, then flow measurements 20-24.
         m.deviceEndpoints({
