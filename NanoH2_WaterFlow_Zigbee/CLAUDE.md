@@ -82,6 +82,14 @@ Z2M's generator cannot produce text exposes. See the top comment in
 directory. **Every change must be applied to both copies.** There is no automatic sync;
 it is manual.
 
+### Converter Versioning
+
+The converter carries its own version (`// Converter version: X.Y`) and an inline
+changelog at the top of `nanoh2-waterflow.mjs`, independent of `FW_VERSION_*`.
+Bump the minor on every change and add a one-line entry to the changelog in the same
+commit. There is no patch level — converter changes are either visible (exposes change)
+or invisible (internal cleanup), and both get a minor bump so the history stays linear.
+
 ### Converter authoring rules
 
 **No `m.identify()`** — the device does not implement the identify cluster. Including it

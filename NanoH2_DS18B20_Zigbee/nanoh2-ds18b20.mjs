@@ -23,13 +23,23 @@
 // README.md. This copy is the one kept with the sketch; Zigbee2MQTT holds its own copy
 // under external_converters/, so a change here has to be carried over to it.
 
+// Converter version: 1.2
+//
+// Changelog (newest first):
+//   1.2  2026-10-06  Add README link to description for Info tab clickthrough
+//   1.1  2026-10-06  Remove m.identify(); remove reporting: from all STATE_GET
+//                    (genAnalogInput) endpoints to prevent Z-Stack coordinator
+//                    overload on join — see "How the Converter Is Written" in README
+//   1.0  (initial)   Generated from Z2M Dev console; m.text() entries added by
+//                    hand for console mirror (EP 14) and firmware version (EP 16)
+
 import * as m from 'zigbee-herdsman-converters/lib/modernExtend';
 
 export default {
     zigbeeModel: ['NanoH2-DS18B20'],
     model: 'NanoH2-DS18B20',
     vendor: 'M5Stack',
-    description: 'DS18B20 temperatures over Zigbee, with settings, link quality, a console mirror and its firmware version',
+    description: '[DS18B20 temperatures over Zigbee, with settings, link quality, a console mirror and its firmware version](https://github.com/mmattel/esp32/blob/main/NanoH2_DS18B20_Zigbee/README.md)',
     extend: [
         // 10 to 16 are fixed. Everything from 20 up is one endpoint per configured
         // sensor slot, so this list and the m.temperature() one below have to hold
