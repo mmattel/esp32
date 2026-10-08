@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 1
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 1
+#define FW_VERSION_PATCH 2
 
 #define FW_VERSION_STRINGIFY_(x) #x
 #define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
@@ -180,6 +180,13 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 #define ZB_RSSI_ENDPOINT    1
 #define ZB_MIRROR_ENDPOINT  1
 #define ZB_VERSION_ENDPOINT 1
+
+// Delay inserted between successive ZCL attribute reports sent in
+// onZigbeeConnected() and between each value inside publishFlowValues() when
+// called on join.  Spreading the post-join burst prevents the Z-Stack
+// coordinator's ZNP serial queue from saturating, which would otherwise cause
+// SRSP timeouts and trigger false-offline marking of unrelated devices.
+#define POST_JOIN_REPORT_DELAY_MS 150
 
 /* ------------------------------------------------------------------
  * Joining

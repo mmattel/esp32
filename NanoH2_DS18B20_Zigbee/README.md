@@ -42,6 +42,7 @@ Count](#changing-the-sensor-count).
   - [An Expose That Stays N/A](#an-expose-that-stays-na)
   - [Showing the Mirrored Line](#showing-the-mirrored-line)
   - [Adding the External Converter](#adding-the-external-converter)
+  - [Coordinator Throttling](#coordinator-throttling)
   - [When the Endpoint List Changes](#when-the-endpoint-list-changes)
 - [Pushbutton](#pushbutton)
 - [Notes and Limits](#notes-and-limits)
@@ -482,7 +483,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v2.0.2
+M5Stack NanoH2 - DS18B20 over Zigbee v2.0.3
 Sensor slots: 3
 ```
 
@@ -1078,10 +1079,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v2.0.2` | a console |
-| Basic cluster, SWBuildID (0x4000) | `2.0.2`, on every settings endpoint and on 16 | nothing — read during the interview |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v2.0.3` | a console |
+| Basic cluster, SWBuildID (0x4000) | `2.0.3`, on every settings endpoint and on 16 | nothing — read during the interview |
 | endpoint 16, `presentValue` | `20002`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `2.0.2` again, as a string | the [external converter](#adding-the-external-converter) |
+| endpoint 16, attribute 0xF000 | `2.0.3` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1106,7 +1107,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 2
 ```
 
-`FW_VERSION` (`"2.0.2"`) and `FW_VERSION_NUMBER` (`20002`) are built from them, so
+`FW_VERSION` (`"2.0.3"`) and `FW_VERSION_NUMBER` (`20003`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1178,7 +1179,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v2.0.2
+M5Stack NanoH2 - DS18B20 over Zigbee v2.0.3
 Sensor slots: 3
 ```
 
@@ -1660,6 +1661,39 @@ interface, causing SRSP timeouts that crash Z2M and trigger a Docker restart loo
 The `reporting:` field is kept only on the writable (`access: 'ALL'`,
 `genAnalogOutput`) settings at endpoints 10, 11 and 15, where Z2M genuinely needs
 to learn when the device changes a value.
+
+### Coordinator Throttling
+
+The firmware sends roughly ten ZCL attribute reports immediately after every join
+(three settings, the firmware version, the slot summary, up to three temperatures,
+and two link-quality readings). At the coordinator's ZNP serial interface these land
+as a burst; combined with Z2M's own configure step this can saturate the Z-Stack
+message queue. While the queue drains the coordinator cannot answer availability
+pings from other devices, so Z2M marks them offline — range extenders first because
+they are always active, then anything routing through them.
+
+Two mitigations work together:
+
+**In the firmware** (v2.0.3 and later) `onZigbeeConnected()` inserts a
+`POST_JOIN_REPORT_DELAY_MS` gap (150 ms, `config.h`) between each explicit
+`publish()` call, spreading the burst over roughly 750 ms.
+
+**In Z2M's `configuration.yaml`** — add to the `advanced:` block:
+
+```yaml
+advanced:
+  adapter_concurrent: 1   # serialize ZNP requests — one at a time
+  adapter_delay: 100       # 100 ms gap between transmissions (ms)
+```
+
+`adapter_concurrent: 1` prevents Z2M from pipelining ZNP requests so the
+coordinator finishes one before the next arrives. `adapter_delay` adds a further
+cushion. Both settings apply to all devices, not only this one, and have no visible
+effect on a healthy network: a home mesh sends one or two messages per second at
+most and neither setting slows that.
+
+The firmware change removes the burst from this device; the Z2M settings protect
+against any other device that produces a similar burst on join.
 
 ### When the Endpoint List Changes
 

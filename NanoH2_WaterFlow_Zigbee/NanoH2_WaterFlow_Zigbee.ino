@@ -425,18 +425,23 @@ void publishFlowValues(bool forceAll = false) {
 
   zbFlowLPerMin.setAnalogInput(flowLPerMin);
   zbFlowLPerMin.reportAnalogInput();
+  if (forceAll) delay(POST_JOIN_REPORT_DELAY_MS);
 
   zbFlowLPerS.setAnalogInput(flowLPerS);
   zbFlowLPerS.reportAnalogInput();
+  if (forceAll) delay(POST_JOIN_REPORT_DELAY_MS);
 
   zbTotalL.setAnalogInput(totalL);
   zbTotalL.reportAnalogInput();
+  if (forceAll) delay(POST_JOIN_REPORT_DELAY_MS);
 
   zbTotalM3.setAnalogInput(m3);
   zbTotalM3.reportAnalogInput();
+  if (forceAll) delay(POST_JOIN_REPORT_DELAY_MS);
 
   zbTotalSinceReset.setAnalogInput(totalSinceResetL);
   zbTotalSinceReset.reportAnalogInput();
+  if (forceAll) delay(POST_JOIN_REPORT_DELAY_MS);
 
   publishedFlowLPerMin  = flowLPerMin;
   publishedFlowLPerS    = flowLPerS;
@@ -456,14 +461,19 @@ void onZigbeeConnected() {
     Serial.printf("Commissioning stored in NVS" CONSOLE_EOL);
   }
 
+  // Delays between publishes spread the post-join burst; see POST_JOIN_REPORT_DELAY_MS.
   applyReporting();
   cfgImpulsesPerL.publish();
+  delay(POST_JOIN_REPORT_DELAY_MS);
   cfgWritebackS.publish();
+  delay(POST_JOIN_REPORT_DELAY_MS);
   cfgTotalStart.publish();
+  delay(POST_JOIN_REPORT_DELAY_MS);
   lastSettingReportMs = millis();
 
   if (ZB_VERSION_ENDPOINT) {
     zbVersion.publish(FW_VERSION_NUMBER);
+    delay(POST_JOIN_REPORT_DELAY_MS);
   }
 
   // Seed fresh values on every join so the coordinator is not left with

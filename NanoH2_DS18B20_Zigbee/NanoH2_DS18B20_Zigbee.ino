@@ -728,9 +728,13 @@ void onZigbeeConnected() {
   applyReporting();  // must be called after Zigbee.begin()
   // Once now, in case the coordinator is already bound, and then on the heartbeat
   // for the far more likely case that it is not yet - see handleSettingReports().
+  // Delays between publishes spread the post-join burst; see POST_JOIN_REPORT_DELAY_MS.
   cfgInterval.publish();
+  delay(POST_JOIN_REPORT_DELAY_MS);
   cfgDelta.publish();
+  delay(POST_JOIN_REPORT_DELAY_MS);
   cfgCorrection.publish();
+  delay(POST_JOIN_REPORT_DELAY_MS);
   lastSettingReportMs = millis();
 
   // And the firmware version. Sent here because this is the only moment it can have
@@ -740,6 +744,7 @@ void onZigbeeConnected() {
   // the text attribute to arrive, and the heartbeat is what actually delivers it.
   if (ZB_VERSION_ENDPOINT) {
     zbVersion.publish(FW_VERSION_NUMBER);
+    delay(POST_JOIN_REPORT_DELAY_MS);
   }
 
   // Seed the coordinator with fresh values: after a join or a rejoin it has no
@@ -754,6 +759,7 @@ void onZigbeeConnected() {
   // it - and every join then starts with the slots accounted for.
   slotsForgetSummary();
   slotsReportSummary(slotRom, slotPresent);
+  delay(POST_JOIN_REPORT_DELAY_MS);
 
   // Same for the link: a rejoin may well be through a different parent, so the
   // old value says nothing about the new one.
