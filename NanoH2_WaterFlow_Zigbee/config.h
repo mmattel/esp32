@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 1
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 2
+#define FW_VERSION_PATCH 3
 
 #define FW_VERSION_STRINGIFY_(x) #x
 #define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
@@ -120,6 +120,15 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 // precedes the coordinator's binding, so without this the settings would
 // be invisible until the coordinator wrote them. 0 disables.
 #define SETTING_REPORT_HEARTBEAT_S 60
+
+// One-shot re-publish of all settings and the firmware version, fired this many
+// milliseconds after a join - long enough for Z2M to complete its configure step
+// and establish bindings. The initial publish in onZigbeeConnected() precedes the
+// bindings and is therefore never received; this retry is what actually makes the
+// firmware version and settings appear in Z2M within seconds rather than waiting
+// for the first SETTING_REPORT_HEARTBEAT_S tick. After this one shot,
+// SETTING_REPORT_HEARTBEAT_S takes over as normal.
+#define SETTING_REPORT_JOIN_RETRY_MS 20000
 
 /* ------------------------------------------------------------------
  * Pushbutton

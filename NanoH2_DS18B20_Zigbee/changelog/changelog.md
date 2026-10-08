@@ -4,6 +4,27 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 2.0.4
+
+**Fixed:** firmware version and settings took up to 60 s to appear in Z2M after a
+join or reflash.
+
+The initial `publish()` calls in `onZigbeeConnected()` fire before Z2M has finished
+its configure step, so they arrive before bindings are in place and are not received.
+The first `SETTING_REPORT_HEARTBEAT_S` tick (60 s) was therefore the earliest the
+values could appear. A one-shot retry now fires `SETTING_REPORT_JOIN_RETRY_MS`
+(20 s, `config.h`) after the join — long enough for Z2M's configure step to settle —
+and republishes all settings and the firmware version. Normal 60 s heartbeats follow.
+
+**Note:** Z2M's "Firmware build ID" on the device info page is read from the Basic
+cluster during the initial interview and is not updated by a reflash or rejoin. It
+stays at the previous version until a manual re-interview. The `firmware_version`
+expose (endpoint 16) is the authoritative live value and is what this fix accelerates.
+
+No re-pair needed (no endpoint or expose changes).
+
+---
+
 ## 2.0.3
 
 **Fixed:** post-join ZCL burst could saturate the Z-Stack coordinator.

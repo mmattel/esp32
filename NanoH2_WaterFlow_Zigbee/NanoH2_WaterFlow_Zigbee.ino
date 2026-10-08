@@ -185,6 +185,8 @@ bool linkWaitLogged     = false;
 bool linkAssumedLogged  = false;
 
 uint32_t lastSettingReportMs = 0;
+uint32_t joinConnectedMs = 0;   // when onZigbeeConnected() last fired
+bool joinRetryPending = false;  // one-shot retry not yet fired for this join
 
 bool resetArmed    = false;
 bool resetReady    = false;
@@ -470,6 +472,8 @@ void onZigbeeConnected() {
   cfgTotalStart.publish();
   delay(POST_JOIN_REPORT_DELAY_MS);
   lastSettingReportMs = millis();
+  joinConnectedMs = lastSettingReportMs;
+  joinRetryPending = true;
 
   if (ZB_VERSION_ENDPOINT) {
     zbVersion.publish(FW_VERSION_NUMBER);
@@ -599,10 +603,16 @@ void handleSettingWrites() {
   }
 }
 
+// A one-shot retry fires SETTING_REPORT_JOIN_RETRY_MS after the join, which is
+// when Z2M has finished its configure step and bindings are in place - so the
+// version the user just flashed appears in Z2M within ~20 s rather than ~60 s.
 void handleSettingReports() {
-  if (!Zigbee.connected() || !reportOverdue(lastSettingReportMs, SETTING_REPORT_HEARTBEAT_S)) {
+  bool retryDue = joinRetryPending &&
+                  (millis() - joinConnectedMs) >= SETTING_REPORT_JOIN_RETRY_MS;
+  if (!Zigbee.connected() || (!retryDue && !reportOverdue(lastSettingReportMs, SETTING_REPORT_HEARTBEAT_S))) {
     return;
   }
+  if (retryDue) joinRetryPending = false;
   lastSettingReportMs = millis();
   cfgImpulsesPerL.publish();
   cfgWritebackS.publish();
