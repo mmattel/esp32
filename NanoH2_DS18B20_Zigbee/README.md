@@ -10,6 +10,7 @@ Count](#changing-the-sensor-count).
 ## Contents
 
 - [Components and Photos](#components-and-photos)
+- [Power Consumption](#power-consumption)
 - [Files](#files)
 - [Wiring](#wiring)
   - [Which Button](#which-button)
@@ -91,6 +92,11 @@ Electrical items used (casings excluded), sourced from AliExpress:
 Several versions exist — the converter must
 be bidirectional. Some variants have both TX (bidirectional) and RX
 (unidirectional) solder pads; only the bidirectional TX side is used here.
+
+## Power Consumption
+
+Measured at the USB connector (5 V rail), with the components listed above and
+three DS18B20 sensors connected: **18–20 mA**.
 
 ## Files
 
