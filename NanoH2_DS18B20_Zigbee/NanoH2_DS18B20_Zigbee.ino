@@ -261,6 +261,8 @@ bool linkAssumedLogged = false;  // so has the note about an unflagged parent
 // When the settings last went out, for their heartbeat. See
 // handleSettingReports() for why they need one.
 uint32_t lastSettingReportMs = 0;
+uint32_t joinConnectedMs = 0;   // when onZigbeeConnected() last fired
+bool joinRetryPending = false;  // one-shot retry not yet fired for this join
 
 bool resetArmed = false;    // pushbutton held long enough to show LED feedback
 bool releaseArmed = false;  // held into the release window, and a sensor is missing
@@ -736,6 +738,8 @@ void onZigbeeConnected() {
   cfgCorrection.publish();
   delay(POST_JOIN_REPORT_DELAY_MS);
   lastSettingReportMs = millis();
+  joinConnectedMs = lastSettingReportMs;
+  joinRetryPending = true;
 
   // And the firmware version. Sent here because this is the only moment it can have
   // changed - a new version means flashing, flashing reboots, and a reboot rejoins.
@@ -911,18 +915,21 @@ void handleSettingWrites() {
 // they only change when a coordinator writes them, and the coordinator that wrote
 // one has the value already - so without this, one that bound after the join publish
 // would show no interval, delta or correction until it wrote one itself.
+//
+// A one-shot retry fires SETTING_REPORT_JOIN_RETRY_MS after the join, which is
+// when Z2M has finished its configure step and bindings are in place - so the
+// version the user just flashed appears in Z2M within ~20 s rather than ~60 s.
 void handleSettingReports() {
-  if (!Zigbee.connected() || !reportOverdue(lastSettingReportMs, SETTING_REPORT_HEARTBEAT_S)) {
+  bool retryDue = joinRetryPending &&
+                  (millis() - joinConnectedMs) >= SETTING_REPORT_JOIN_RETRY_MS;
+  if (!Zigbee.connected() || (!retryDue && !reportOverdue(lastSettingReportMs, SETTING_REPORT_HEARTBEAT_S))) {
     return;
   }
+  if (retryDue) joinRetryPending = false;
   lastSettingReportMs = millis();
   cfgInterval.publish();
   cfgDelta.publish();
   cfgCorrection.publish();
-  // The version text attribute (0xF000) is reported explicitly and uses binding-based
-  // addressing, so the publish in onZigbeeConnected() is too early: the coordinator
-  // has not yet bound the cluster. The heartbeat here is what actually delivers it,
-  // exactly as it does for the three settings above.
   if (ZB_VERSION_ENDPOINT) {
     zbVersion.publish(FW_VERSION_NUMBER);
   }

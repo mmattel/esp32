@@ -420,6 +420,13 @@ The Zigbee Basic cluster's `swBuildId` attribute (0x4000) also carries the
 version string, so Z2M shows it on the device info panel regardless of the
 converter.
 
+**Patch releases do not update this field automatically.** Z2M reads `swBuildId`
+once during the initial interview and caches it; a patch release uses a rejoin
+rather than a re-pair, so Z2M does not re-interview. To refresh it after a
+reflash: open the Z2M device page → **Actions → Re-interview**. The
+`firmware_version` expose on endpoint 16 is the live value that updates within
+~20 s of every join without any manual step.
+
 **Versioning rules** (from `config.h`):
 
 | Part | When to bump |
@@ -454,7 +461,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v1.0.2 (build 10002)
+NanoH2-WaterFlow v1.0.3 (build 10003)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
@@ -579,7 +586,7 @@ anything routing through them.
 
 Two mitigations work together:
 
-**In the firmware** (v1.0.2 and later) `onZigbeeConnected()` inserts a
+**In the firmware** (v1.0.3 and later) `onZigbeeConnected()` inserts a
 `POST_JOIN_REPORT_DELAY_MS` gap (150 ms, `config.h`) between each explicit
 `publish()` call, and the same gap between each of the five flow-value reports inside
 `publishFlowValues()` when called on join, spreading the burst over roughly 1.5 s.

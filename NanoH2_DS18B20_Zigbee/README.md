@@ -483,7 +483,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v2.0.3
+M5Stack NanoH2 - DS18B20 over Zigbee v2.0.4
 Sensor slots: 3
 ```
 
@@ -1079,10 +1079,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v2.0.3` | a console |
-| Basic cluster, SWBuildID (0x4000) | `2.0.3`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `20002`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `2.0.3` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v2.0.4` | a console |
+| Basic cluster, SWBuildID (0x4000) | `2.0.4`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `20004`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `2.0.4` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1091,6 +1091,13 @@ binding and no reporting, and it is there even on a device page that has nothing
 else from this repo installed. It is also why the attribute is added to the
 *settings* endpoints as well as to 16 — a coordinator reads Basic from whichever
 endpoint it likes, and those are the ones it is likeliest to pick.
+
+**Patch releases do not update Firmware build ID automatically.** A patch release
+uses a rejoin rather than a re-pair, so Z2M does not re-interview the device and
+**Firmware build ID** keeps the previous version string until you ask for one: open
+the Z2M device page → **Actions → Re-interview**. The `firmware_version` expose on
+endpoint 16 is the live value that updates within ~20 s of every join without any
+manual step.
 
 Endpoint 16 is for the other use: something that watches the version rather than
 looks at it. `firmware_version_number` is `major × 10000 + minor × 100 + patch`,
@@ -1104,10 +1111,10 @@ All three copies come from the same three numbers in `config.h`:
 ```c
 #define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 2
+#define FW_VERSION_PATCH 4
 ```
 
-`FW_VERSION` (`"2.0.3"`) and `FW_VERSION_NUMBER` (`20003`) are built from them, so
+`FW_VERSION` (`"2.0.4"`) and `FW_VERSION_NUMBER` (`20004`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1179,7 +1186,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v2.0.3
+M5Stack NanoH2 - DS18B20 over Zigbee v2.0.4
 Sensor slots: 3
 ```
 
@@ -1190,7 +1197,7 @@ the same commit as the change they name:
 ```c
 #define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 2
+#define FW_VERSION_PATCH 4
 ```
 
 Read the three numbers against what a coordinator already knows about the device —
@@ -1674,7 +1681,7 @@ they are always active, then anything routing through them.
 
 Two mitigations work together:
 
-**In the firmware** (v2.0.3 and later) `onZigbeeConnected()` inserts a
+**In the firmware** (v2.0.4 and later) `onZigbeeConnected()` inserts a
 `POST_JOIN_REPORT_DELAY_MS` gap (150 ms, `config.h`) between each explicit
 `publish()` call, spreading the burst over roughly 750 ms.
 

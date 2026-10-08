@@ -38,7 +38,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 3
+#define FW_VERSION_PATCH 4
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -288,6 +288,15 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // never sent. They are two attributes of a mains-powered device, so a minute costs
 // nothing.
 #define SETTING_REPORT_HEARTBEAT_S 60
+
+// One-shot re-publish of all settings and the firmware version, fired this many
+// milliseconds after a join - long enough for Z2M to complete its configure step
+// and establish bindings. The initial publish in onZigbeeConnected() precedes the
+// bindings and is therefore never received; this retry is what actually makes the
+// firmware version and settings appear in Z2M within seconds rather than waiting
+// for the first SETTING_REPORT_HEARTBEAT_S tick. After this one shot,
+// SETTING_REPORT_HEARTBEAT_S takes over as normal.
+#define SETTING_REPORT_JOIN_RETRY_MS 20000
 
 /* ------------------------------------------------------------------
  * Pushbutton
