@@ -36,6 +36,7 @@ to flash, and set or reset the running counter.
     - [An Expose That Stays N/A](#an-expose-that-stays-na)
     - [Showing the Mirrored Line](#showing-the-mirrored-line)
     - [Adding the External Converter](#adding-the-external-converter)
+    - [Coordinator Throttling](#coordinator-throttling)
     - [When the Endpoint List Changes](#when-the-endpoint-list-changes)
 17. [Pushbutton](#pushbutton)
 18. [Notes and Limits](#notes-and-limits)
@@ -453,7 +454,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v1.0.1 (build 10001)
+NanoH2-WaterFlow v1.0.2 (build 10002)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
@@ -565,6 +566,40 @@ SRSP timeouts that crash Z2M and trigger a Docker restart loop.  The `reporting:
 field is kept only on the writable (`access: 'ALL'`, `genAnalogOutput`) settings at
 endpoints 10, 11 and 12, where Z2M genuinely needs to learn when the device changes
 a value.
+
+### Coordinator Throttling
+
+The firmware sends roughly twelve ZCL attribute reports immediately after every join
+(three settings, the firmware version, five flow measurements, and two link-quality
+readings). At the coordinator's ZNP serial interface these land as a burst; combined
+with Z2M's own configure step this can saturate the Z-Stack message queue. While the
+queue drains the coordinator cannot answer availability pings from other devices, so
+Z2M marks them offline — range extenders first because they are always active, then
+anything routing through them.
+
+Two mitigations work together:
+
+**In the firmware** (v1.0.2 and later) `onZigbeeConnected()` inserts a
+`POST_JOIN_REPORT_DELAY_MS` gap (150 ms, `config.h`) between each explicit
+`publish()` call, and the same gap between each of the five flow-value reports inside
+`publishFlowValues()` when called on join, spreading the burst over roughly 1.5 s.
+
+**In Z2M's `configuration.yaml`** — add to the `advanced:` block:
+
+```yaml
+advanced:
+  adapter_concurrent: 1   # serialize ZNP requests — one at a time
+  adapter_delay: 100       # 100 ms gap between transmissions (ms)
+```
+
+`adapter_concurrent: 1` prevents Z2M from pipelining ZNP requests so the
+coordinator finishes one before the next arrives. `adapter_delay` adds a further
+cushion. Both settings apply to all devices, not only this one, and have no visible
+effect on a healthy network: a home mesh sends one or two messages per second at
+most and neither setting slows that.
+
+The firmware change removes the burst from this device; the Z2M settings protect
+against any other device that produces a similar burst on join.
 
 ### When the Endpoint List Changes
 

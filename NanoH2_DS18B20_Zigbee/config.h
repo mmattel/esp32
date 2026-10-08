@@ -38,7 +38,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 2
+#define FW_VERSION_PATCH 3
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -382,6 +382,14 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // Both strings are limited to 32 characters by the Zigbee library.
 #define ZB_MANUFACTURER "M5Stack"
 #define ZB_MODEL "NanoH2-DS18B20"
+
+// Delay inserted between successive ZCL attribute reports sent in
+// onZigbeeConnected().  Spreading the post-join burst prevents the Z-Stack
+// coordinator's ZNP serial queue from saturating, which would otherwise cause
+// SRSP timeouts and trigger false-offline marking of unrelated devices.
+// 150 ms gives roughly 750 ms of spread for the five direct publishes; the
+// flag-driven temperature and link reports follow in subsequent loop passes.
+#define POST_JOIN_REPORT_DELAY_MS 150
 
 /* ------------------------------------------------------------------
  * Joining
