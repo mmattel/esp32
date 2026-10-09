@@ -652,6 +652,26 @@ The order that works:
 4. Update **both** copies: the one in Z2M's `external_converters/` and
    [`nanoh2-waterflow.mjs`](nanoh2-waterflow.mjs) here.
 
+#### Getting New Writable Endpoints to Appear in Home Assistant
+
+New `genAnalogOutput` (writable) endpoints need one extra step after the
+re-pair to become visible in HA. Even after the converter is updated and the
+device re-paired, HA only shows an entity once it has received at least one
+value report for it — and a freshly joined device does not send one
+automatically for settings endpoints. The procedure that works, in this order:
+
+1. **Restart Z2M** after placing the updated `.mjs` in `external_converters/`.
+   Updating the file alone is not enough; Z2M must reload it
+   (Settings → Reload external converters also works without a full restart).
+2. **Re-interview the device** on the Z2M device page (Actions → Re-interview).
+   This causes Z2M to re-publish all MQTT discovery topics to HA.
+3. **Click the refresh icon** next to the new endpoint on the Z2M device page.
+   This triggers an immediate value read, which delivers the first report HA
+   needs to mark the entity available.
+
+After step 3 the entity appears in HA. Steps 1 and 2 alone leave it missing;
+the refresh in step 3 is what triggers the first value delivery.
+
 ---
 
 ## Pushbutton
