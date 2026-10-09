@@ -13,9 +13,9 @@
  *   minor: new feature, endpoint list and expose names unchanged
  *   major: added/removed endpoint, renamed expose, NVS incompatible
  * ------------------------------------------------------------------ */
-#define FW_VERSION_MAJOR 1
+#define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 3
+#define FW_VERSION_PATCH 0
 
 #define FW_VERSION_STRINGIFY_(x) #x
 #define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
@@ -106,6 +106,13 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 #define FLOW_TOTAL_START_MAX         9999999.0f
 #define FLOW_TOTAL_START_STEP        0.001f
 
+// Force push interval in minutes. When non-zero, all flow values are published to the
+// coordinator every N minutes regardless of the change filter. 0 disables.
+#define FORCE_PUSH_DEFAULT_MIN 60
+#define FORCE_PUSH_MIN_MIN     0
+#define FORCE_PUSH_MAX_MIN     120
+#define FORCE_PUSH_STEP_MIN    1
+
 // How often flow rate is computed and, when connected, published.
 #define FLOW_SAMPLE_INTERVAL_MS      1000
 
@@ -171,6 +178,10 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 #define EP_LINK_RSSI              14
 #define EP_MIRROR                 15
 #define EP_VERSION                16
+
+// Force push interval: re-publish all flow values every N minutes regardless of any
+// change filter. 0 disables. Stored in NVS and writable from Z2M.
+#define EP_CONFIG_FORCE_PUSH      17
 
 #define EP_FLOW_L_PER_MIN         20
 #define EP_FLOW_L_PER_S           21
@@ -258,3 +269,4 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 #define NVS_KEY_WRITEBACK_S     "wbs"
 #define NVS_KEY_TOTAL_START     "tstart"
 #define NVS_KEY_TOTAL_L         "total"
+#define NVS_KEY_FORCE_PUSH      "fpush"

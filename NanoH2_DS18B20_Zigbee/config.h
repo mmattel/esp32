@@ -36,9 +36,9 @@
  * definition on it, and a version in it would make every release look
  * like a different device.
  * ------------------------------------------------------------------ */
-#define FW_VERSION_MAJOR 2
+#define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 4
+#define FW_VERSION_PATCH 0
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -241,6 +241,17 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 #define TEMP_CORRECTION_MAX_C 5.0f
 #define TEMP_CORRECTION_STEP_C 0.25f  // writes are rounded to this step
 
+// Force push interval in minutes. When non-zero, all temperatures are published to the
+// coordinator every N minutes regardless of the reporting deadband. This is a
+// "heartbeat with fresh reads" on top of TEMP_REPORT_HEARTBEAT_S, which only repeats
+// the last published value: the force push discards the deadband suppression so actual
+// current readings reach the coordinator even when temperatures are stable.
+// 0 disables entirely.
+#define FORCE_PUSH_DEFAULT_MIN 60
+#define FORCE_PUSH_MIN_MIN     0
+#define FORCE_PUSH_MAX_MIN     120
+#define FORCE_PUSH_STEP_MIN    1
+
 // Decimals a reading is rounded to before it is published and printed, so the
 // console, the Zigbee attribute and the deadband all work on the same number.
 // One digit is the useful precision: the sensor's raw step is 0.0625 °C but its
@@ -378,6 +389,11 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // registration order agree: it is added after the console mirror, with the other
 // things that are read rather than set.
 #define EP_VERSION 16
+
+// Force push interval: re-publish all temperatures every N minutes regardless of the
+// deadband, so the coordinator can verify values have not drifted silently. 0 disables.
+// Stored in NVS and writable from Z2M. Follows EP_VERSION on the next free number.
+#define EP_CONFIG_FORCE_PUSH 17
 
 // Temperature sensors occupy EP_TEMP_BASE .. EP_TEMP_BASE+MAX-1. The gap above
 // the block leaves room for further settings without moving the sensors.
@@ -645,4 +661,5 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 #define NVS_KEY_INTERVAL "interval"
 #define NVS_KEY_DELTA "delta"
 #define NVS_KEY_CORRECTION "correction"
+#define NVS_KEY_FORCE_PUSH "fpush"
 #define NVS_KEY_ROM_PREFIX "rom"  // rom0, rom1, ... one key per slot

@@ -118,6 +118,11 @@ ZbSetting cfgTotalStart(EP_CONFIG_TOTAL_START, NVS_KEY_TOTAL_START,
                         "Total start value (L)", FLOW_TOTAL_START_DEFAULT,
                         FLOW_TOTAL_START_MIN, FLOW_TOTAL_START_MAX,
                         FLOW_TOTAL_START_STEP, ESP_ZB_ZCL_AI_APP_TYPE_OTHER);
+// Force re-publish of all flow values every N minutes regardless of the change filter.
+// 0 disables.
+ZbSetting cfgForcePush(EP_CONFIG_FORCE_PUSH, NVS_KEY_FORCE_PUSH, "Force push interval (min)",
+                       FORCE_PUSH_DEFAULT_MIN, FORCE_PUSH_MIN_MIN, FORCE_PUSH_MAX_MIN,
+                       FORCE_PUSH_STEP_MIN, ESP_ZB_ZCL_AI_APP_TYPE_OTHER);
 
 // Link quality towards the parent.
 LinkAnalog zbLqi(EP_LINK_LQI);
@@ -150,6 +155,7 @@ static constexpr uint32_t AI_APP_TYPE_OTHER =
 void onImpulsesPerLWritten(float v) { cfgImpulsesPerL.note(v); }
 void onWritebackSWritten(float v)   { cfgWritebackS.note(v); }
 void onTotalStartWritten(float v)   { cfgTotalStart.note(v); }
+void onForcePushWritten(float v)    { cfgForcePush.note(v); }
 
 // Running totals: accumulated in RAM, persisted to NVS on inactivity.
 float totalL = 0.0f;           // main running total (litre)
@@ -187,6 +193,7 @@ bool linkAssumedLogged  = false;
 uint32_t lastSettingReportMs = 0;
 uint32_t joinConnectedMs = 0;   // when onZigbeeConnected() last fired
 bool joinRetryPending = false;  // one-shot retry not yet fired for this join
+uint32_t lastForcePushMs = 0;   // last time all flow values were force-published
 
 bool resetArmed    = false;
 bool resetReady    = false;
@@ -248,6 +255,7 @@ void loadSettings() {
   cfgImpulsesPerL.load(prefs);
   cfgWritebackS.load(prefs);
   cfgTotalStart.load(prefs);
+  cfgForcePush.load(prefs);
 
   // The running total is stored under its own key, not via cfgTotalStart:
   // the setting shows what it was last set to; the key holds the live total.
@@ -322,10 +330,12 @@ void setupEndpoints() {
   cfgImpulsesPerL.addEndpoint(onImpulsesPerLWritten);
   cfgWritebackS.addEndpoint(onWritebackSWritten);
   cfgTotalStart.addEndpoint(onTotalStartWritten);
+  cfgForcePush.addEndpoint(onForcePushWritten);
   Serial.printf("EP %u -> impulses per litre" CONSOLE_EOL
                 "EP %u -> NVS writeback time (s)" CONSOLE_EOL
-                "EP %u -> total start value (L)" CONSOLE_EOL,
-                EP_CONFIG_IMPULSES_PER_L, EP_CONFIG_WRITEBACK_S, EP_CONFIG_TOTAL_START);
+                "EP %u -> total start value (L)" CONSOLE_EOL
+                "EP %u -> force push interval" CONSOLE_EOL,
+                EP_CONFIG_IMPULSES_PER_L, EP_CONFIG_WRITEBACK_S, EP_CONFIG_TOTAL_START, EP_CONFIG_FORCE_PUSH);
 
   if (ZB_LQI_ENDPOINT) {
     zbLqi.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
@@ -406,16 +416,18 @@ void setupEndpoints() {
   Serial.printf("EP %u -> total since last reset, L" CONSOLE_EOL, EP_TOTAL_SINCE_RESET);
 }
 
-// Pushes all five flow values to the coordinator regardless of whether
-// they changed.  Called on a join or when forceAll is set.
-void publishFlowValues(bool forceAll = false) {
+// Pushes all five flow values to the coordinator.  forceAll = true is used on join:
+// it bypasses the change filter AND inserts POST_JOIN_REPORT_DELAY_MS between each
+// report to avoid saturating the coordinator.  forcePush = true is used by the
+// periodic force-push timer: it bypasses the change filter but does NOT add delays.
+void publishFlowValues(bool forceAll = false, bool forcePush = false) {
   if (!Zigbee.connected()) {
     return;
   }
   uint32_t now = millis();
   bool heartbeat = (now - lastFlowReportMs) >= (uint32_t)FLOW_REPORT_HEARTBEAT_S * 1000UL;
 
-  if (!forceAll && !heartbeat
+  if (!forceAll && !forcePush && !heartbeat
       && flowLPerMin  == publishedFlowLPerMin
       && flowLPerS    == publishedFlowLPerS
       && totalL       == publishedTotalL
@@ -471,9 +483,12 @@ void onZigbeeConnected() {
   delay(POST_JOIN_REPORT_DELAY_MS);
   cfgTotalStart.publish();
   delay(POST_JOIN_REPORT_DELAY_MS);
+  cfgForcePush.publish();
+  delay(POST_JOIN_REPORT_DELAY_MS);
   lastSettingReportMs = millis();
   joinConnectedMs = lastSettingReportMs;
   joinRetryPending = true;
+  lastForcePushMs = lastSettingReportMs;
 
   if (ZB_VERSION_ENDPOINT) {
     zbVersion.publish(FW_VERSION_NUMBER);
@@ -601,6 +616,10 @@ void handleSettingWrites() {
     logEvent("Total reset to %.3f L", totalL);
     publishFlowValues(true);
   }
+
+  if (cfgForcePush.applyPending(prefs)) {
+    lastForcePushMs = millis();  // restart the timer so the new interval runs from now
+  }
 }
 
 // A one-shot retry fires SETTING_REPORT_JOIN_RETRY_MS after the join, which is
@@ -617,6 +636,7 @@ void handleSettingReports() {
   cfgImpulsesPerL.publish();
   cfgWritebackS.publish();
   cfgTotalStart.publish();
+  cfgForcePush.publish();
   if (ZB_VERSION_ENDPOINT) {
     zbVersion.publish(FW_VERSION_NUMBER);
   }
@@ -667,7 +687,13 @@ void handleFlow() {
                   pulses, flowLPerMin, flowLPerS, totalL, totalSinceResetL);
   }
 
-  publishFlowValues();
+  // Periodic force push: bypass the change filter if the interval has elapsed.
+  uint32_t forcePushS = (uint32_t)(cfgForcePush.value() * 60.0f);
+  bool doForcePush = Zigbee.connected() && forcePushS > 0 && reportOverdue(lastForcePushMs, forcePushS);
+  if (doForcePush) {
+    lastForcePushMs = millis();
+  }
+  publishFlowValues(false, doForcePush);
 }
 
 /* ------------------- link quality and signal strength ------------------ */

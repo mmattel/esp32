@@ -19,9 +19,10 @@
 //   - sketch folder (this file)
 //   - <z2m-data>/external_converters/nanoh2-waterflow.mjs
 
-// Converter version: 1.2
+// Converter version: 1.3
 //
 // Changelog (newest first):
+//   1.3  2026-10-09  Add EP 17: force_push_min (force push interval, 0-120 min)
 //   1.2  2026-10-06  Add README link to description for Info tab clickthrough
 //   1.1  2026-10-06  Remove m.identify(); remove reporting: from all STATE_GET
 //                    (genAnalogInput) endpoints to prevent Z-Stack coordinator
@@ -39,7 +40,7 @@ export default {
     extend: [
         // Fixed block 10-16, then flow measurements 20-24.
         m.deviceEndpoints({
-            endpoints: {10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16, 20: 20, 21: 21, 22: 22, 23: 23, 24: 24},
+            endpoints: {10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16, 17: 17, 20: 20, 21: 21, 22: 22, 23: 23, 24: 24},
         }),
         // ----------------------------------------------------------------
         // Writable settings (Analog Output, endpoints 10-12)
@@ -95,6 +96,23 @@ export default {
             access: 'ALL',
             endpointNames: ['12'],
             unit: 'L',
+        }),
+
+        // EP 17: force push interval. When non-zero, all flow values are
+        // re-published every N minutes regardless of the change filter. 0 disables.
+        m.numeric({
+            name: 'force_push_min',
+            label: 'Force push interval (min)',
+            valueMin: 0,
+            valueMax: 120,
+            valueStep: 1,
+            cluster: 'genAnalogOutput',
+            attribute: 'presentValue',
+            reporting: {min: 'MIN', max: 'MAX', change: 1},
+            description: 'Analog Output Force push interval (min) on endpoint 17 — 0 disables; non-zero forces a re-publish of all flow values every N minutes regardless of the change filter',
+            access: 'ALL',
+            endpointNames: ['17'],
+            unit: 'min',
         }),
 
         // ----------------------------------------------------------------

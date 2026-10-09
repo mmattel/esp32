@@ -175,6 +175,12 @@ ZbSetting cfgDelta(EP_CONFIG_DELTA, NVS_KEY_DELTA, "Reporting delta (C)", TEMP_D
 ZbSetting cfgCorrection(EP_CONFIG_CORRECTION, NVS_KEY_CORRECTION, "Temperature correction (C)",
                         TEMP_CORRECTION_DEFAULT_C, TEMP_CORRECTION_MIN_C, TEMP_CORRECTION_MAX_C,
                         TEMP_CORRECTION_STEP_C, ESP_ZB_ZCL_AI_TEMPERATURE_OTHER);
+// Force re-publish of all temperatures every N minutes regardless of the deadband.
+// 0 disables. Lets the coordinator verify that temperatures are current, not just that
+// they never moved enough to pass the delta.
+ZbSetting cfgForcePush(EP_CONFIG_FORCE_PUSH, NVS_KEY_FORCE_PUSH, "Force push interval (min)",
+                       FORCE_PUSH_DEFAULT_MIN, FORCE_PUSH_MIN_MIN, FORCE_PUSH_MAX_MIN,
+                       FORCE_PUSH_STEP_MIN, ESP_ZB_ZCL_AI_TIME_RELATIVE);
 
 // The link towards the parent: quality as an LQI, strength as an RSSI in dBm,
 // one analog input endpoint each because an Analog Input cluster carries a
@@ -207,6 +213,9 @@ void onDeltaWritten(float value) {
 }
 void onCorrectionWritten(float value) {
   cfgCorrection.note(value);
+}
+void onForcePushWritten(float value) {
+  cfgForcePush.note(value);
 }
 
 // Slot -> sensor mapping. Persisted, so slot 0 keeps meaning the same physical
@@ -263,6 +272,7 @@ bool linkAssumedLogged = false;  // so has the note about an unflagged parent
 uint32_t lastSettingReportMs = 0;
 uint32_t joinConnectedMs = 0;   // when onZigbeeConnected() last fired
 bool joinRetryPending = false;  // one-shot retry not yet fired for this join
+uint32_t lastForcePushMs = 0;   // last time all temperatures were force-published
 
 bool resetArmed = false;    // pushbutton held long enough to show LED feedback
 bool releaseArmed = false;  // held into the release window, and a sensor is missing
@@ -388,6 +398,7 @@ void loadSettings() {
   cfgInterval.load(prefs);
   cfgDelta.load(prefs);
   cfgCorrection.load(prefs);
+  cfgForcePush.load(prefs);
 
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
     slotRom[i] = prefs.getULong64(romKey(i).c_str(), 0);
@@ -605,12 +616,14 @@ void createEndpoints() {
 void setupEndpoints() {
   cfgInterval.addEndpoint(onIntervalWritten);
   cfgDelta.addEndpoint(onDeltaWritten);
-  // Registered here with the other two settings although its number is above the
-  // mirror's: a coordinator lists the endpoints in the order they are added.
+  // Registered here with the other settings although its number is above the mirror's:
+  // a coordinator lists endpoints in the order they were added.
   cfgCorrection.addEndpoint(onCorrectionWritten);
+  cfgForcePush.addEndpoint(onForcePushWritten);
   Serial.printf("EP %u -> reading interval" CONSOLE_EOL "EP %u -> reporting delta" CONSOLE_EOL
-                  "EP %u -> temperature correction" CONSOLE_EOL,
-                EP_CONFIG_INTERVAL, EP_CONFIG_DELTA, EP_CONFIG_CORRECTION);
+                  "EP %u -> temperature correction" CONSOLE_EOL
+                  "EP %u -> force push interval" CONSOLE_EOL,
+                EP_CONFIG_INTERVAL, EP_CONFIG_DELTA, EP_CONFIG_CORRECTION, EP_CONFIG_FORCE_PUSH);
 
   if (ZB_LQI_ENDPOINT) {
     zbLqi.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
@@ -737,9 +750,12 @@ void onZigbeeConnected() {
   delay(POST_JOIN_REPORT_DELAY_MS);
   cfgCorrection.publish();
   delay(POST_JOIN_REPORT_DELAY_MS);
+  cfgForcePush.publish();
+  delay(POST_JOIN_REPORT_DELAY_MS);
   lastSettingReportMs = millis();
   joinConnectedMs = lastSettingReportMs;
   joinRetryPending = true;
+  lastForcePushMs = lastSettingReportMs;
 
   // And the firmware version. Sent here because this is the only moment it can have
   // changed - a new version means flashing, flashing reboots, and a reboot rejoins.
@@ -909,6 +925,10 @@ void handleSettingWrites() {
     resetPublished();
     sampleNow = true;
   }
+
+  if (cfgForcePush.applyPending(prefs)) {
+    lastForcePushMs = millis();  // restart the timer so the new interval runs from now
+  }
 }
 
 // All three settings, repeated on the heartbeat. Nothing else ever reports them:
@@ -930,6 +950,7 @@ void handleSettingReports() {
   cfgInterval.publish();
   cfgDelta.publish();
   cfgCorrection.publish();
+  cfgForcePush.publish();
   if (ZB_VERSION_ENDPOINT) {
     zbVersion.publish(FW_VERSION_NUMBER);
   }
@@ -951,6 +972,11 @@ void readAndPublish() {
   // One value for every slot, and read once for the whole round: a write that lands
   // between two slots would otherwise correct the rest of them and not the first.
   float correction = cfgCorrection.value();
+
+  // Force push: bypass the deadband this round if the interval has elapsed. Computed
+  // once per call so all slots fire together. 0 means inactive.
+  uint32_t forcePushS = (uint32_t)(cfgForcePush.value() * 60.0f);
+  bool forcePush = Zigbee.connected() && forcePushS > 0 && reportOverdue(lastForcePushMs, forcePushS);
 
   bool anyPrinted = false;
   for (uint8_t i = 0; i < MAX_DS18B20_SENSORS; i++) {
@@ -1010,8 +1036,8 @@ void readAndPublish() {
     bool first = isnan(lastPublished[i]);
     float change = first ? NAN : fabsf(celsius - lastPublished[i]);
     bool moved = !first && change > delta;
-    bool heartbeat = !first && !moved && reportOverdue(lastTempReportMs[i], TEMP_REPORT_HEARTBEAT_S);
-    bool publish = first || moved || heartbeat;
+    bool heartbeat = !first && !moved && !forcePush && reportOverdue(lastTempReportMs[i], TEMP_REPORT_HEARTBEAT_S);
+    bool publish = first || moved || heartbeat || forcePush;
 
     if (publish) {
       zbTemp[i]->setTemperature(celsius);
@@ -1047,10 +1073,17 @@ void readAndPublish() {
       Serial.printf("slot %u  EP %u  %s  %.*f C  %s%s" CONSOLE_EOL, i, EP_TEMP_BASE + i, rom, TEMP_PUBLISH_DECIMALS,
                     celsius,
                     !publish ? "within deadband"
-                             : first ? "published (first)" : heartbeat ? "published (heartbeat)" : "published",
+                             : first ? "published (first)"
+                             : moved ? "published"
+                             : forcePush ? "published (force push)"
+                             : heartbeat ? "published (heartbeat)"
+                             : "published",
                     applied);
       anyPrinted = true;
     }
+  }
+  if (forcePush) {
+    lastForcePushMs = millis();
   }
   if (anyPrinted) {
     Serial.printf(CONSOLE_EOL);
