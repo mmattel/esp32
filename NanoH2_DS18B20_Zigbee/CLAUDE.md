@@ -61,6 +61,22 @@ Rules:
 
 ---
 
+## New Writable Endpoints — Home Assistant Visibility
+
+After a re-pair with a new `genAnalogOutput` (writable) endpoint, HA does **not**
+show the entity automatically. The full procedure, in order:
+
+1. Place the updated `.mjs` in `external_converters/` and **restart Z2M** (or
+   Settings → Reload external converters).
+2. **Re-interview** the device on the Z2M device page.
+3. **Click the refresh icon** on the new endpoint in Z2M.
+
+Step 3 is the one that is easy to miss: HA marks a writable entity as unavailable
+until it receives at least one value report, and the refresh forces that first read.
+Steps 1 and 2 alone leave the entity absent from HA.
+
+---
+
 ## Documenting New Endpoints
 
 **Any endpoint added to the firmware must also be documented in `README.md`:**
