@@ -4,6 +4,29 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.0.0
+
+**Added:** Force Push interval setting (EP 17).
+
+A new writable Analog Output endpoint lets you tell the device to re-publish all
+temperatures every N minutes regardless of the reporting delta. Range is 0–120 minutes
+in 1-minute steps; 0 disables the feature; default is 60 minutes. The value is stored
+in NVS and survives a reboot.
+
+This is a complement to the existing `TEMP_REPORT_HEARTBEAT_S` heartbeat, which repeats
+the *last published* value (already inside the deadband). Force push does a fresh read
+and bypasses the deadband, so the coordinator receives a current measurement even when
+temperatures have not moved enough to trigger normal reporting.
+
+**Why it was added:** overnight temperature drops did not propagate to Z2M because the
+values sat inside the reporting delta. Force push gives a configurable periodic
+"check-in" that is independent of physical change.
+
+**User action required:** factory reset and re-pair (new endpoint added). Update both
+copies of the converter: sketch folder and Z2M `external_converters/`.
+
+---
+
 ## 2.0.4
 
 **Fixed:** firmware version and settings took up to 60 s to appear in Z2M after a

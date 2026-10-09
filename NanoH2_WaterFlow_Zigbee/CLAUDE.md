@@ -59,6 +59,21 @@ Rules:
 
 ---
 
+## Documenting New Endpoints
+
+**Any endpoint added to the firmware must also be documented in `README.md`:**
+
+1. Add a row to the endpoint table in `## Zigbee Endpoints`.
+2. Add (or update) the `## Contents` TOC if a new section is added.
+3. Add a dedicated `## <Feature Name>` section explaining what the endpoint does,
+   its default, range, step, NVS persistence, and any behavioural notes.
+4. Add the endpoint to the external converter and note that both copies must be updated.
+
+A new endpoint that has no README entry is invisible to the user, and an endpoint
+that is registered but undocumented will look like a bug.
+
+---
+
 ## Changing the Endpoint List
 
 **Any of the following requires a factory reset and re-pair, AND the external converter

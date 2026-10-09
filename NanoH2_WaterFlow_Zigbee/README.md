@@ -26,20 +26,21 @@ to flash, and set or reset the running counter.
 9. [Running Total and NVS Writeback](#running-total-and-nvs-writeback)
 10. [Total Start Value](#total-start-value)
 11. [Total Since Last Reset](#total-since-last-reset)
-12. [Link Quality and Signal Strength](#link-quality-and-signal-strength)
-13. [Console Mirror](#console-mirror)
-14. [Firmware Version](#firmware-version)
-15. [Serial Console](#serial-console)
+12. [Force Push Interval](#force-push-interval)
+13. [Link Quality and Signal Strength](#link-quality-and-signal-strength)
+14. [Console Mirror](#console-mirror)
+15. [Firmware Version](#firmware-version)
+16. [Serial Console](#serial-console)
     - [Which Build Is Running](#which-build-is-running)
     - [Flashing](#flashing)
-16. [Zigbee2MQTT](#zigbee2mqtt)
+17. [Zigbee2MQTT](#zigbee2mqtt)
     - [An Expose That Stays N/A](#an-expose-that-stays-na)
     - [Showing the Mirrored Line](#showing-the-mirrored-line)
     - [Adding the External Converter](#adding-the-external-converter)
     - [Coordinator Throttling](#coordinator-throttling)
     - [When the Endpoint List Changes](#when-the-endpoint-list-changes)
-17. [Pushbutton](#pushbutton)
-18. [Notes and Limits](#notes-and-limits)
+18. [Pushbutton](#pushbutton)
+19. [Notes and Limits](#notes-and-limits)
 
 ---
 
@@ -222,6 +223,7 @@ device.
 | 15 | Read | `console_mirror` | — | text | Last mirrored console line (ext. converter) |
 | 16 | Read | `firmware_version_number_16` | — | 0 – 999999 | e.g. 1.0.0 → 10000 |
 | 16 | Read | `firmware_version` | — | text | e.g. "1.0.0" (ext. converter) |
+| 17 | Write | `force_push_min_17` | min | 0 – 120, step 1 | Force-publish all flow values every N min; 0 = disabled |
 | 20 | Read | `flow_rate_l_per_min_20` | L/min | 0 – 9999 | Current flow rate |
 | 21 | Read | `flow_rate_l_per_s_21` | L/s | 0 – 999 | Current flow rate |
 | 22 | Read | `total_consumption_l_22` | L | 0 – 9 999 999 | Cumulative total (NVS-backed) |
@@ -326,6 +328,21 @@ Use it to measure a specific event (filling a tank, watering a garden bed)
 without touching the main total: write 0 to EP 12 to zero EP 24, measure
 the event, read EP 24.  The running total in EP 22 continues accumulating
 undisturbed.
+
+---
+
+## Force Push Interval
+
+Endpoint 17 (`force_push_min`) forces a re-publish of all five flow values every N
+minutes, bypassing the normal change filter. This ensures the coordinator receives
+current readings even when flow is zero and nothing has changed.
+
+| Parameter | Default | Range | Step |
+| --- | --- | --- | --- |
+| `force_push_min` | 60 min | 0 … 120 min | 1 min |
+
+Set to **0** to disable. The value is stored in NVS and survives a reboot. The timer
+restarts on join and whenever the setting is changed from Z2M.
 
 ---
 
@@ -461,7 +478,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v1.0.3 (build 10003)
+NanoH2-WaterFlow v2.0.0 (build 20000)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
@@ -586,7 +603,7 @@ anything routing through them.
 
 Two mitigations work together:
 
-**In the firmware** (v1.0.3 and later) `onZigbeeConnected()` inserts a
+**In the firmware** (v2.0.0 and later) `onZigbeeConnected()` inserts a
 `POST_JOIN_REPORT_DELAY_MS` gap (150 ms, `config.h`) between each explicit
 `publish()` call, and the same gap between each of the five flow-value reports inside
 `publishFlowValues()` when called on join, spreading the burst over roughly 1.5 s.

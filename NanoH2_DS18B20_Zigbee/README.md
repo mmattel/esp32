@@ -30,6 +30,7 @@ Count](#changing-the-sensor-count).
   - [One Value for Every Sensor](#one-value-for-every-sensor)
   - [Why the Range Is Only ±5 °C](#why-the-range-is-only-5-c)
   - [In Zigbee2MQTT](#in-zigbee2mqtt)
+- [Force Push Interval](#force-push-interval)
 - [Link Quality and Signal Strength](#link-quality-and-signal-strength)
 - [Console Mirror](#console-mirror)
 - [Firmware Version](#firmware-version)
@@ -426,6 +427,7 @@ With the default of three sensors:
 | 14 | Analog Input + a text attribute | the [console mirror](#console-mirror): how many lines, and the last one (read-only) |
 | 15 | Analog Output | [temperature correction](#temperature-correction), °C, one value for every sensor |
 | 16 | Analog Input + a text attribute | the [firmware version](#firmware-version): as a number and as a string (read-only) |
+| 17 | Analog Output | [force push interval](#force-push-interval), minutes; 0 = disabled |
 | 20, 21, 22 | Temperature Measurement | one per sensor slot |
 
 An Analog Output cluster carries a single value, and so does an Analog Input one,
@@ -451,9 +453,14 @@ The firmware version, 16, arrived the same way and for the same reason took the
 next free number — but there its number and its place in the list agree, since it
 belongs with the things that are read rather than set.
 
-The seven low ones are fixed constants in `config.h`, deliberately *not* derived
+The force push interval, 17, follows the same rule: it arrived after 10 … 16 were
+in the field and took the next free number in the gap. Like the correction, its
+*number* sits apart from 10 and 11 but it is registered with them, so a coordinator
+lists all four settings together.
+
+The eight low ones are fixed constants in `config.h`, deliberately *not* derived
 from the sensor count, so changing that count leaves them — and the names a
-coordinator derives from their numbers — untouched. The gap between 16 and
+coordinator derives from their numbers — untouched. The gap between 17 and
 `EP_TEMP_BASE` leaves room for further settings.
 
 Each temperature endpoint exposes all three required identifiers:
@@ -489,7 +496,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v2.0.4
+M5Stack NanoH2 - DS18B20 over Zigbee v3.0.0
 Sensor slots: 3
 ```
 
@@ -853,6 +860,31 @@ beside the sketch. Until it is, the setting does not appear even after a re-pair
 because an external definition replaces the generated one rather than adding to it:
 see [When the Endpoint List Changes](#when-the-endpoint-list-changes).
 
+## Force Push Interval
+
+By default the device only publishes a temperature when it moves by more than the
+[reporting delta](#reading-interval-and-reporting-delta). If a temperature is stable
+— indoors overnight, for example — the coordinator may not receive a fresh reading
+for the full `TEMP_REPORT_HEARTBEAT_S` (one hour), and the heartbeat only repeats
+the *last published* value rather than taking a new measurement.
+
+The force push interval (endpoint 17, `force_push_min`) bypasses the delta entirely:
+every N minutes all temperature slots are read fresh and sent to the coordinator
+regardless of whether the values have moved. The serial console marks these publishes
+as `published (force push)` to distinguish them from delta-triggered or heartbeat
+reports.
+
+| Parameter | Default | Range | Step |
+| --- | --- | --- | --- |
+| `force_push_min` | 60 min | 0 … 120 min | 1 min |
+
+Set it to **0** to disable (the coordinator keeps getting the delta- and heartbeat-
+driven updates as before). A value of 60 means the coordinator sees a fresh reading
+at least once an hour even when temperatures do not move.
+
+The value is stored in NVS and survives a reboot. It is writable from Z2M at any
+time; the timer restarts from the moment of the write.
+
 ## Link Quality and Signal Strength
 
 The device measures the link to its **parent** and reports both halves of it, the
@@ -1085,10 +1117,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v2.0.4` | a console |
-| Basic cluster, SWBuildID (0x4000) | `2.0.4`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `20004`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `2.0.4` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.0.0` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.0.0`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30000`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.0.0` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1115,12 +1147,12 @@ exposes, and both are read-only.
 All three copies come from the same three numbers in `config.h`:
 
 ```c
-#define FW_VERSION_MAJOR 2
+#define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 4
+#define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"2.0.4"`) and `FW_VERSION_NUMBER` (`20004`) are built from them, so
+`FW_VERSION` (`"3.0.0"`) and `FW_VERSION_NUMBER` (`30000`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1192,7 +1224,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v2.0.4
+M5Stack NanoH2 - DS18B20 over Zigbee v3.0.0
 Sensor slots: 3
 ```
 
@@ -1201,9 +1233,9 @@ they are the values that change with every release — and bumping them belongs 
 the same commit as the change they name:
 
 ```c
-#define FW_VERSION_MAJOR 2
+#define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 4
+#define FW_VERSION_PATCH 0
 ```
 
 Read the three numbers against what a coordinator already knows about the device —
@@ -1687,7 +1719,7 @@ they are always active, then anything routing through them.
 
 Two mitigations work together:
 
-**In the firmware** (v2.0.4 and later) `onZigbeeConnected()` inserts a
+**In the firmware** (v3.0.0 and later) `onZigbeeConnected()` inserts a
 `POST_JOIN_REPORT_DELAY_MS` gap (150 ms, `config.h`) between each explicit
 `publish()` call, spreading the burst over roughly 750 ms.
 
