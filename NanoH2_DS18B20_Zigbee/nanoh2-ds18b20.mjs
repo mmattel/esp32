@@ -23,9 +23,13 @@
 // README.md. This copy is the one kept with the sketch; Zigbee2MQTT holds its own copy
 // under external_converters/, so a change here has to be carried over to it.
 
-// Converter version: 1.5
+// Converter version: 1.6
 //
 // Changelog (newest first):
+//   1.6  2026-10-10  Add reporting: to console_mirror (EP 14) and firmware_version (EP 16)
+//                    text attributes (attr 0xF000) so Z2M sends configure_reporting for
+//                    the char-string attribute — this creates the SDK's internal reporting
+//                    table entry that reportText() requires before it will succeed (sdk #909)
 //   1.5  2026-10-10  Fix genAnalogInput reporting: add reporting: to EP 12, 13, 14, 16
 //                    so Z2M creates bindings for those clusters — without them
 //                    reportAnalogInput() and reportText() (mirror, LQI, RSSI, version)
@@ -209,13 +213,15 @@ export default {
         // string (type 0x42). Note endpointName, singular, where the numerics above
         // take endpointNames - m.text() differs from m.numeric() there.
         //
-        // No reporting entry on purpose: the device reports this attribute by itself
-        // on every new line and once an hour as a heartbeat, so there is nothing for
-        // Z2M to configure. The value arrives space padded to 64 characters.
+        // reporting: is required even though the device reports this itself — Z2M must
+        // send configure_reporting for attr 0xF000 so the SDK's internal reporting table
+        // gets an entry for it. Without that entry, reportText() is silently discarded
+        // (sdk #909). The value arrives space padded to 64 characters.
         m.text({
             name: 'console_mirror',
             cluster: 'genAnalogInput',
             attribute: {ID: 0xf000, type: 0x42},
+            reporting: {min: 0, max: 3600, change: 0},
             description: 'Last console line worth an event, space padded',
             access: 'STATE_GET',
             endpointName: '14',
@@ -227,12 +233,13 @@ export default {
         // nothing to keep apart. Not space padded, unlike the line: the version is fixed
         // at compile time, so the attribute is created at exactly its length.
         //
-        // No reporting entry, for the same reason as the mirrored line: the device
-        // reports this attribute itself, here after every join.
+        // reporting: for the same reason as the mirror: Z2M must send configure_reporting
+        // so the SDK's internal table gets an entry for attr 0xF000 on this endpoint.
         m.text({
             name: 'firmware_version',
             cluster: 'genAnalogInput',
             attribute: {ID: 0xf000, type: 0x42},
+            reporting: {min: 0, max: 65534, change: 0},
             description: 'Firmware version this device is running',
             access: 'STATE_GET',
             endpointName: '16',
