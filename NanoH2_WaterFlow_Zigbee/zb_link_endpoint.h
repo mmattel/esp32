@@ -25,4 +25,7 @@ public:
   // Call after addAnalogInput() and before Zigbee.begin(). Optional: without it
   // the value is simply unitless, so a failure is a warning, not fatal.
   bool setAnalogInputUnits(uint16_t bacnetUnit);
+
+  // Direct unicast to coordinator instead of binding-table mode.
+  bool reportAnalogInput();
 };

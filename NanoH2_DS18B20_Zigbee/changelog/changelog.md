@@ -4,6 +4,20 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.1.0
+
+**Fixed:** automatic updates (temperature, console mirror, LQI, RSSI, firmware version) never reached Z2M or HA despite bindings being correctly populated in the device's binding table. Manually pressing the refresh button in Z2M returned values normally; automatic reports never arrived.
+
+**Root cause:** `esp_zb_zcl_report_attr_cmd_req()` with `ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT` (binding-table addressing mode) silently fails on this device even when bindings are present. This was confirmed in v3.0.2: after adding all the `reporting:` entries to the converter, bindings appeared in Z2M's bind tab, but reports still did not arrive. Temperature held for two minutes with a 10-second reading interval produced no updates.
+
+**Fix:** all attribute report calls now use direct unicast to the coordinator at short address 0x0000 endpoint 1 (`ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT`). The binding table is bypassed entirely. Affected: `ZbMirror::reportText()`, `ZbMirror::reportAnalogInput()`, `ZbVersion::reportText()`, `ZbVersion::reportAnalogInput()`, `LinkAnalog::reportAnalogInput()`, `TempEndpoint::reportTemperature()` — each is now a direct unicast, either changed in place (for the existing manual builds) or overriding the inherited library method.
+
+**No factory reset required.** Reflash the firmware. Z2M bindings are no longer needed for reports to reach the coordinator, but re-interviewing is harmless and keeps the bind tab consistent.
+
+**Converter unchanged** — still 1.5. The `reporting:` entries in the converter are now only needed for Z2M's `configure_reporting` step (which tells the device the coordinator's thresholds), not for the bindings. The unicast fix makes the binding irrelevant to delivery.
+
+---
+
 ## 3.0.2
 
 **Fixed:** console mirror, LQI, RSSI, and firmware version did not update automatically in Z2M — only after manually clicking the refresh button. The same root cause as the temperature fix in 3.0.1: `reporting:` was absent from the `genAnalogInput` endpoints in the converter, so Z2M never created bindings for those clusters. Every `reportAnalogInput()` and `reportText()` call in the firmware was silently discarded.

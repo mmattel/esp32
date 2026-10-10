@@ -64,6 +64,7 @@ public:
 
 private:
   bool reportText();
+  bool reportAnalogInput();
 
   bool _hasText = false;  // whether addText() got the attribute created
 };
