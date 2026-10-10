@@ -19,9 +19,13 @@
 //   - sketch folder (this file)
 //   - <z2m-data>/external_converters/nanoh2-waterflow.mjs
 
-// Converter version: 1.4
+// Converter version: 1.5
 //
 // Changelog (newest first):
+//   1.5  2026-10-10  Add reporting: to console_mirror (EP 15) and firmware_version (EP 16)
+//                    text attributes (attr 0xF000) so Z2M sends configure_reporting for
+//                    the char-string attribute — this creates the SDK's internal reporting
+//                    table entry that reportText() requires before it will succeed (sdk #909)
 //   1.4  2026-10-10  Fix genAnalogInput reporting: add reporting: to all STATE_GET
 //                    endpoints (EP 13, 14, 15, 16, 20-24) so Z2M creates bindings
 //                    for genAnalogInput — without them reportAnalogInput() and
@@ -275,20 +279,30 @@ export default {
 
         // EP 15, attribute 0xF000: the mirrored console line as a ZCL char string.
         // Space-padded to 64 characters; trim() it in automations.
+        //
+        // reporting: is required even though the device reports this itself — Z2M must
+        // send configure_reporting for attr 0xF000 so the SDK's internal reporting table
+        // gets an entry for it. Without that entry, reportText() is silently discarded
+        // (sdk #909).
         m.text({
             name: 'console_mirror',
             cluster: 'genAnalogInput',
             attribute: {ID: 0xf000, type: 0x42},
+            reporting: {min: 0, max: 3600, change: 0},
             description: 'Last console line worth an event, space padded to 64 chars',
             access: 'STATE_GET',
             endpointName: '15',
             entityCategory: 'diagnostic',
         }),
-        // EP 16, attribute 0xF000: firmware version string (e.g. "1.0.0").
+        // EP 16, attribute 0xF000: firmware version string (e.g. "2.1.0").
+        //
+        // reporting: for the same reason as the mirror: Z2M must send configure_reporting
+        // so the SDK's internal table gets an entry for attr 0xF000 on this endpoint.
         m.text({
             name: 'firmware_version',
             cluster: 'genAnalogInput',
             attribute: {ID: 0xf000, type: 0x42},
+            reporting: {min: 0, max: 65534, change: 0},
             description: 'Firmware version string this device is running',
             access: 'STATE_GET',
             endpointName: '16',

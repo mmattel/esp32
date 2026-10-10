@@ -209,4 +209,4 @@ them feels stale.
 | Issue | URL | What it affects |
 | --- | --- | --- |
 | arduino-esp32 #12917 | https://github.com/espressif/arduino-esp32/issues/12917 | Uninitialised `manuf_code` in core report helpers; workaround is in `ZbMirror::reportText()` |
-| esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | `esp_zigbee_zcl_command.c:263` assert on char-string reports; root cause not yet confirmed |
+| esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | `esp_zigbee_zcl_command.c:263` assert on char-string reports; root cause not yet confirmed. Binding-table report mode silently fails — fixed in v2.1.0 by unicast to 0x0000 ep 1. `reportText()` also requires a reporting-config entry in the SDK's internal table for attr 0xF000; fixed in converter v1.5 by adding `reporting:` to both `m.text()` entries so Z2M sends `configure_reporting` for 0xF000 during re-interview. |
