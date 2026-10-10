@@ -3,17 +3,14 @@
 // ZCL has no cluster for text and no coordinator subscribes to one, so the line
 // travels in an attribute of its own - a character string - and that attribute is
 // added to a standard analog input cluster instead of a private cluster of its
-// own. That is deliberate. A report is addressed through the binding table (see
-// "An expose that stays N/A" in README.md), a coordinator binds the clusters it
-// recognises, and a cluster it has never heard of is one it will not bind: the
-// reports would be dropped here, at the source, before the radio ever sees them.
-// An analog input is bound by every coordinator, so the text rides along on a
-// cluster that is bound anyway.
-//
-// The value of that cluster is not wasted either: it counts the lines, so it is
+// own. The value of that cluster is not wasted: it counts the lines, so it is
 // the sequence number of the text beside it. It is a number, which means it needs
 // no converter to be visible, and it changes with every new line, which is what an
 // automation can trigger on even where the text itself is not readable.
+//
+// Reports use direct unicast to the coordinator at short address 0x0000 rather
+// than the binding table. The binding table mode (ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT)
+// silently fails on this device even when bindings are present - confirmed in v2.0.2.
 //
 // Nothing here can be written: an analog input is read-only by definition, and the
 // text attribute is created read-only as well.
@@ -62,6 +59,7 @@ private:
   void publish();
   bool setText();
   bool reportText();
+  bool reportAnalogInput();
 
   char _text[MIRROR_TEXT_LEN + 1] = "";       // the current line, already cut to length
   char _published[MIRROR_TEXT_LEN + 1] = "";  // the line the coordinator was given

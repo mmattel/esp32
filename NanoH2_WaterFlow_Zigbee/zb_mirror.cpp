@@ -145,14 +145,18 @@ bool ZbMirror::setText() {
 bool ZbMirror::reportText() {
   // The library reports the attributes it knows about, not this one, so the report
   // is built here - field for field like ZigbeeAnalog::reportAnalogInput() does, and
-  // one field more. The address mode is what sends it to whoever is bound.
+  // one field more. Direct unicast to coordinator 0x0000 endpoint 1: the binding
+  // table mode (ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT) silently fails on
+  // this device even when bindings are populated - confirmed in v2.0.2.
   //
   // Zeroed first so that nothing in it is left to whatever the stack happened to
   // hold: the named fields below do not cover the padding around the bitfields, and
   // a later SDK can add fields this code has never heard of. The core's own helpers
   // skip this and get away with it, which is not a reason to.
   esp_zb_zcl_report_attr_cmd_t cmd = {};
-  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT;
+  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+  cmd.zcl_basic_cmd.dst_addr_u.addr_short = 0x0000;
+  cmd.zcl_basic_cmd.dst_endpoint = 1;
   cmd.attributeID = MIRROR_TEXT_ATTR_ID;
   cmd.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
   cmd.clusterID = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
@@ -170,6 +174,23 @@ bool ZbMirror::reportText() {
   // being a call to the helper.
   cmd.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
 
+  return reportClusterAttribute(&cmd);
+}
+
+bool ZbMirror::reportAnalogInput() {
+  // Override the base class binding-table mode with direct unicast to coordinator.
+  // Same pattern as reportText() — see that function for the full rationale.
+  esp_zb_zcl_report_attr_cmd_t cmd = {};
+  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+  cmd.zcl_basic_cmd.dst_addr_u.addr_short = 0x0000;
+  cmd.zcl_basic_cmd.dst_endpoint = 1;
+  cmd.attributeID = ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID;
+  cmd.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
+  cmd.clusterID = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
+  cmd.zcl_basic_cmd.src_endpoint = _endpoint;
+  cmd.manuf_specific = 0x00U;
+  cmd.dis_default_resp = 0x00U;
+  cmd.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
   return reportClusterAttribute(&cmd);
 }
 

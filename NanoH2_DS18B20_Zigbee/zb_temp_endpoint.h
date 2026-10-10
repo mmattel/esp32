@@ -22,6 +22,9 @@ public:
   // needs. Ids longer than 16 characters are rejected.
   bool setSensorId(const char *id);
 
+  // Direct unicast to coordinator instead of binding-table mode.
+  bool reportTemperature();
+
 private:
   bool _created = false;
 };
