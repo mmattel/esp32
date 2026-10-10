@@ -4,6 +4,18 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.0.2
+
+**Fixed:** console mirror, LQI, RSSI, and firmware version did not update automatically in Z2M — only after manually clicking the refresh button. The same root cause as the temperature fix in 3.0.1: `reporting:` was absent from the `genAnalogInput` endpoints in the converter, so Z2M never created bindings for those clusters. Every `reportAnalogInput()` and `reportText()` call in the firmware was silently discarded.
+
+The single "Console mirror: cannot be sent" message in the serial log (printed once at join time, then quiet) was the only visible sign of this failure. The message fires when the first report fails at join time before Z2M's configure step has run. Without a binding, subsequent calls also fail — but silently, because the internal `_publishWorked` state is already false and no repeat message is printed.
+
+Converter updated to 1.5: added `reporting:` entries to EP 12 (LQI), EP 13 (RSSI), EP 14 (mirror counter), and EP 16 (firmware version number). Z2M now creates `genAnalogInput` bindings for all four during the configure step.
+
+**No reflash required.** Update the converter in Z2M `external_converters/` and re-interview the device.
+
+---
+
 ## 3.0.1
 
 **Fixed:** temperature readings did not appear in Z2M or HA automatically after a factory reset and re-pair. Manually pressing the refresh button in Z2M for each sensor did return a reading, but automatic updates (force push, delta-triggered, heartbeat) never arrived.

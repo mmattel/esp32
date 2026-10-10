@@ -19,9 +19,13 @@
 //   - sketch folder (this file)
 //   - <z2m-data>/external_converters/nanoh2-waterflow.mjs
 
-// Converter version: 1.3
+// Converter version: 1.4
 //
 // Changelog (newest first):
+//   1.4  2026-10-10  Fix genAnalogInput reporting: add reporting: to all STATE_GET
+//                    endpoints (EP 13, 14, 15, 16, 20-24) so Z2M creates bindings
+//                    for genAnalogInput — without them reportAnalogInput() and
+//                    reportText() delivered to nobody (same root cause as DS18B20 1.5)
 //   1.3  2026-10-09  Add EP 17: force_push_min (force push interval, 0-120 min)
 //   1.2  2026-10-06  Add README link to description for Info tab clickthrough
 //   1.1  2026-10-06  Remove m.identify(); remove reporting: from all STATE_GET
@@ -119,6 +123,9 @@ export default {
         // Diagnostics (Analog Input, endpoints 13-16)
         // ----------------------------------------------------------------
 
+        // reporting: on all genAnalogInput endpoints: Z2M uses the reporting entry to
+        // also send a bind command. Without the bind, every reportAnalogInput() /
+        // reportText() call is silently discarded — same root cause as DS18B20 1.4/1.5.
         m.numeric({
             name: 'parent_link_lqi',
             label: 'Parent link LQI',
@@ -127,6 +134,7 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Link quality index to the parent (device-side view)',
             access: 'STATE_GET',
             endpointNames: ['13'],
@@ -140,6 +148,7 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Signal strength to the parent in dBm (device-side view)',
             access: 'STATE_GET',
             endpointNames: ['14'],
@@ -155,12 +164,15 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Count of console events mirrored over the air; a gap means lines printed while off the air',
             access: 'STATE_GET',
             endpointNames: ['15'],
             entityCategory: 'diagnostic',
         }),
-        // EP 16, presentValue: firmware version as a sortable integer (1.0.0 -> 10000).
+        // EP 16, presentValue: firmware version as a sortable integer (2.0.0 -> 20000).
+        // reporting: is here for the binding, not for configure_reporting: the firmware
+        // reports this attribute itself after every join and nowhere else.
         m.numeric({
             name: 'firmware_version_number',
             label: 'Firmware version number',
@@ -169,6 +181,7 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 65534, change: 1},
             description: 'Firmware version as a sortable integer (major*10000 + minor*100 + patch)',
             access: 'STATE_GET',
             endpointNames: ['16'],
@@ -188,6 +201,7 @@ export default {
             valueStep: 0.001,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Current flow rate in litres per minute',
             access: 'STATE_GET',
             endpointNames: ['20'],
@@ -202,6 +216,7 @@ export default {
             valueStep: 0.0001,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Current flow rate in litres per second',
             access: 'STATE_GET',
             endpointNames: ['21'],
@@ -216,6 +231,7 @@ export default {
             valueStep: 0.001,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Cumulative water consumption in litres (persisted in flash)',
             access: 'STATE_GET',
             endpointNames: ['22'],
@@ -230,6 +246,7 @@ export default {
             valueStep: 0.000001,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Cumulative water consumption in cubic metres',
             access: 'STATE_GET',
             endpointNames: ['23'],
@@ -245,6 +262,7 @@ export default {
             valueStep: 0.001,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Litres since the total start value was last written (resets on write to EP 12 or on reboot)',
             access: 'STATE_GET',
             endpointNames: ['24'],

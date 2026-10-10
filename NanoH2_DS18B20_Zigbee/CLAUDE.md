@@ -129,20 +129,26 @@ or invisible (internal cleanup), and both get a minor bump so the history stays 
 makes Z2M send extra bind and configure_reporting commands during its configure step for
 no benefit.
 
-**No `reporting:` on `STATE_GET` (`genAnalogInput`) endpoints** — the firmware calls
-`reportAnalogInput()` etc. explicitly and manages its own deadband and heartbeat
-entirely in software. Z2M's configure_reporting step for those read-only endpoints is
-therefore wasted traffic. Keep `reporting:` only on writable (`access: 'ALL'`,
-`genAnalogOutput`) endpoints.
+**Every endpoint that the firmware ever calls `report*()` on MUST have a `reporting:`
+entry in the converter** — including `STATE_GET` (`genAnalogInput`) ones. Z2M uses
+the presence of a `reporting:` entry to also send a bind command to the device. Without
+the bind, the device's binding table has no entry for that cluster, and every
+`reportAnalogInput()`, `reportTemperature()`, or `reportText()` call is silently
+discarded — Z2M receives nothing and the refresh-button-is-required symptom appears.
 
-**Exception — `m.temperature()` (`msTemperatureMeasurement`) MUST have a `reporting:`
-entry.** Z2M uses the presence of a `reporting:` entry on a temperature expose to also
-send a bind command to the device. Without the bind, the device has no binding table
-entry for `msTemperatureMeasurement` and every `reportTemperature()` call is silently
-discarded — Z2M and HA see nothing. This was the root cause of the v3.0.1 fix. Use
-`reporting: {min: 10, max: 3600, change: 25}` (change: 25 = 0.25 °C in ZCL units).
-After a factory reset+re-pair, re-interview the device so Z2M's configure step
-creates the binding.
+This was confirmed twice: v3.0.1 fixed `msTemperatureMeasurement` (EP 20–22), v3.0.2
+fixed `genAnalogInput` (EP 12, 13, 14, 16). The old rule "omit `reporting:` from
+STATE_GET endpoints" was wrong and has been removed.
+
+Use sensible values for the thresholds; the firmware manages its own deadband in
+software and these are fallbacks only:
+- Read-only diagnostics (LQI, RSSI, mirror counter): `{min: 10, max: 3600, change: 1}`
+- Temperature: `{min: 10, max: 3600, change: 25}` (change: 25 = 0.25 °C in ZCL units)
+- Firmware version (changes only on reflash): `{min: 10, max: 65534, change: 1}`
+- Writable settings (`genAnalogOutput`): `{min: 'MIN', max: 'MAX', change: 1}`
+
+After a factory reset+re-pair, always re-interview the device so Z2M's configure step
+sends the bind commands. No re-interview = no bindings = silent report failures.
 
 ---
 

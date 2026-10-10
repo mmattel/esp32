@@ -127,13 +127,20 @@ or invisible (internal cleanup), and both get a minor bump so the history stays 
 makes Z2M send extra bind and configure_reporting commands during its configure step for
 no benefit.
 
-**No `reporting:` on `STATE_GET` (`genAnalogInput`) endpoints** — the firmware calls
-`reportAnalogInput()` etc. explicitly and manages its own deadband and heartbeat
-entirely in software. Z2M's configure_reporting step for read-only endpoints is
-therefore wasted traffic. With many endpoints, this combined with the device's own
-post-join burst can overwhelm the Z-Stack coordinator and cause SRSP timeouts that
-crash Z2M. Keep `reporting:` only on writable (`access: 'ALL'`, `genAnalogOutput`)
-endpoints where Z2M needs to learn when the device changes a value.
+**Every endpoint that the firmware ever calls `report*()` on MUST have a `reporting:`
+entry in the converter** — including `STATE_GET` (`genAnalogInput`) ones. Z2M uses
+the presence of a `reporting:` entry to also send a bind command to the device. Without
+the bind, the device's binding table has no entry for that cluster, and every
+`reportAnalogInput()` or `reportText()` call is silently discarded — Z2M receives
+nothing and the refresh-button-is-required symptom appears.
+
+This was confirmed in the DS18B20 sketch (v3.0.1 and v3.0.2). The old rule "omit
+`reporting:` from STATE_GET endpoints" was wrong and has been removed from both
+CLAUDE.md files.
+
+Thresholds for read-only diagnostics: `{min: 10, max: 3600, change: 1}`. The firmware
+manages its own deadband in software; these are fallbacks only.
+Writable settings (`genAnalogOutput`): `{min: 'MIN', max: 'MAX', change: 1}`.
 
 ---
 
