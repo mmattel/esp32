@@ -300,6 +300,15 @@ void applyReporting() {
   }
   if (ZB_MIRROR_ENDPOINT) {
     zbMirror.setAnalogInputReporting(MIRROR_REPORT_MIN_INTERVAL_S, MIRROR_REPORT_HEARTBEAT_S, 0);
+    // The text attribute needs its own reporting-config entry in the SDK's internal
+    // table - setAnalogInputReporting() only covers presentValue. Without it,
+    // reportText() fails silently (sdk #909 / fixed in v2.1.1).
+    zbMirror.setTextReporting(MIRROR_REPORT_MIN_INTERVAL_S, MIRROR_REPORT_HEARTBEAT_S);
+  }
+  if (ZB_VERSION_ENDPOINT) {
+    // presentValue is handled by Z2M's configure_reporting (converter has reporting:).
+    // The text attribute is not — m.text() does not trigger configure_reporting.
+    zbVersion.setTextReporting(0, 65534);
   }
   // Flow measurements: heartbeat, but no stack-side change filter (we
   // handle deadbands ourselves and report every change explicitly).

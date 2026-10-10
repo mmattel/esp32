@@ -589,15 +589,18 @@ void applyReporting() {
   if (ZB_RSSI_ENDPOINT) {
     zbRssi.setAnalogInputReporting(LINK_REPORT_MIN_INTERVAL_S, LINK_REPORT_HEARTBEAT_S, 0);
   }
-  // Only the sequence number gets a reporting configuration; the text beside it is
-  // reported explicitly, which is also why a coordinator rewriting this cannot
-  // silence the mirror.
   if (ZB_MIRROR_ENDPOINT) {
     zbMirror.setAnalogInputReporting(MIRROR_REPORT_MIN_INTERVAL_S, MIRROR_REPORT_HEARTBEAT_S, 0);
+    // The text attribute needs its own reporting-config entry in the SDK's internal
+    // table - setAnalogInputReporting() only covers presentValue. Without it,
+    // reportText() fails silently (sdk #909 / fixed in v3.1.1).
+    zbMirror.setTextReporting(MIRROR_REPORT_MIN_INTERVAL_S, MIRROR_REPORT_HEARTBEAT_S);
   }
-  // Nothing for the version endpoint on purpose: a reporting configuration is what
-  // repeats a value that moves, and this one cannot move without a reflash - which
-  // reboots the device and rejoins, and onZigbeeConnected() sends it there.
+  if (ZB_VERSION_ENDPOINT) {
+    // presentValue is handled by Z2M's configure_reporting (converter has reporting:).
+    // The text attribute is not — m.text() does not trigger configure_reporting.
+    zbVersion.setTextReporting(0, 65534);
+  }
 }
 
 // Allocated once and never freed: the endpoints live for the whole run, and

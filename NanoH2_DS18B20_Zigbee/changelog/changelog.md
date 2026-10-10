@@ -4,6 +4,20 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.1.1
+
+**Fixed:** `console_mirror` (EP 14, attribute 0xF000) and `firmware_version` text (EP 16, attribute 0xF000) never auto-updated in Z2M — pressing the refresh button returned the correct value, but no reports arrived automatically. The sequence counter (`mirror_line_count`) did update, so the reporting path was partially working.
+
+**Root cause:** `esp_zb_zcl_report_attr_cmd_req()` (called by `reportClusterAttribute()`) looks up a reporting-configuration entry in the SDK's internal table for the attribute before sending. `setAnalogInputReporting()` creates such an entry for `presentValue` (float); no equivalent existed for attribute 0xF000 (char-string). Float attributes therefore reported successfully after v3.1.0's unicast fix; char-string attributes still failed silently on every call.
+
+**Fix:** a new `setTextReporting()` method on `ZbMirror` and `ZbVersion` calls `esp_zb_zcl_update_reporting_info()` directly for attribute 0xF000, creating the required entry. It is called from `applyReporting()` (which already runs on each join, after `Zigbee.begin()`).
+
+**Note on converter v1.6:** the `reporting:` entries added to `m.text()` in converter v1.6 are harmless but do not by themselves fix this — Z2M does not send `configure_reporting` commands for custom text attributes even when `reporting:` is present.
+
+**No factory reset required.** Reflash and rejoin.
+
+---
+
 ## 3.1.0
 
 **Fixed:** automatic updates (temperature, console mirror, LQI, RSSI, firmware version) never reached Z2M or HA despite bindings being correctly populated in the device's binding table. Manually pressing the refresh button in Z2M returned values normally; automatic reports never arrived.
