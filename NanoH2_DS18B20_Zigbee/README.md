@@ -496,7 +496,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.0.1
+M5Stack NanoH2 - DS18B20 over Zigbee v3.0.2
 Sensor slots: 3
 ```
 
@@ -1117,10 +1117,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.0.1` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.0.1`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30001`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.0.1` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.0.2` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.0.2`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30002`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.0.2` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1149,10 +1149,10 @@ All three copies come from the same three numbers in `config.h`:
 ```c
 #define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 1
+#define FW_VERSION_PATCH 2
 ```
 
-`FW_VERSION` (`"3.0.1"`) and `FW_VERSION_NUMBER` (`30001`) are built from them, so
+`FW_VERSION` (`"3.0.2"`) and `FW_VERSION_NUMBER` (`30002`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1224,7 +1224,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.0.1
+M5Stack NanoH2 - DS18B20 over Zigbee v3.0.2
 Sensor slots: 3
 ```
 
@@ -1235,7 +1235,7 @@ the same commit as the change they name:
 ```c
 #define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 0
-#define FW_VERSION_PATCH 0
+#define FW_VERSION_PATCH 2
 ```
 
 Read the three numbers against what a coordinator already knows about the device —

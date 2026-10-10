@@ -23,9 +23,13 @@
 // README.md. This copy is the one kept with the sketch; Zigbee2MQTT holds its own copy
 // under external_converters/, so a change here has to be carried over to it.
 
-// Converter version: 1.4
+// Converter version: 1.5
 //
 // Changelog (newest first):
+//   1.5  2026-10-10  Fix genAnalogInput reporting: add reporting: to EP 12, 13, 14, 16
+//                    so Z2M creates bindings for those clusters — without them
+//                    reportAnalogInput() and reportText() (mirror, LQI, RSSI, version)
+//                    delivered to nobody, for the same reason temperature did in 1.4
 //   1.4  2026-10-10  Fix temperature reporting: replace reporting: false with
 //                    explicit config so Z2M creates the msTemperatureMeasurement
 //                    binding — without it reportTemperature() delivered to nobody
@@ -114,6 +118,10 @@ export default {
             endpointNames: ['17'],
             unit: 'min',
         }),
+        // reporting: on all genAnalogInput endpoints: Z2M uses the reporting entry to
+        // also send a bind command for genAnalogInput. Without the bind, the device has no
+        // binding table entry and every reportAnalogInput() call is silently discarded —
+        // the same root cause as the temperature fix in 1.4.
         m.numeric({
             name: 'parent_link_lqi',
             label: 'Parent link LQI',
@@ -122,6 +130,7 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Analog Input Parent link LQI on endpoint 12',
             access: 'STATE_GET',
             endpointNames: ['12'],
@@ -135,6 +144,7 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Analog Input Parent link RSSI on endpoint 13',
             access: 'STATE_GET',
             endpointNames: ['13'],
@@ -151,6 +161,7 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 3600, change: 1},
             description: 'Analog Input Mirror line count on endpoint 14',
             access: 'STATE_GET',
             endpointNames: ['14'],
@@ -162,9 +173,9 @@ export default {
         // one, and Z2M's own "Firmware build ID" on the device page is a third copy of
         // the same version, read from the Basic cluster during the interview.
         //
-        // The device sends both after every join - which is the only moment the answer
-        // can have changed, since changing it means flashing. No reporting entry: the
-        // device reports this attribute itself after every join.
+        // The device sends both after every join. reporting: is here for the binding, not
+        // for configure_reporting: the firmware reports this attribute itself after every
+        // join and nowhere else.
         m.numeric({
             name: 'firmware_version_number',
             label: 'Firmware version number',
@@ -173,6 +184,7 @@ export default {
             valueStep: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
+            reporting: {min: 10, max: 65534, change: 1},
             description: 'Analog Input Firmware version number on endpoint 16',
             access: 'STATE_GET',
             endpointNames: ['16'],
