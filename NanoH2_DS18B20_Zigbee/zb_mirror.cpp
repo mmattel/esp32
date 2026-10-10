@@ -194,6 +194,34 @@ bool ZbMirror::reportAnalogInput() {
   return reportClusterAttribute(&cmd);
 }
 
+void ZbMirror::setTextReporting(uint16_t minInterval, uint16_t maxInterval) {
+  if (!_hasText) {
+    return;
+  }
+  // The SDK's reportClusterAttribute() looks up a reporting-config entry for the
+  // attribute before sending. setAnalogInputReporting() creates one for presentValue
+  // (float); this creates one for the text attribute (0xF000). Without it, reportText()
+  // fails silently every time it is called - the same as the float would without
+  // setAnalogInputReporting(). Called from applyReporting() on each join because
+  // the Zigbee stack has to be running for esp_zb_zcl_update_reporting_info() to work.
+  //
+  // delta is left 0: char-string is a discrete type, and discrete types carry no
+  // reportableChange threshold (ZCL spec 2.6.7.4).
+  esp_zb_zcl_reporting_info_t ri = {};
+  ri.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
+  ri.ep = _endpoint;
+  ri.cluster_id = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
+  ri.cluster_role = ESP_ZB_ZCL_CLUSTER_SERVER_ROLE;
+  ri.attr_id = MIRROR_TEXT_ATTR_ID;
+  ri.u.send_info.min_interval = minInterval;
+  ri.u.send_info.max_interval = maxInterval;
+  ri.u.send_info.def_min_interval = minInterval;
+  ri.u.send_info.def_max_interval = maxInterval;
+  ri.dst.profile_id = ESP_ZB_AF_HA_PROFILE_ID;
+  ri.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
+  esp_zb_zcl_update_reporting_info(&ri);
+}
+
 bool ZbMirror::addText() {
   esp_zb_attribute_list_t *cluster = esp_zb_cluster_list_get_cluster(
     _cluster_list, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);

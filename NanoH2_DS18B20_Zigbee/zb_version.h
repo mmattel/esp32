@@ -62,6 +62,11 @@ public:
   // means a reboot, and a reboot means a join.
   void publish(int32_t versionNumber);
 
+  // Registers a reporting configuration entry for the text attribute in the SDK's
+  // internal table. reportText() requires one — call this from applyReporting(),
+  // after Zigbee.begin(). See ZbMirror::setTextReporting() for the full rationale.
+  void setTextReporting(uint16_t minInterval, uint16_t maxInterval);
+
 private:
   bool reportText();
   bool reportAnalogInput();

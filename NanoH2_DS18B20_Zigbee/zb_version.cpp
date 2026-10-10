@@ -63,6 +63,29 @@ bool SwBuildAnalog::addSoftwareBuildId(const char *version) {
   return true;
 }
 
+void ZbVersion::setTextReporting(uint16_t minInterval, uint16_t maxInterval) {
+  if (!_hasText) {
+    return;
+  }
+  // Same rationale as ZbMirror::setTextReporting(): reportText() needs a reporting-
+  // config entry for attr VERSION_TEXT_ATTR_ID in the SDK's internal table, or it
+  // fails silently. Z2M sends configure_reporting for presentValue (from the converter's
+  // reporting: entry) but not for m.text() attributes, so this has to be done here.
+  esp_zb_zcl_reporting_info_t ri = {};
+  ri.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
+  ri.ep = _endpoint;
+  ri.cluster_id = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
+  ri.cluster_role = ESP_ZB_ZCL_CLUSTER_SERVER_ROLE;
+  ri.attr_id = VERSION_TEXT_ATTR_ID;
+  ri.u.send_info.min_interval = minInterval;
+  ri.u.send_info.max_interval = maxInterval;
+  ri.u.send_info.def_min_interval = minInterval;
+  ri.u.send_info.def_max_interval = maxInterval;
+  ri.dst.profile_id = ESP_ZB_AF_HA_PROFILE_ID;
+  ri.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
+  esp_zb_zcl_update_reporting_info(&ri);
+}
+
 bool ZbVersion::addText(const char *version) {
   esp_zb_attribute_list_t *cluster =
     esp_zb_cluster_list_get_cluster(_cluster_list, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);

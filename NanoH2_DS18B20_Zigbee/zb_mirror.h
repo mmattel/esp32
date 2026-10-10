@@ -54,6 +54,11 @@ public:
   // Repeats the current line every MIRROR_REPORT_HEARTBEAT_S. Call from loop().
   void handleReports();
 
+  // Registers a reporting configuration entry for the text attribute in the SDK's
+  // internal table. reportText() requires one — call this from applyReporting(),
+  // after Zigbee.begin(), alongside setAnalogInputReporting().
+  void setTextReporting(uint16_t minInterval, uint16_t maxInterval);
+
 private:
   // Puts _text and the sequence number on the air, and remembers that it did.
   void publish();
