@@ -130,12 +130,19 @@ makes Z2M send extra bind and configure_reporting commands during its configure 
 no benefit.
 
 **No `reporting:` on `STATE_GET` (`genAnalogInput`) endpoints** — the firmware calls
-`reportTemperature()`, `reportAnalogInput()` etc. explicitly and manages its own
-deadband and heartbeat entirely in software. Z2M's configure_reporting step for
-read-only endpoints is therefore wasted traffic. With many endpoints, this combined
-with the device's own post-join burst can overwhelm the Z-Stack coordinator and cause
-SRSP timeouts that crash Z2M. Keep `reporting:` only on writable (`access: 'ALL'`,
-`genAnalogOutput`) endpoints where Z2M needs to learn when the device changes a value.
+`reportAnalogInput()` etc. explicitly and manages its own deadband and heartbeat
+entirely in software. Z2M's configure_reporting step for those read-only endpoints is
+therefore wasted traffic. Keep `reporting:` only on writable (`access: 'ALL'`,
+`genAnalogOutput`) endpoints.
+
+**Exception — `m.temperature()` (`msTemperatureMeasurement`) MUST have a `reporting:`
+entry.** Z2M uses the presence of a `reporting:` entry on a temperature expose to also
+send a bind command to the device. Without the bind, the device has no binding table
+entry for `msTemperatureMeasurement` and every `reportTemperature()` call is silently
+discarded — Z2M and HA see nothing. This was the root cause of the v3.0.1 fix. Use
+`reporting: {min: 10, max: 3600, change: 25}` (change: 25 = 0.25 °C in ZCL units).
+After a factory reset+re-pair, re-interview the device so Z2M's configure step
+creates the binding.
 
 ---
 

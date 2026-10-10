@@ -23,9 +23,12 @@
 // README.md. This copy is the one kept with the sketch; Zigbee2MQTT holds its own copy
 // under external_converters/, so a change here has to be carried over to it.
 
-// Converter version: 1.3
+// Converter version: 1.4
 //
 // Changelog (newest first):
+//   1.4  2026-10-10  Fix temperature reporting: replace reporting: false with
+//                    explicit config so Z2M creates the msTemperatureMeasurement
+//                    binding — without it reportTemperature() delivered to nobody
 //   1.3  2026-10-09  Add EP 17: force_push_min (force push interval, 0-120 min)
 //   1.2  2026-10-06  Add README link to description for Info tab clickthrough
 //   1.1  2026-10-06  Remove m.identify(); remove reporting: from all STATE_GET
@@ -184,7 +187,12 @@ export default {
         // disagrees: an endpoint listed here that the firmware does not have is an
         // expose that stays N/A for good, plus a binding Z2M logs as failed during
         // configure - and one left out hides a sensor that is really reporting.
-        m.temperature({endpointNames: ['20', '21', '22'], reporting: false}),
+        // reporting: is required here — Z2M uses the reporting entry to also send a bind
+        // command for msTemperatureMeasurement. Without the bind, the device has no
+        // binding table entry and every reportTemperature() call is silently discarded.
+        // The firmware manages its own deadband (reporting_delta_c, EP 11) and force push
+        // (force_push_min, EP 17) entirely in software; these thresholds are fallbacks only.
+        m.temperature({endpointNames: ['20', '21', '22'], reporting: {min: 10, max: 3600, change: 25}}),
         // Endpoint 14, attribute 0xF000: the mirrored line itself, a ZCL character
         // string (type 0x42). Note endpointName, singular, where the numerics above
         // take endpointNames - m.text() differs from m.numeric() there.
