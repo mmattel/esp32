@@ -4,6 +4,18 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.0.1
+
+**Fixed:** temperature readings did not appear in Z2M or HA automatically after a factory reset and re-pair. Manually pressing the refresh button in Z2M for each sensor did return a reading, but automatic updates (force push, delta-triggered, heartbeat) never arrived.
+
+**Root cause:** converter 1.3 had `reporting: false` on `m.temperature()`. Z2M interprets this as "skip both configure_reporting and the bind command" for the `msTemperatureMeasurement` cluster. Without a binding in the device's binding table, every `reportTemperature()` call in the firmware was silently discarded by the Zigbee stack. Because previous firmware versions were updated via rejoin (no factory reset), the old binding from the original pair survived in NVS. The v3.0.0 factory reset wiped it; the configure step with `reporting: false` did not rebuild it.
+
+Converter updated to 1.4: replaced `reporting: false` with an explicit reporting config (`{min: 10, max: 3600, change: 25}`, where `change: 25` = 0.25 °C in ZCL units of 0.01 °C). Z2M now creates the binding during the configure step, and the firmware's own deadband and force push continue to control when `reportTemperature()` is called.
+
+**No reflash required.** Update the converter in Z2M `external_converters/` and re-interview the device — the configure step will create the missing binding without a factory reset.
+
+---
+
 ## 3.0.0
 
 **Added:** Force Push interval setting (EP 17).
