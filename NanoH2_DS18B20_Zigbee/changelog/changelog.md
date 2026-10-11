@@ -4,6 +4,20 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.5
+
+From the v3.2.4 field logs of 2026-10-11, 17:25 to 17:33 (seven boots):
+
+**LQI works.** Every boot with an empty neighbour entry caught the parent's answer frame: LQI 204, the same each time, plausible for a parent 50–60 cm away.
+
+**RSSI now computed from the LQI.** The radio driver's "recent" values were unusable in all five captures: LQI 7–11 at −101 to −121 dBm, noise floor rather than a frame, so 3.2.4's check rightly withheld them. But the stack's LQI is itself computed from the RSSI, by `esp_zb_rssi_to_lqi()` (read from its disassembly): 0 below −80 dBm, 255 from −30 dBm up, `(RSSI + 80) × 255 / 50` in between. One dB is 5.1 LQI steps, so the inverse is exact (`rssiFromLqi()`). It matches all five LQI/RSSI pairs the neighbour table delivered today. LQI 204 is −40 dBm. The radio-driver reads are gone.
+
+**The crash came back once** (17:30:42): the same `vPortExitCritical` assert in the stack's task, right after `Zigbee started`, followed by a reboot. So the unlocked registration removed in 3.2.1 wasn't the whole story. Both crashes (3.2.0, 3.2.4) happened in builds that registered a handler from `setup()` right after `Zigbee.begin()`; 3.2.1–3.2.3, without such a registration, ran seven boots clean. `linkBegin()` now only schedules the registration (`esp_zb_scheduler_alarm()`, under the lock), and the stack's own task performs it. The boot flash (3.2.0) is unchanged, so only one factor changes. If the crash comes back, it's the next suspect.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.2.4
 
 **Fixed: wrong LQI/RSSI from 3.2.3.** The field log of 2026-10-11, 17:16 published `LQI 10, RSSI -91 dBm` for a parent 50–60 cm away, which earlier measured about LQI 170–200 and −40 to −48 dBm. 3.2.3 read the radio driver's "most recent frame" in the ZDO answer callback, ~237 ms after the request. By then the radio had picked up other frames, likely broadcasts from a distant router.

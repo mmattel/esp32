@@ -75,9 +75,10 @@ typedef bool (*esp_zb_apsde_data_indication_callback_t)(esp_zb_apsde_data_ind_t 
 // Defined by the test: keeps the handler, so the test can feed it frames.
 void esp_zb_aps_data_indication_handler_register(esp_zb_apsde_data_indication_callback_t cb);
 
-// The radio driver's last received frame (esp_ieee802154.h), set by the test.
-uint8_t esp_ieee802154_get_recent_lqi(void);
-int8_t esp_ieee802154_get_recent_rssi(void);
+// The stack's scheduler (esp_zigbee_core.h): runs cb in the stack's task. Defined by
+// the test, which keeps cb and runs it when it chooses.
+typedef void (*esp_zb_callback_t)(uint8_t param);
+void esp_zb_scheduler_alarm(esp_zb_callback_t cb, uint8_t param, uint32_t time);
 
 // Defined by the test: records the request.
 void esp_zb_zdo_ieee_addr_req(esp_zb_zdo_ieee_addr_req_param_t *cmd_req, esp_zb_zdo_ieee_addr_callback_t user_cb,

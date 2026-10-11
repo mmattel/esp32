@@ -842,8 +842,8 @@ void handleLinkQuality() {
   }
   // The frame that carried the parent's answer is the measurement whenever there is
   // one: fresher than the neighbour entry, which on this device does not move at all.
-  // Its LQI is the stack's own for that frame; its RSSI only counts when verified -
-  // see ProbeFrame in zb_link.h.
+  // Its LQI is the stack's own for that frame, and its RSSI follows from the LQI -
+  // see ProbeFrame and rssiFromLqi() in zb_link.h.
   ProbeFrame frame = {};
   bool frameSeen = afterProbe && probeFrame(&frame);
 
@@ -857,10 +857,10 @@ void handleLinkQuality() {
       Serial.printf("link probe: parent 0x%04X answered after %lu ms (ZDP status 0x%02X)", linkParentAddr,
                     (unsigned long)afterMs, status);
       if (frameSeen) {
-        Serial.printf("; frame LQI %u, radio LQI %u RSSI %d (%s)", frame.lqi, frame.radioLqi, frame.radioRssi,
-                      frame.rssiVerified ? "matches" : "other frame, RSSI not used");
+        Serial.printf("; frame LQI %u, RSSI %s%d dBm", frame.lqi,
+                      !frame.clipped ? "" : frame.lqi == 0 ? "<= " : ">= ", frame.rssi);
       } else {
-        Serial.printf("; answer frame not seen");
+        Serial.printf("; answer frame not seen%s", linkHooked() ? "" : " (indication handler not in place yet)");
       }
       Serial.printf("; entry LQI %u RSSI %d" CONSOLE_EOL, link.rawLqi, link.rawRssi);
     } else {
@@ -872,8 +872,7 @@ void handleLinkQuality() {
     link.valid = true;
     link.unmeasured = false;
     link.lqi = frame.lqi;
-    link.rssi = frame.radioRssi;
-    link.rssiUnknown = !frame.rssiVerified;
+    link.rssi = frame.rssi;
   }
 
   if (!link.valid) {

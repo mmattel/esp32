@@ -1,6 +1,5 @@
 #include "zb_link.h"
 #include "Zigbee.h"
-#include "esp_ieee802154.h"
 
 // Whether an entry holds a measurement at all. The stack creates the parent's
 // neighbour entry when the join completes and fills these two fields in from a frame
@@ -98,8 +97,7 @@ static uint32_t probeSentMs = 0;
 static volatile uint16_t probeTarget = 0xFFFF;  // the parent asked; 0xFFFF while nothing is expected
 static volatile bool probeFrameSeen = false;
 static volatile uint8_t probeFrameLqi = 0;
-static volatile uint8_t probeRadioLqi = 0;
-static volatile int8_t probeRadioRssi = 0;
+static volatile bool indicationHooked = false;
 
 static void onProbeAnswer(esp_zb_zdp_status_t status, esp_zb_zdo_ieee_addr_rsp_t *, void *) {
   probeStatus = (uint8_t)status;
@@ -107,14 +105,23 @@ static void onProbeAnswer(esp_zb_zdp_status_t status, esp_zb_zdo_ieee_addr_rsp_t
   probeAnswered = true;
 }
 
+int8_t rssiFromLqi(uint8_t lqi, bool *clipped) {
+  *clipped = lqi == 0 || lqi == 255;
+  if (lqi == 0) {
+    return -80;  // or below
+  }
+  if (lqi == 255) {
+    return -30;  // or above: the formula already reaches 255 at -30
+  }
+  return (int8_t)(((uint16_t)lqi * 50 + 254) / 255 - 80);  // ceil(lqi * 50 / 255) - 80
+}
+
 bool probeFrame(ProbeFrame *out) {
   if (!probeFrameSeen) {
     return false;
   }
   out->lqi = probeFrameLqi;
-  out->radioLqi = probeRadioLqi;
-  out->radioRssi = probeRadioRssi;
-  out->rssiVerified = probeRadioLqi == probeFrameLqi;
+  out->rssi = rssiFromLqi(out->lqi, &out->clipped);
   return true;
 }
 
@@ -131,24 +138,34 @@ static const uint16_t ZDO_IEEE_ADDR_RSP = 0x8001;
 static bool onApsIndication(esp_zb_apsde_data_ind_t ind) {
   if (ind.status == 0 && ind.profile_id == ZDO_PROFILE_ID && ind.cluster_id == ZDO_IEEE_ADDR_RSP
       && ind.src_short_addr == probeTarget && !probeFrameSeen) {
-    // First the radio, while its most recent frame can still be this one.
-    probeRadioLqi = esp_ieee802154_get_recent_lqi();
-    probeRadioRssi = esp_ieee802154_get_recent_rssi();
     probeFrameLqi = (uint8_t)ind.lqi;
     probeFrameSeen = true;
   }
   return zb_apsde_data_indication_handler(ind);  // false: the stack goes on as usual
 }
 
+// Runs in the stack's own task, scheduled by linkBegin(). Registering from there
+// rather than from setup() leaves no moment where two tasks are inside the stack:
+// twice now (v3.2.0 and v3.2.4) the stack's task asserted in vPortExitCritical right
+// after Zigbee.begin(), each time in a build that registered a handler from setup()
+// at that moment - unlocked in v3.2.0, locked in v3.2.4.
+static void registerIndication(uint8_t) {
+  esp_zb_aps_data_indication_handler_register(onApsIndication);
+  indicationHooked = true;
+}
+
 bool linkBegin() {
   if (!Zigbee.started() || !esp_zb_lock_acquire(portMAX_DELAY)) {
     return false;
   }
-  // Under the lock: the stack's task is running by now, and registering anything
-  // with it unlocked is what crashed v3.2.0.
-  esp_zb_aps_data_indication_handler_register(onApsIndication);
+  // Scheduling is itself a call into the stack, so it takes the lock too.
+  esp_zb_scheduler_alarm(registerIndication, 0, 0);
   esp_zb_lock_release();
   return true;
+}
+
+bool linkHooked() {
+  return indicationHooked;
 }
 
 bool probeAnswer(uint8_t *status, uint32_t *afterMs) {

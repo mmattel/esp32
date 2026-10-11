@@ -32,8 +32,9 @@ struct LinkQuality {
   uint8_t rawLqi;
   int8_t rawRssi;
   uint8_t rawAge;  // the stack's age counter for the entry
-  // lqi is measured but rssi is not: the frame's RSSI could not be verified to be the
-  // parent's (see ProbeFrame). Nothing to publish for the RSSI then.
+  // lqi is measured but rssi is not. Nothing to publish for the RSSI then. Not set
+  // by anything at present - the RSSI follows from the LQI - and kept so a source
+  // that cannot give both has a way to say so.
   bool rssiUnknown;
 };
 
@@ -66,22 +67,34 @@ bool probeAnswer(uint8_t *status, uint32_t *afterMs);
 // leaves the parent's entry at LQI 0 / RSSI +127 however many frames the parent sends
 // (field log of 2026-10-11 17:09).
 //
-// lqi is the stack's own for that frame (APSDE-DATA.indication), so it is the
-// parent's beyond doubt. The indication carries no RSSI, so the radio driver's values
-// for its most recent frame are read in the same moment - and only trusted when the
-// driver's LQI is the frame's LQI, i.e. the driver's last frame is this one. Reading
-// the driver later, in the ZDO answer callback ~230 ms on, gave LQI 10 / RSSI -91
-// from some distant router instead (field log of 2026-10-11 17:16).
+// The LQI is the stack's own for that frame (APSDE-DATA.indication), so it is the
+// parent's beyond doubt. The indication carries no RSSI, and none is needed: the
+// stack computes the LQI from the RSSI - see rssiFromLqi(). (Reading the radio
+// driver's "most recent" RSSI instead gave noise-floor values, LQI 7-11 at -101 to
+// -121 dBm, in every one of five captures of 2026-10-11 17:30.)
 struct ProbeFrame {
-  uint8_t lqi;        // the answer frame's LQI, from the indication
-  uint8_t radioLqi;   // the radio driver's LQI for its most recent frame, read with it
-  int8_t radioRssi;   // ... and its RSSI
-  bool rssiVerified;  // radioLqi == lqi, so radioRssi is the answer frame's
+  uint8_t lqi;   // the answer frame's LQI, from the indication
+  int8_t rssi;   // the RSSI that LQI was computed from - see rssiFromLqi()
+  bool clipped;  // LQI 0 or 255: rssi is only a bound, at or below -80 / at or above -30
 };
 // False until the parent's answer to the last probeParent() has been seen.
 bool probeFrame(ProbeFrame *out);
 
+// The inverse of the stack's esp_zb_rssi_to_lqi(), read from its disassembly:
+//   rssi < -80 -> 0,  rssi >= -29 -> 255,  else (rssi + 80) * 255 / 50, rounded down.
+// One dB is 5.1 LQI steps, so every LQI in between comes from exactly one RSSI and
+// this gives it back exactly: ceil(lqi * 50 / 255) - 80. Checked against the five
+// LQI/RSSI pairs the neighbour table delivered on 2026-10-11, all exact. At 0 and 255
+// the RSSI is only a bound - -80 or below, -30 or above (the formula itself reaches
+// 255 at -30) - and *clipped says so.
+int8_t rssiFromLqi(uint8_t lqi, bool *clipped);
+
 // Puts a handler in front of the stack's APS data indications that catches the
 // parent's answer frame for probeFrame(), then hands every indication on to the
-// Arduino core's own handler unchanged. Call once, after Zigbee.begin().
+// Arduino core's own handler unchanged. Call once, after Zigbee.begin(). The
+// registration itself runs later, in the stack's own task - see zb_link.cpp.
 bool linkBegin();
+
+// Whether the handler is in place yet. False until the stack's task has run the
+// registration that linkBegin() scheduled.
+bool linkHooked();

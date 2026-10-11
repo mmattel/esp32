@@ -56,8 +56,6 @@ static esp_zb_zdo_ieee_addr_req_param_t lastProbe;
 static bool probeHadCallback = false;
 static esp_zb_zdo_ieee_addr_callback_t probeCallback = nullptr;
 uint32_t hostMillis = 0;
-static uint8_t radioLqi = 0;
-static int8_t radioRssi = 0;
 static esp_zb_apsde_data_indication_callback_t indication = nullptr;
 static int indicationLocksHeld = -1;  // locks held while registering
 void esp_zb_aps_data_indication_handler_register(esp_zb_apsde_data_indication_callback_t cb) {
@@ -78,12 +76,20 @@ static esp_zb_apsde_data_ind_t frame(uint16_t src, uint16_t profile, uint16_t cl
   ind.lqi = lqi;
   return ind;
 }
-uint8_t esp_ieee802154_get_recent_lqi(void) {
-  return radioLqi;
+static esp_zb_callback_t scheduled = nullptr;
+static int scheduledLocksHeld = -1;
+void esp_zb_scheduler_alarm(esp_zb_callback_t cb, uint8_t, uint32_t) {
+  scheduled = cb;
+  scheduledLocksHeld = locksHeld;
 }
-int8_t esp_ieee802154_get_recent_rssi(void) {
-  return radioRssi;
+
+// The stack's own conversion, as disassembled from esp_zb_rssi_to_lqi().
+static uint8_t stackRssiToLqi(int rssi) {
+  if (rssi < -80) return 0;
+  if (rssi >= -29) return 255;
+  return (uint8_t)((unsigned)(rssi + 80) * 255 / 50);
 }
+
 void esp_zb_zdo_ieee_addr_req(esp_zb_zdo_ieee_addr_req_param_t *cmd_req, esp_zb_zdo_ieee_addr_callback_t user_cb,
                               void *) {
   probes++;
@@ -250,39 +256,53 @@ int main() {
     check("a timeout comes back as one", probeAnswer(&status, &after) && status == 0x85 && after == 100);
   }
 
+  printf("RSSI back from the stack's LQI\n");
+  {
+    bool allExact = true;
+    for (int rssi = -80; rssi <= -30; rssi++) {
+      bool clipped = true;
+      int back = rssiFromLqi(stackRssiToLqi(rssi), &clipped);
+      if (back != rssi || (clipped != (rssi == -80 || rssi == -30))) {
+        printf("    rssi %d -> lqi %u -> %d%s\n", rssi, stackRssiToLqi(rssi), back, clipped ? " clipped" : "");
+        allExact = false;
+      }
+    }
+    check("every RSSI from -80 to -30 dBm comes back exactly, the ends as bounds", allExact);
+    bool clipped = false;
+    check("the five pairs from the field", rssiFromLqi(183, &clipped) == -44 && rssiFromLqi(209, &clipped) == -39
+                                            && rssiFromLqi(163, &clipped) == -48 && rssiFromLqi(173, &clipped) == -46
+                                            && rssiFromLqi(188, &clipped) == -43);
+    check("LQI 204 is -40 dBm", rssiFromLqi(204, &clipped) == -40 && !clipped);
+    check("255 is a bound at -30", rssiFromLqi(255, &clipped) == -30 && clipped);
+    check("0 is a bound at -80", rssiFromLqi(0, &clipped) == -80 && clipped);
+  }
+
   printf("catching the parent's answer frame\n");
   {
-    check("linkBegin() registers a handler", linkBegin() && indication != nullptr);
-    check("under the Zigbee lock", indicationLocksHeld == 1 && locksHeld == 0);
+    check("linkBegin() schedules, nothing registered yet", linkBegin() && scheduled != nullptr && indication == nullptr);
+    check("scheduled under the Zigbee lock", scheduledLocksHeld == 1 && locksHeld == 0);
+    check("not hooked before the stack ran it", !linkHooked());
+    scheduled(0);  // the stack's task runs it
+    check("the stack's task registers the handler", indication != nullptr && linkHooked());
 
     ProbeFrame f;
     probeParent(0x380B);
     check("nothing seen before the answer", !probeFrame(&f));
     coreHandlerCalls = 0;
-    radioLqi = 30;
-    radioRssi = -88;
     indication(frame(0x1234, 0x0000, 0x8001, 30));  // someone else's IEEE_addr_rsp
     indication(frame(0x380B, 0x0104, 0x0006, 30));  // the parent, but not the answer
     check("other frames are not the answer", !probeFrame(&f));
     check("but every one goes on to the core", coreHandlerCalls == 2);
 
-    radioLqi = 196;
-    radioRssi = -41;
-    indication(frame(0x380B, 0x0000, 0x8001, 196));
-    check("the parent's answer is seen", probeFrame(&f) && f.lqi == 196);
-    check("radio read with it, and verified by its LQI", f.radioLqi == 196 && f.radioRssi == -41 && f.rssiVerified);
+    indication(frame(0x380B, 0x0000, 0x8001, 204));
+    check("the parent's answer is seen", probeFrame(&f) && f.lqi == 204);
+    check("its RSSI from its LQI", f.rssi == -40 && !f.clipped);
     check("and handed on as well", coreHandlerCalls == 3);
-    radioLqi = 10;
-    radioRssi = -91;
     indication(frame(0x380B, 0x0000, 0x8001, 10));  // a second answer must not overwrite the first
-    check("the first answer stays", probeFrame(&f) && f.lqi == 196);
+    check("the first answer stays", probeFrame(&f) && f.lqi == 204);
 
     probeParent(0x380B);
     check("a new probe forgets the old frame", !probeFrame(&f));
-    radioLqi = 10;   // the driver's last frame was something else
-    radioRssi = -91;
-    indication(frame(0x380B, 0x0000, 0x8001, 180));
-    check("LQI from the frame, RSSI not verified", probeFrame(&f) && f.lqi == 180 && !f.rssiVerified);
   }
 
   printf("the raw entry, measured or not\n");
