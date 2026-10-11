@@ -37,12 +37,17 @@
 bool zbReport(uint8_t srcEndpoint, uint16_t clusterId, uint16_t attrId);
 
 // Registers the reporting configuration for an attribute in the stack's own table.
-// The stack looks one up before it sends a report and refuses one it has no entry
-// for. A standard attribute gets its entry from the core's set*Reporting() calls
-// or from the coordinator's configure_reporting, but an attribute added by hand -
-// the mirror's line, the version string - gets neither. Zigbee2MQTT sends no
-// configure_reporting for an m.text() expose. Call after Zigbee.begin(), from
-// every join.
+// A standard attribute gets its entry from the core's set*Reporting() calls or from
+// the coordinator's configure_reporting, but an attribute added by hand - the
+// mirror's line, the version string - gets neither, since Zigbee2MQTT sends no
+// configure_reporting for an m.text() expose. Call after Zigbee.begin(), from every
+// join.
+//
+// Not what makes zbReport() work: esp_zb_zcl_report_attr_cmd_req() never looks an
+// entry up (read from the SDK's disassembly). The v3.1.1 theory that it refused
+// reports without one was wrong; what refused the mirror's text was its size - see
+// MIRROR_TEXT_LEN in config.h. Kept because it is harmless and gives the stack's own
+// periodic reporting a configuration for these attributes.
 //
 // No reportable change: these are character strings, a discrete type, and
 // discrete types carry none (ZCL 2.6.7.4).

@@ -53,8 +53,8 @@ public:
   void handleReports();
 
   // Registers a reporting configuration entry for the text attribute in the SDK's
-  // internal table. reportText() requires one — call this from applyReporting(),
-  // after Zigbee.begin(), alongside setAnalogInputReporting().
+  // internal table - see zbSetReporting() for what it does and does not do. Call
+  // from applyReporting(), after Zigbee.begin(), alongside setAnalogInputReporting().
   void setTextReporting(uint16_t minInterval, uint16_t maxInterval);
 
 private:

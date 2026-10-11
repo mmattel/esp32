@@ -68,8 +68,8 @@ void ZbVersion::setTextReporting(uint16_t minInterval, uint16_t maxInterval) {
   if (!_hasText) {
     return;
   }
-  // Same reason as ZbMirror::setTextReporting(): nothing else creates a reporting
-  // entry for a hand-added attribute, and without one the stack refuses the report.
+  // Same as ZbMirror::setTextReporting(): nothing else creates a reporting entry for
+  // a hand-added attribute - see zbSetReporting().
   zbSetReporting(_endpoint, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, VERSION_TEXT_ATTR_ID, minInterval, maxInterval);
 }
 

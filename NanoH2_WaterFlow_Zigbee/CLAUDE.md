@@ -127,16 +127,16 @@ or invisible (internal cleanup), and both get a minor bump so the history stays 
 makes Z2M send extra bind and configure_reporting commands during its configure step for
 no benefit.
 
-**Every endpoint that the firmware ever calls `report*()` on MUST have a `reporting:`
-entry in the converter** — including `STATE_GET` (`genAnalogInput`) ones. Z2M uses
-the presence of a `reporting:` entry to also send a bind command to the device. Without
-the bind, the device's binding table has no entry for that cluster, and every
-`reportAnalogInput()` or `reportText()` call is silently discarded — Z2M receives
-nothing and the refresh-button-is-required symptom appears.
-
-This was confirmed in the DS18B20 sketch (v3.0.1 and v3.0.2). The old rule "omit
-`reporting:` from STATE_GET endpoints" was wrong and has been removed from both
-CLAUDE.md files.
+**`reporting:` entries are kept on every endpoint, but they no longer carry
+delivery.** Up to firmware v2.0.x, reports went through the binding table, and Z2M
+binds only clusters that have a `reporting:` entry, so a missing entry meant silent
+report loss (fixed in converter 1.4/1.5). Since v2.1.0 every report is unicast to the
+coordinator (`zbReport()`, see the root CLAUDE.md), and bindings no longer matter for
+delivery. The entries stay, as fallback thresholds and to keep Z2M's view
+consistent. They do make Z2M's configure step after a join bigger, which the README
+links to coordinator SRSP timeouts. Don't add new ones on the old "no bind, no
+report" reasoning, and don't diagnose missing reports as missing bindings: the
+console's report lines (`refused …`, `not delivered …`) say what actually happened.
 
 Thresholds for read-only diagnostics: `{min: 10, max: 3600, change: 1}`. The firmware
 manages its own deadband in software; these are fallbacks only.
@@ -196,6 +196,11 @@ writeback pattern exists to keep write cycles proportional to flow events, not t
   `Serial.printf()` directly. `logEvent()` both prints and hands the line to the mirror.
 - `Serial.printf()` is fine for output that is debug-only and should not be mirrored
   (e.g. the per-sample flow readings controlled by `LOG_EVERY_SAMPLE`).
+- **A mirrored line carries at most `MIRROR_TEXT_LEN` (48) characters**, and the
+  stack refuses more than 50, so the limit cannot be raised. Keep `logEvent()`
+  wording short, and run `cd test && make`: `logevent_len` checks this sketch's
+  lines too. Text inserted with `%s` is only noted at run time ("line above cut to
+  ..."), unless a `mirror-len: %s<=N` comment above the call bounds it.
 - Every line ends with `CONSOLE_EOL` (defined in `config.h`). Never append `\r\n`
   or rely on the driver to expand `\n`.
 
@@ -210,4 +215,4 @@ them feels stale.
 | Issue | URL | What it affects |
 | --- | --- | --- |
 | arduino-esp32 #12917 | https://github.com/espressif/arduino-esp32/issues/12917 | Uninitialised `manuf_code` in core report helpers; workaround is in `ZbMirror::reportText()` |
-| esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | `esp_zigbee_zcl_command.c:263` assert on char-string reports; root cause not yet confirmed. Binding-table report mode silently fails — fixed in v2.1.0 by unicast to 0x0000 ep 1. `reportText()` also requires a reporting-config entry in the SDK's internal table for attr 0xF000; fixed in converter v1.5 by adding `reporting:` to both `m.text()` entries so Z2M sends `configure_reporting` for 0xF000 during re-interview. |
+| esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | `esp_zigbee_zcl_command.c:263` assert on char-string reports; root cause not yet confirmed. Binding-table report mode silently fails — fixed in v2.1.0 by unicast to 0x0000 ep 1. The later failure of the mirror text was not this issue but the report size limit (`ESP_ERR_INVALID_SIZE`, 50 characters), fixed in v2.1.4 — see the root CLAUDE.md. |

@@ -36,6 +36,8 @@ Entries are in reverse order — newest first.
 
 **Root cause:** the 3.1.3 limit was an estimate from the radio frame layout, and it was too generous. The real check is in the SDK's `esp_zb_zcl_report_attr_cmd_req()`, read from its disassembly: for a cluster that cannot be fragmented, it allows 82 bytes, subtracts the ZCL header (3) and a fixed reserve of 25, and refuses the report if the attribute's size plus its ID and type (3) does not fit what is left. That leaves 51 bytes for a character string including its length byte, so at most 50 characters. All three field results fit this: 64 refused, 56 refused, the 5-character version string accepted.
 
+**Correction to 3.1.1 and 3.1.2:** both explained the missing text with a reporting entry the stack supposedly needed (3.1.1 added `setTextReporting()`, 3.1.2 moved `applyReporting()` before the first mirrored line). The same disassembly shows that `esp_zb_zcl_report_attr_cmd_req()` never looks up a reporting entry. The size was the cause all along. Both changes are harmless and stay.
+
 **Fix:**
 
 - `MIRROR_TEXT_LEN` 56 → 48, two characters of margin.

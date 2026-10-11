@@ -189,8 +189,7 @@ void ZbMirror::setTextReporting(uint16_t minInterval, uint16_t maxInterval) {
   if (!_hasText) {
     return;
   }
-  // The stack refuses a report for an attribute it has no reporting entry for, and
-  // nothing else creates one for this attribute - see zbSetReporting().
+  // Nothing else creates a reporting entry for this attribute - see zbSetReporting().
   zbSetReporting(_endpoint, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, MIRROR_TEXT_ATTR_ID, minInterval, maxInterval);
 }
 

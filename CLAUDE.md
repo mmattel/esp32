@@ -75,6 +75,17 @@ includes anything from them.
 - Flashing and the serial monitor depend on the board being plugged in (`/dev/ttyACM*`).
   If no port is present, ask the user to flash from the IDE and paste the serial output.
 
+**Field captures.** The device lives outside on its real parent router, and there is
+no WLAN there. Taking it inside changes its routing, so Claude and the board are
+never available together. The user flashes from the IDE outside, runs
+`tools/serial-capture.sh --reset` (timestamped log in `~/nanoh2-logs/`) and comes
+back. Claude then reads the newest log there. Prefer `--reset`: it starts the log
+with the boot banner, which proves the link and names the build. One capture
+without it (2026-10-11 14:13) recorded nothing in 5 minutes, although force push
+was on, and the cause was never found. The script refuses a port another program
+holds (the IDE's Serial Monitor) and prints a status line every 60 s while the
+device is silent.
+
 **The flashed build often lags the repo.** A pasted serial log may come from a build
 older than the current working tree. Always read the banner first — it ends in
 `v<FW_VERSION>` — and check the `EP <n> -> ...` lines to identify which build
@@ -137,15 +148,26 @@ the report, and the send status callback records whether it was acknowledged.
 `zbReportHandle()` prints one line when an endpoint starts failing, one when it
 recovers, and a summary every `REPORT_STATS_INTERVAL_S`.
 
-**Custom char-string attributes (0xF000) need an extra step:** Z2M never sends
-configure_reporting for `m.text()` exposes, so the SDK's internal reporting table has
-no entry for attribute 0xF000. Register it with `zbSetReporting()`
-(via `setTextReporting()` on `ZbMirror` and `ZbVersion`) from `applyReporting()` on
-each join, otherwise the stack refuses those reports. `applyReporting()` must run
-**before** the first `logEvent()` after a join, or that line's report is refused.
+**A report carries at most 50 characters of string.** `esp_zb_zcl_report_attr_cmd_req()`
+refuses a bigger one with `ESP_ERR_INVALID_SIZE`. The rule, read from the SDK's
+disassembly on 2026-10-11: for a cluster that can't be fragmented (Analog Input
+can't), 82 bytes, minus the 3-byte ZCL header, minus a fixed 25, minus attribute ID
+and type (3), leaves 51 bytes for the string including its length byte. This is why
+the mirror text never arrived up to v3.1.3: it was padded to 64, then 56.
+`MIRROR_TEXT_LEN` is now 48, `zb_mirror.cpp` has a `static_assert` at 50, and every
+`logEvent()` line has to fit 48. See Host Tests, `logevent_len`. Any new string
+attribute that is reported is under the same limit.
 
-Any new endpoint that reports must do so through `zbReport()`. For non-standard
-attributes, also register the reporting entry with `zbSetReporting()`.
+**The reporting entry for the text attributes is not what makes them work.**
+`setTextReporting()` / `zbSetReporting()` register attribute 0xF000 in the stack's
+reporting table, on the theory from v3.1.1 that `reportText()` needs one. The same
+disassembly shows that `esp_zb_zcl_report_attr_cmd_req()` never looks up a
+reporting entry. It reads the attribute, checks the size and sends. The registration
+is harmless and stays, but don't explain a failing report with a missing entry: the
+console now names the actual error. `applyReporting()` still runs before the first
+`logEvent()` after a join.
+
+Any new endpoint that reports must do so through `zbReport()`.
 
 ---
 
@@ -176,7 +198,7 @@ The user's coordinator runs Zigbee2MQTT with these identifiers (confirmed
 | Channel | `11` |
 | NanoH2 DS18B20 IEEE | `0x1051dbfffe684d0b` |
 | Z2M device name | `NanoH2-Pool` |
-| Parent router | Terrasse/Pool (LQI ≈ 176) |
+| Parent router | Terrasse/Pool, short address `0x380B` (LQI 163–209 seen 2026-10-11) |
 
 These are Z2M's stock defaults — a neighbour's untouched Z2M would look identical in
 a scan. When reading `scan: N network(s) in range` output, treat `0x1A62 | 11` as

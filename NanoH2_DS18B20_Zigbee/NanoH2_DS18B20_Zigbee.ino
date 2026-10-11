@@ -736,9 +736,9 @@ void onZigbeeConnected() {
   // Whatever the mirror last published went to the previous network, or to nobody
   // at all, so the join line below is what this one gets first.
   zbMirror.forgetPublished();
-  // Before the first line below: the mirror's text attribute has no reporting entry
-  // until applyReporting() creates it, and the stack refuses a report without one -
-  // which is how "Zigbee connected" used to be the one line that never got out.
+  // Before the first line below, so every attribute has its reporting entry from
+  // the first report of a join on. That entry turned out not to be what refused the
+  // mirror's text - its size was, see MIRROR_TEXT_LEN - but the order costs nothing.
   applyReporting();  // must be called after Zigbee.begin()
   logEvent("Zigbee connected");
 
