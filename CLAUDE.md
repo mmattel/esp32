@@ -182,6 +182,25 @@ heals itself with a reboot within a second, so it only shows in a capture: count
 boots, not builds. When this assert shows up again, look for an unlocked `esp_zb_*`
 call first.
 
+**"Zigbee connected" doesn't mean the parent answered.** On a reboot with stored
+network data, the core sets `connected` as soon as the stack signals `Device
+rebooted` (core debug output), without any exchange with the parent. The first
+real proof of a working link is the parent's answer to `probeParent()`, or a
+report that arrives in Z2M.
+
+**Slow first join after a long power-off: open.** Once (2026-10-11), the first
+boot after a long time without power, followed by a flash, took ~41 s:
+`Zigbee.begin()` ran into the core's 30 s timeout (`ZB_BEGIN_TIMEOUT_DEFAULT`),
+the sketch rebooted, and the next boot joined at once. Cold boots after 10 min
+off were fast. The boot log line `Zigbee started, … (Zigbee.begin() took N ms)`
+shows it. To diagnose, flash with **Core Debug Level = Info**, which makes the
+core print its commissioning steps (`Device rebooted`, `Commissioning failed,
+trying again…`), and capture with `tools/serial-capture.sh --wait`. Don't change
+the timeout or the reboot logic until such a capture exists. Also seen once,
+unexplained: with the notebook attached but the port not yet opened, the stack
+only started 8.6 s after power-on instead of ~1.6 s. Probably the console output
+stalls while nobody reads the USB port.
+
 **Handlers are registered from the stack's own task.** `linkBegin()` schedules the
 indication handler's registration with `esp_zb_scheduler_alarm()` (under the lock),
 and the stack's task runs it. The core registers its own indication handler once,

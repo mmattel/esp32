@@ -1102,13 +1102,21 @@ void setup() {
     Serial.printf("Zigbee: looking on channel %u only" CONSOLE_EOL, ZB_CHANNEL);
   }
 
-  if (!Zigbee.begin(ZIGBEE_END_DEVICE)) {
-    logEvent("Zigbee failed to start, rebooting");
+  // How long the stack took to come up, on the console whatever the Core Debug Level:
+  // normally a fraction of a second, but after a long power-off it has run into the
+  // core's 30 s timeout (ZB_BEGIN_TIMEOUT_DEFAULT) - a slow join that is otherwise only
+  // visible as a long wait for the LED to turn green.
+  uint32_t beginStartMs = millis();
+  bool started = Zigbee.begin(ZIGBEE_END_DEVICE);
+  uint32_t beginMs = millis() - beginStartMs;
+  if (!started) {
+    logEvent("Zigbee start failed (%lu ms), rebooting", (unsigned long)beginMs);
     delay(1000);
     ESP.restart();
   }
-  Serial.printf("%s" CONSOLE_EOL, commissioned ? "Zigbee started, rejoining known network"
-                                               : "Zigbee started, waiting to be commissioned");
+  Serial.printf("%s (Zigbee.begin() took %lu ms)" CONSOLE_EOL,
+                commissioned ? "Zigbee started, rejoining known network" : "Zigbee started, waiting to be commissioned",
+                (unsigned long)beginMs);
   zbReportBegin();
   // Catches the parent's answer to a link probe; must follow Zigbee.begin().
   if (!linkBegin()) {

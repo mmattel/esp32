@@ -4,6 +4,18 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.7
+
+**Added:** the boot log says how long `Zigbee.begin()` took: `Zigbee started, rejoining known network (Zigbee.begin() took 290 ms)`. On failure it prints `Zigbee start failed (30012 ms), rebooting`, which is also mirrored. This is visible at Core Debug Level "None" too.
+
+Why: once on 2026-10-11, the first boot after a long time without power (followed by a flash) took about 41 s to join. That fits the Arduino core's 30 s timeout in `Zigbee.begin()` plus a reboot that then joined at once. Two `--wait` cold-boot captures with Core Debug Level "Info" (after a short off time and after 10 minutes) both joined in under a second, so the cause is still open. The new line makes a slow join visible in any capture.
+
+**Confirmed in the field (v3.2.6):** 13 boots without the `vPortExitCritical` crash (before the fix: about 1 in 9). Parent now `0x2CD7`, LQI 173–204, −40 to −46 dBm, from both the neighbour entry and the probe answer.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.2.6
 
 **Fixed: the boot crash, for real.** The v3.2.5 field logs of 2026-10-11 (17:47 to 17:50, nine boots) showed the `vPortExitCritical` assert once more, at the same point. That build registered nothing from `setup()` anymore, so the registration theory of 3.2.1 and 3.2.5 was wrong.

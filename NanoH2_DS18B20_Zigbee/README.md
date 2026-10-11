@@ -307,6 +307,16 @@ example after a long power-off. A dark LED for that long can't be told apart fro
 dead board. A small task of its own keeps the boot flash going while `setup()` is
 blocked, and hands the LED over on the first regular update.
 
+**A slow first join after a long power-off is known and not yet explained.** Once
+on 2026-10-11, the first boot after the board had been without power for a long
+time (and was then flashed) took about 41 s to turn green. That's the core's 30 s
+timeout in `Zigbee.begin()`, then a reboot that joined at once. Captures of cold
+boots after 10 minutes off joined in under a second. The boot log line
+`Zigbee.begin() took … ms` shows it when it happens. With **Tools → Core Debug
+Level → Info**, the core also prints what the stack does meanwhile (`Device
+rebooted`, `Commissioning failed, trying again…`), which is what's still needed
+to explain it.
+
 **Blue means the network is fine and the 1-Wire side is not.** A slot only holds
 a ROM code because a scan once found that sensor, so blue is never a slot that was
 simply never used: something that worked is not delivering now — unplugged, a
@@ -505,7 +515,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.6
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.7
 Sensor slots: 3
 ```
 
@@ -519,8 +529,13 @@ Settings (writable from Zigbee):
   EP 11  Reporting delta (C) = 0.25
   EP 15  Temperature correction (C) = -1.50
   EP 17  Force push interval (min) = 1
-Zigbee started, rejoining known network
+Zigbee started, rejoining known network (Zigbee.begin() took 290 ms)
 ```
+
+The time `Zigbee.begin()` took is part of that line at every Core Debug Level. It's
+normally well under a second. A start that ran into the Arduino core's 30 s timeout
+prints `Zigbee start failed (30012 ms), rebooting` instead, and the next boot tries
+again.
 
 A build with none prints `Sensor slots: none configured` there — the word
 rather than a `0`, so
@@ -1077,7 +1092,7 @@ What is mirrored is what the console calls an event in its own right:
 | `3 slots: 1 on bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
 | `slot 0 (ABCD): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
 | `1-Wire: no device responded to CONVERT T` | nothing on the bus at all |
-| `FATAL: …`, `Flash partition '…' is missing`, `NVS open failed …`, `Zigbee failed to start …`, `scan: failed` | every error line the sketch prints |
+| `FATAL: …`, `Flash partition '…' is missing`, `NVS open failed …`, `Zigbee start failed …`, `scan: failed` | every error line the sketch prints |
 
 The periodic work is deliberately **not** mirrored — the readings, the link polls,
 the bus rescans, the join hints. Those are what the temperature and link endpoints
@@ -1187,10 +1202,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.6` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.2.6`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30206`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.2.6` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.7` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.2.7`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30207`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.2.7` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1222,7 +1237,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.2.6"`) and `FW_VERSION_NUMBER` (`30206`) are built from them, so
+`FW_VERSION` (`"3.2.7"`) and `FW_VERSION_NUMBER` (`30207`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1294,7 +1309,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.6
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.7
 Sensor slots: 3
 ```
 

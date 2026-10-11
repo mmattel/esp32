@@ -489,7 +489,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v2.2.6 (build 20206)
+NanoH2-WaterFlow v2.2.7 (build 20207)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
@@ -615,7 +615,10 @@ Without the Default Responses the device may hear nothing from its parent for
 minutes, so before each link reading it asks the parent for a frame (a ZDO IEEE
 address request, one hop, never via the coordinator), which refreshes LQI and
 RSSI. The boot log lists the writable settings with their values after the
-endpoint list.
+endpoint list, and says how long `Zigbee.begin()` took. A start that runs into the
+core's 30 s timeout prints `Zigbee start failed (… ms), rebooting`. Such a slow
+first join was seen once after a long power-off; see the DS18B20 README, "Cyan says
+the board is starting".
 
 ### Coordinator Throttling
 
