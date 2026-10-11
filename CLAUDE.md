@@ -19,21 +19,61 @@ on-board WS2812 RGB LED, and one pushbutton (G9).
 
 ## Build and Flash Environment
 
-**The Arduino IDE and the board are on a separate machine.** This Claude session runs
-on a machine that has no `arduino-cli`, no board, and no serial port. The workflow is:
+**The Arduino IDE runs on the same machine as this Claude session** (since
+2026-10-11; earlier sessions used a separate build machine). It is Arduino IDE 2 installed
+as the flatpak `cc.arduino.IDE2`. Its bundled `arduino-cli` can be called directly to
+compile:
 
-1. Edit code here → commit → push
-2. The other machine pulls → opens in Arduino IDE → compiles → flashes
-3. Serial output is copied and pasted back into this conversation
+```sh
+CLI=/var/lib/flatpak/app/cc.arduino.IDE2/current/active/files/arduino-ide/resources/app/lib/backend/resources/arduino-cli
+$CLI --config-file ~/.arduinoIDE/arduino-cli.yaml compile \
+  -b m5stack:esp32:m5stack_nano_h2:ZigbeeMode=ed,PartitionScheme=zigbee \
+  --build-path <scratch-dir>/build-<sketch> NanoH2_DS18B20_Zigbee
+```
+
+| Item | Value |
+| --- | --- |
+| Core | `m5stack:esp32` 3.3.9 (in `~/.arduino15/packages/m5stack/`) |
+| Board | `m5stack:esp32:m5stack_nano_h2` |
+| Required options | `ZigbeeMode=ed`, `PartitionScheme=zigbee` (Zigbee 4MB with spiffs) |
+| IDE config | `~/.arduinoIDE/arduino-cli.yaml` |
+| Sketchbook | This repo. `directories.user` is a flatpak portal path (`/run/user/1000/doc/…/esp32`) that resolves to `/opt/git/esp32` |
+| Libraries used | Only core libraries (`Zigbee`, `Preferences`). No third-party library |
+
+**No third-party library is used, and none should be added for 1-Wire.** The usual
+OneWire library (2.3.8, the latest release, also in `libraries/`) has not been updated
+for the newer ESP32 variants and does not compile for the ESP32-H2. Its direct-GPIO
+layer handles the ESP32-C3 as a special case and sends every other ESP32 down the
+classic-ESP32 register path, where the registers it uses do not exist on the H2.
+DallasTemperature depends on OneWire, so it is out too. The DS18B20 sketch therefore
+has its own bit-banged 1-Wire master and DS18B20 driver in
+`NanoH2_DS18B20_Zigbee/ds18b20_bus.cpp/.h`. Host tests for it are in `test/onewire`,
+which checks the CRC against OneWire's reference table and the ROM search against a
+simulated bus. The header comment of `ds18b20_bus.h` has the full reasoning and the
+patch a fork of OneWire would need. Fixes to 1-Wire behaviour go into `ds18b20_bus`,
+not into a library.
+
+**Upstream tracking:** [OneWire PR #165](https://github.com/PaulStoffregen/OneWire/pull/165)
+("Update OneWire_direct_gpio.h (ESP32H2 and ESP32C2)") adds the H2 and C2 to the
+direct-GPIO layer and supersedes #160, which added only the H2. It was still open and
+unmerged on 2026-10-11. Even once it is merged, a new OneWire release still has to ship.
+At that point, switching back to OneWire/DallasTemperature becomes an option, though not
+a requirement: `ds18b20_bus` works and has tests.
+
+The `libraries/` folder (OneWire, DallasTemperature, Adafruit_NeoPixel) and
+`~/Arduino/libraries` are on the library search path, but neither Zigbee sketch
+includes anything from them.
 
 **Consequences:**
-- "It compiles" is unverified until the user confirms it. Say so plainly rather than
-  implying a clean build.
-- Keep the working tree in a buildable state at all times — a `.ino` mid-refactor
-  between two turns is a broken build on the other machine.
-- Host tests in `test/` are the only code that can be run here (`cd test && make`).
-- Compile errors and serial output always arrive as pasted text; ask for it rather
-  than guessing.
+- Compile both affected sketches after every firmware change. Report the result as
+  it actually came out, including errors. Warnings from the core's own headers
+  (`spimem_flash_ll.h` missing-initializer) are expected and can be ignored.
+- Use `--build-path` in the scratchpad so the build does not write into the repo or
+  clash with the IDE's own build directory.
+- Keep the working tree in a buildable state at all times. The user may compile and
+  flash from the IDE at any moment.
+- Flashing and the serial monitor depend on the board being plugged in (`/dev/ttyACM*`).
+  If no port is present, ask the user to flash from the IDE and paste the serial output.
 
 **The flashed build often lags the repo.** A pasted serial log may come from a build
 older than the current working tree. Always read the banner first — it ends in
@@ -155,6 +195,7 @@ receives at least one value report, and the refresh forces that first read.
 | --- | --- | --- |
 | arduino-esp32 #12917 | https://github.com/espressif/arduino-esp32/issues/12917 | Uninitialised `manuf_code` in core report helpers; workaround in `ZbMirror::reportText()` |
 | esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | Silent discard of binding-table-mode reports; fixed by unicast (see above) |
+| OneWire PR #165 | https://github.com/PaulStoffregen/OneWire/pull/165 | ESP32-H2/C2 support in OneWire; until it is merged and released, `ds18b20_bus` replaces the library |
 
 Check these periodically; a resolved issue may allow removing a workaround.
 
