@@ -28,6 +28,7 @@ Count](#changing-the-sensor-count).
   - [How the Delta Gates Reporting](#how-the-delta-gates-reporting)
 - [Temperature Correction](#temperature-correction)
   - [One Value for Every Sensor](#one-value-for-every-sensor)
+  - [Field Check Against an Optical Thermometer](#field-check-against-an-optical-thermometer)
   - [Why the Range Is Only ±5 °C](#why-the-range-is-only-5-c)
   - [In Zigbee2MQTT](#in-zigbee2mqtt)
 - [Force Push Interval](#force-push-interval)
@@ -871,6 +872,36 @@ leaves the old one's slot to its replacement, which would quietly hand the old
 sensor's correction to the new one. A device-wide value cannot go wrong that way.
 Sensors that genuinely need individual offsets want individual devices — or a
 template sensor on the coordinator, where per-entity arithmetic is cheap.
+
+### Field Check Against an Optical Thermometer
+
+Real-world numbers from one device, three DS18B20 outdoors, measured on an October
+evening (2026-10-11):
+
+| Comparison | Difference |
+| --- | --- |
+| A sensor lying on the ground (raw reading) vs. an optical (infrared) thermometer aimed at the ground under it | sensor 0.75 °C higher |
+| Two sensors, both lying on the ground | 0.2 °C |
+| A sensor hanging in the air vs. the two on the ground | 0.65 °C lower |
+
+The correction was then set to **−0.75 °C**, so that published ≈ optical reading:
+the device is aligned to the reference, which is what the correction is for. The two
+sensor-to-sensor differences don't depend on it, since the same value applies to
+every sensor.
+
+How to read them:
+
+- **Sensor to sensor, 0.2 °C**, is well inside the DS18B20's ±0.5 °C. That's the
+  case a per-sensor correction would be for, and it's too small to need one, which
+  is what the single device-wide value assumes.
+- **Against the optical thermometer, 0.75 °C**, is what one device-wide offset
+  takes out. Part of it may be the method rather than the sensor: an infrared
+  thermometer reads the surface and depends on the surface's emissivity, while a
+  sensor lying on the ground reads a mix of ground contact and the air around it.
+  Either way, the reference decides, and the correction follows it.
+- **The sensor in the air, 0.65 °C lower**, is physics. In the evening the ground
+  still holds the day's warmth, and the air cools faster. Where a sensor sits
+  matters more than which sensor it is.
 
 ### Why the Range Is Only ±5 °C
 
