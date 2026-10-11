@@ -143,10 +143,25 @@ On this network the path from the coordinator back to the device's parent is wea
 and that extra traffic contributes to the coordinator SRSP timeouts (see the
 DS18B20 README, "Coordinator Throttling").
 
-**Delivery is visible on the console.** `zbReport()` records whether the stack took
-the report, and the send status callback records whether it was acknowledged.
-`zbReportHandle()` prints one line when an endpoint starts failing, one when it
-recovers, and a summary every `REPORT_STATS_INTERVAL_S`.
+**Refusals are visible on the console, deliveries are not.** `zbReport()` records
+whether the stack took each report, prints one line when an attribute starts being
+refused and one when it recovers, and `zbReportHandle()` prints a summary every
+`REPORT_STATS_INTERVAL_S` ("N sent, M refused"). Do **not** register
+`esp_zb_zcl_command_send_status_handler` (v3.1.2 to v3.2.0 did): it never fired for
+a report, and registering it unlocked from the main task as the stack started was
+the likely trigger of a `vPortExitCritical` assert (2026-10-11).
+`esp_zb_aps_data_confirm_handler_register()` is no alternative: per the SDK, the
+application then has to handle every APSDE confirm itself.
+
+**Every call into the Zigbee stack from `loop()` or `setup()` takes the Zigbee lock**
+(`esp_zb_lock_acquire` / `_release`), registrations included, once
+`Zigbee.begin()` has run. The stack's task is running by then, and ZBOSS is not
+thread-safe.
+
+**LQI/RSSI need incoming frames.** With default responses off, the device may hear
+nothing from its parent for minutes. `probeParent()` (`zb_link`) sends the parent a
+ZDO IEEE address request before each link read. It's one hop and never goes
+through the coordinator.
 
 **A report carries at most 50 characters of string.** `esp_zb_zcl_report_attr_cmd_req()`
 refuses a bigger one with `ESP_ERR_INVALID_SIZE`. The rule, read from the SDK's

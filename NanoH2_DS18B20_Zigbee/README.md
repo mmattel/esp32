@@ -505,8 +505,21 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.0
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.1
 Sensor slots: 3
+```
+
+The settings a coordinator can write follow the endpoint list, with the values in
+effect, just before the Zigbee stack starts:
+
+```
+EP 22 -> slot 2, sensor 2861640A7D36ED93
+Settings (writable from Zigbee):
+  EP 10  Reading interval (s) = 10
+  EP 11  Reporting delta (C) = 0.25
+  EP 15  Temperature correction (C) = -1.50
+  EP 17  Force push interval (min) = 1
+Zigbee started, rejoining known network
 ```
 
 A build with none prints `Sensor slots: none configured` there — the word
@@ -961,6 +974,8 @@ values stay unknown rather than being guessed.
 | `LQI_DELTA` | 10 | how far the LQI has to move from the last published value |
 | `RSSI_DELTA` | 5 | the same for the RSSI, in dB |
 | `LINK_RETRY_MS` | 1000 | shorter wait after a read that found no parent entry |
+| `LINK_PROBE_WAIT_MS` | 1000 | how long a read waits after asking the parent for a frame |
+| `LINK_PROBE_MIN_GAP_MS` | 10000 | how often the parent is asked again while there is no measurement yet |
 | `LINK_REPORT_HEARTBEAT_S` | 3600 | repeats the last published values; 0 disables it |
 | `LOG_EVERY_READING` | 0 | 1 also prints the polls held back by a deadband |
 
@@ -972,9 +987,16 @@ once, since a rejoin may well be through a different parent.
 
 Worth knowing:
 
-- **Both only move when frames arrive.** LQI and RSSI are measured on reception,
-  so they update when the parent sends something — a poll response, a read, a
-  report acknowledgement. `setRxOnWhenIdle(true)` keeps that traffic flowing.
+- **Both only move when frames arrive, so the parent is asked for one.** LQI and
+  RSSI are measured on reception. Since v3.1.2 the coordinator no longer answers
+  each report with a Default Response, so the device can go minutes without
+  hearing anything from its parent. After a reboot the value then never appeared
+  (field log of 2026-10-11: still `no measurement in it yet` after 8 minutes). So
+  before each read, the device sends its parent a ZDO IEEE address request and
+  reads `LINK_PROBE_WAIT_MS` later. The answer is a frame from the parent, which
+  refreshes the measurement. That's one small frame each way over the single hop to
+  the parent, never through the coordinator: once per `LINK_INTERVAL_S`, and while
+  waiting for a first measurement at most every `LINK_PROBE_MIN_GAP_MS`.
 - **Both are read once right after a join or rejoin**, and then every
   `LINK_INTERVAL_S`. To walk the board around and compare candidate spots, lower
   that interval for the trip — there is no manual trigger, since the button does
@@ -1151,10 +1173,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.0` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.2.0`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30200`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.2.0` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.1` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.2.1`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30201`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.2.1` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1186,7 +1208,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.2.0"`) and `FW_VERSION_NUMBER` (`30200`) are built from them, so
+`FW_VERSION` (`"3.2.1"`) and `FW_VERSION_NUMBER` (`30201`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1258,7 +1280,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.0
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.1
 Sensor slots: 3
 ```
 
@@ -1787,17 +1809,19 @@ cut that down:
 - **Settings repeated hourly, not every minute.** See
   [Reading Interval and Reporting Delta](#reading-interval-and-reporting-delta).
 
-The console now shows whether reports get through. A line is printed when an
-endpoint's reports start being refused by the stack or stop being acknowledged by
-the coordinator, and another when they recover. Every `REPORT_STATS_INTERVAL_S`
-(5 min) a summary follows:
+The console shows whether the stack takes the reports. A line is printed when an
+attribute's reports start being refused, with the error, and another when they
+recover. Every `REPORT_STATS_INTERVAL_S` (5 min) a summary follows:
 
 ```
-reports, last 300 s: 9 sent, 9 delivered, 0 not delivered, 0 refused
+reports, last 300 s: 34 sent, 0 refused
 ```
 
-"Delivered" counts every command the stack confirmed, read responses to a refresh
-from Z2M included, so it can run slightly ahead of "sent".
+Whether an accepted report arrived is not counted. v3.1.2 to v3.2.0 tried, through
+the stack's send status callback. It never fired for a single report ("34 sent, 0
+delivered" in the field), and registering it from the main task as the stack
+started was the likely trigger of a crash. Whether reports arrive is visible in
+Z2M.
 
 ### When the Endpoint List Changes
 

@@ -38,7 +38,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 2
-#define FW_VERSION_PATCH 0
+#define FW_VERSION_PATCH 1
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -524,6 +524,15 @@ static const LedColor COLOR_BOOT = {0, 30, 30};            // cyan, fast flashin
 // stack is connected but has no parent entry yet, which is the state for a
 // moment right after a join. Has to stay below LINK_INTERVAL_S.
 #define LINK_RETRY_MS 1000
+
+// The parent is asked for a frame before the link is read - see probeParent() in
+// zb_link.h - and the read waits this long for the answer to come in. A hop to a
+// router answers in tens of milliseconds; a second leaves room for a busy one.
+#define LINK_PROBE_WAIT_MS 1000
+// While the parent's entry has no measurement yet, the link is read every
+// LINK_RETRY_MS, but the parent is asked again only this often: a parent that did
+// not answer once is not helped by being asked every second.
+#define LINK_PROBE_MIN_GAP_MS 10000
 
 // Repeats the last published values even while they stay inside the deadband,
 // like TEMP_REPORT_HEARTBEAT_S does for temperatures, in software as well as in

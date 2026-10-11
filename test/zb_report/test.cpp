@@ -1,9 +1,7 @@
 // Host tests for zb_report: what every report looks like on the air, and what the
 // console says when reports are refused, lost, or get through again.
 //
-// Arduino.h and Zigbee.h in this directory are stubs. The stack calls are recorded,
-// and the send status callback the sketch registers is called by hand, as the Zigbee
-// task would call it once a report's fate is known.
+// Arduino.h and Zigbee.h in this directory are stubs. The stack calls are recorded.
 
 #include "Arduino.h"
 #include "../../NanoH2_DS18B20_Zigbee/zb_report.cpp"
@@ -16,7 +14,7 @@ static esp_err_t reportResult = ESP_OK;
 static int reportsRequested = 0;
 static esp_zb_zcl_report_attr_cmd_t lastReport;
 static esp_zb_zcl_reporting_info_t lastReportingInfo;
-static esp_zb_zcl_command_send_status_callback_t sendStatus = nullptr;
+static bool sendStatusRegistered = false;
 
 const char *esp_err_to_name(esp_err_t code) {
   return code == ESP_ERR_TIMEOUT ? "ESP_ERR_TIMEOUT" : code == ESP_FAIL ? "ESP_FAIL" : "ESP_ERR (stub)";
@@ -39,16 +37,11 @@ esp_err_t esp_zb_zcl_report_attr_cmd_req(esp_zb_zcl_report_attr_cmd_t *cmd_req) 
 void esp_zb_zcl_update_reporting_info(esp_zb_zcl_reporting_info_t *report_info) {
   lastReportingInfo = *report_info;
 }
-void esp_zb_zcl_command_send_status_handler_register(esp_zb_zcl_command_send_status_callback_t cb) {
-  sendStatus = cb;
-}
-
-// What the Zigbee task does once a report's fate is known.
-static void delivered(uint8_t ep, esp_err_t status) {
-  esp_zb_zcl_command_send_status_message_t m = {};
-  m.status = status;
-  m.src_endpoint = ep;
-  sendStatus(m);
+// Must never be called: registering it from the main task, unlocked, as the stack
+// starts was the likely trigger of a vPortExitCritical assert, and it never fired
+// for a report anyway - see zbReportBegin().
+void esp_zb_zcl_command_send_status_handler_register(esp_zb_zcl_command_send_status_callback_t) {
+  sendStatusRegistered = true;
 }
 
 static int fails = 0;
@@ -68,6 +61,8 @@ static void poisonStack() {
 
 int main() {
   zbReportBegin();
+  printf("starting touches nothing in the stack\n");
+  check("no send status callback registered", !sendStatusRegistered);
 
   printf("every report goes to the coordinator, the same way\n");
   poisonStack();
@@ -140,55 +135,31 @@ int main() {
   lockFails = false;
   zbReport(12, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, 0x55);
 
-  printf("reports that never arrive\n");
-  zbReportHandle();  // whatever came before is not this test's business
-  Serial.lines = 0;
-  delivered(21, ESP_FAIL);
-  zbReportHandle();
-  check("the console says so", Serial.lines == 1 && strstr(Serial.last, "EP 21") && strstr(Serial.last, "not delivered"));
-  delivered(21, ESP_FAIL);
-  zbReportHandle();
-  check("and not again while it lasts", Serial.lines == 1);
-  delivered(21, ESP_OK);
-  zbReportHandle();
-  check("the recovery is said, with the count",
-        Serial.lines == 2 && strstr(Serial.last, "delivered again") && strstr(Serial.last, "2 lost"));
-  delivered(21, ESP_OK);
-  zbReportHandle();
-  check("and only once", Serial.lines == 2);
-  // A loss and a delivery between two calls end on the delivery: the spell is over.
-  delivered(22, ESP_FAIL);
-  delivered(22, ESP_OK);
-  zbReportHandle();
-  check("a loss already over is still told, and its end", Serial.lines == 4);
-  check("an endpoint beyond the table is ignored, not a crash", (delivered(200, ESP_FAIL), true));
-
   printf("the summary\n");
   // From a clean slate: what happened up to now was counted into the totals, so
   // one summary first takes it out of the next one.
   hostMillis += REPORT_STATS_INTERVAL_S * 1000UL;
   zbReportHandle();
   Serial.lines = 0;
+  Serial.last[0] = '\0';
   hostMillis += REPORT_STATS_INTERVAL_S * 1000UL - 1;
   zbReport(20, ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT, 0);
   zbReport(21, ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT, 0);
   reportResult = ESP_FAIL;
   zbReport(22, ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT, 0);
   reportResult = ESP_OK;
-  delivered(20, ESP_OK);
-  delivered(21, ESP_FAIL);
+  zbReport(22, ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT, 0);  // ends that spell again
   zbReportHandle();
   check("not before the interval is up", strstr(Serial.last, "reports, last") == nullptr);
   hostMillis += 1;
   zbReportHandle();
-  check("then the counts since the last one",
-        strstr(Serial.last, "2 sent, 1 delivered, 1 not delivered, 1 refused") != nullptr);
+  check("then the counts since the last one", strstr(Serial.last, "3 sent, 1 refused") != nullptr);
   check("and nothing about the connection while connected", strstr(Serial.last, "not connected") == nullptr);
   Zigbee.up = false;
   hostMillis += REPORT_STATS_INTERVAL_S * 1000UL;
   zbReportHandle();
   check("zeros are printed too, and offline is said",
-        strstr(Serial.last, "0 sent, 0 delivered, 0 not delivered, 0 refused (not connected)") != nullptr);
+        strstr(Serial.last, "0 sent, 0 refused (not connected)") != nullptr);
   Zigbee.up = true;
 
   printf("a reporting entry for an attribute added by hand\n");

@@ -266,6 +266,13 @@ uint32_t lastLinkMs = 0;
 uint32_t lastLinkReportMs = 0;   // when a link value last went out, for the heartbeat
 bool linkNow = false;            // read the link as soon as there is one
 bool linkWaitLogged = false;     // "nothing to read" already said once this join
+// The parent the link was last read from, so it can be asked for a frame before the
+// next read - see probeParent(). NO_PARENT until a read has found one.
+static const uint16_t NO_PARENT = 0xFFFF;
+uint16_t linkParentAddr = NO_PARENT;
+bool linkProbePending = false;  // asked, waiting LINK_PROBE_WAIT_MS before the read
+bool linkProbedThisJoin = false;
+uint32_t linkProbeMs = 0;       // when the parent was last asked
 bool linkAssumedLogged = false;  // so has the note about an unflagged parent
 
 // When the settings last went out, for their heartbeat. See
@@ -780,6 +787,17 @@ void setupEndpoints() {
   }
 }
 
+// The settings a coordinator can write, with the values in effect, printed under the
+// endpoint list so a boot log says what the device is running with. The same values
+// open the log as they are loaded; here they stand next to their endpoints.
+void printSettings() {
+  Serial.printf("Settings (writable from Zigbee):" CONSOLE_EOL);
+  cfgInterval.printCurrent();
+  cfgDelta.printCurrent();
+  cfgCorrection.printCurrent();
+  cfgForcePush.printCurrent();
+}
+
 void onZigbeeConnected() {
   // Whatever the mirror last published went to the previous network, or to nobody
   // at all, so the join line below is what this one gets first.
@@ -844,6 +862,10 @@ void onZigbeeConnected() {
   linkNow = true;
   linkWaitLogged = false;
   linkAssumedLogged = false;
+  // A rejoin may be through a different parent, found by the first read.
+  linkParentAddr = NO_PARENT;
+  linkProbePending = false;
+  linkProbedThisJoin = false;
 }
 
 /* ----------------------------- joining ---------------------------- */
@@ -966,6 +988,21 @@ void updateLinkState() {
 // is what closes that, for temperatures, for the link and for the settings alike.
 bool reportOverdue(uint32_t lastMs, uint32_t heartbeatS) {
   return heartbeatS > 0 && (millis() - lastMs) >= heartbeatS * 1000UL;
+}
+
+// Moves a force-push timer on by one interval rather than to now. The check only
+// runs when there is a reading to publish, so a push lands up to one reading
+// interval after it was due; timing the next one from that moment loses the lateness
+// every round - a 1 min push came every 65 s at a 10 s reading interval. Timed from
+// when it was due, the lateness does not add up and the average is the interval.
+// A timer that has fallen more than an interval behind - the push was off, or the
+// device was off the air - starts again from now instead of catching up in a burst.
+void advanceForcePush(uint32_t &lastMs, uint32_t intervalS) {
+  uint32_t intervalMs = intervalS * 1000UL;
+  lastMs += intervalMs;
+  if ((millis() - lastMs) >= intervalMs) {
+    lastMs = millis();
+  }
 }
 
 void handleSettingWrites() {
@@ -1143,7 +1180,7 @@ void readAndPublish() {
     }
   }
   if (forcePush) {
-    lastForcePushMs = millis();
+    advanceForcePush(lastForcePushMs, forcePushS);
   }
   if (anyPrinted) {
     Serial.printf(CONSOLE_EOL);
@@ -1215,10 +1252,31 @@ void handleLinkQuality() {
   if (!linkNow && (now - lastLinkMs) < linkIntervalMs()) {
     return;
   }
+
+  // Ask the parent for a frame first and read after it had time to answer: without
+  // incoming frames its entry holds no measurement, or an old one. Only once a read
+  // has found the parent, and while waiting for a first measurement not more than
+  // every LINK_PROBE_MIN_GAP_MS.
+  if (!linkProbePending && linkParentAddr != NO_PARENT
+      && (!linkProbedThisJoin || (now - linkProbeMs) >= LINK_PROBE_MIN_GAP_MS)) {
+    if (probeParent(linkParentAddr)) {
+      linkProbePending = true;
+      linkProbedThisJoin = true;
+      linkProbeMs = now;
+      return;
+    }
+  }
+  if (linkProbePending && (now - linkProbeMs) < LINK_PROBE_WAIT_MS) {
+    return;
+  }
+  linkProbePending = false;
   linkNow = false;
   lastLinkMs = now;
 
   LinkQuality link = readParentLink();
+  if (link.valid || link.unmeasured) {
+    linkParentAddr = link.parentAddr;  // asked before the next read
+  }
   if (!link.valid) {
     // Connected, but the neighbour table has nothing to read. Right after a join
     // that lasts a moment, so come back in a second instead of after a whole
@@ -1631,6 +1689,7 @@ void setup() {
   }
 
   setupEndpoints();
+  printSettings();
 
   if (!zigbeePartitionsPresent()) {
     haltFatal("set Tools -> Partition Scheme to \"Zigbee 4MB with spiffs\" and flash again");

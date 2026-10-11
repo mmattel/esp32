@@ -51,6 +51,16 @@ static void addNeighbour(uint8_t relationship, uint16_t addr, uint8_t lqi, int8_
   n.rssi = rssi;
 }
 
+static int probes = 0;
+static esp_zb_zdo_ieee_addr_req_param_t lastProbe;
+static bool probeHadCallback = false;
+void esp_zb_zdo_ieee_addr_req(esp_zb_zdo_ieee_addr_req_param_t *cmd_req, esp_zb_zdo_ieee_addr_callback_t user_cb,
+                              void *) {
+  probes++;
+  lastProbe = *cmd_req;
+  probeHadCallback = user_cb != nullptr;
+}
+
 int main() {
   printf("no parent to report\n");
   Zigbee.up = false;
@@ -173,6 +183,22 @@ int main() {
   l = readParentLink();
   check("lqi 0 with rssi 0 is a measurement", l.valid && !l.unmeasured);
   check("and passes through as it is", l.lqi == 0 && l.rssi == 0);
+
+  printf("probing the parent\n");
+  {
+    int takenBefore = locksTaken;
+    probes = 0;
+    bool sent = probeParent(0x380B);
+    check("handed to the stack", sent && probes == 1);
+    check("to the parent, about the parent", lastProbe.dst_nwk_addr == 0x380B && lastProbe.addr_of_interest == 0x380B);
+    check("the smallest answer: single device", lastProbe.request_type == 0 && lastProbe.start_index == 0);
+    check("with a callback, since a null one is not documented", probeHadCallback);
+    check("under the lock, and the lock given back", locksTaken == takenBefore + 1 && locksHeld == 0);
+    Zigbee.up = false;
+    probes = 0;
+    check("nothing while the stack is down", !probeParent(0x380B) && probes == 0);
+    Zigbee.up = true;
+  }
 
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails ? 1 : 0;

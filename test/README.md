@@ -156,6 +156,9 @@ Covers:
 
 - The parent is picked by `relationship`, not by position: an entry behind a child
   and a sibling is still found.
+- `probeParent()` sends a ZDO IEEE address request to the parent, about the parent,
+  single-device form, with a callback, under the Zigbee lock. It sends nothing
+  while the stack is down.
 - Nothing to report — stack not started, empty table, two unflagged entries, lock
   unavailable — returns `valid=false`, and never leaves the lock held.
 - The fallback: a table with exactly one entry that is not flagged as the parent is
@@ -267,9 +270,7 @@ Covers:
 
 The suite for [`zb_report.cpp`](../NanoH2_DS18B20_Zigbee/zb_report.cpp). The stub
 `Zigbee.h` declares the report command and the reporting info with the SDK's
-fields in the SDK's order. The stack calls are recorded, and the test calls the
-send status callback by hand, as the Zigbee task would once a report's fate is
-known.
+fields in the SDK's order. The stack calls are recorded.
 
 Covers:
 
@@ -285,11 +286,14 @@ Covers:
   and the error), none while it lasts, one with the count when it ends. Each
   endpoint has its own spell. A Zigbee lock that cannot be had counts as a refusal,
   reported as a timeout.
-- Losses reported by the send status callback: the same one line at each end of a
-  spell. A loss that ended before `zbReportHandle()` ran still prints both lines.
-  An endpoint number past the table is ignored, not written out of bounds.
-- The summary: not before `REPORT_STATS_INTERVAL_S`, then exactly the counts since
-  the last one. Zeros are printed too, with "(not connected)" while offline.
+- `zbReportBegin()` registers no send status callback. Registering one unlocked as
+  the stack started was the likely cause of a crash, and it never fired for a
+  report anyway.
+- Two attributes on one endpoint (the mirror's text and counter) keep separate
+  spells, so the counter's success doesn't read as the text recovering.
+- The summary: not before `REPORT_STATS_INTERVAL_S`, then exactly the sent and
+  refused counts since the last one. Zeros are printed too, with "(not connected)"
+  while offline.
 - `zbSetReporting()`: endpoint, cluster, attribute, server role, direction, the
   intervals (also as the defaults), no manufacturer code, HA profile.
 

@@ -489,7 +489,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v2.2.0 (build 20200)
+NanoH2-WaterFlow v2.2.1 (build 20201)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
@@ -604,12 +604,18 @@ and heartbeat in software, so the thresholds in these entries are fallbacks only
 **Steady-state traffic** (v2.1.2 and later). Every report is sent with "disable
 default response" set, so the coordinator no longer answers each one with a ZCL
 Default Response sent back across the mesh. The settings are repeated hourly
-instead of every minute. The console prints a line when an endpoint's reports
-start or stop failing, and a summary every `REPORT_STATS_INTERVAL_S` (5 min):
+instead of every minute. The console prints a line when an attribute's reports
+start or stop being refused, and a summary every `REPORT_STATS_INTERVAL_S` (5 min):
 
 ```
-reports, last 300 s: 2 sent, 2 delivered, 0 not delivered, 0 refused
+reports, last 300 s: 2 sent, 0 refused
 ```
+
+Without the Default Responses the device may hear nothing from its parent for
+minutes, so before each link reading it asks the parent for a frame (a ZDO IEEE
+address request, one hop, never via the coordinator), which refreshes LQI and
+RSSI. The boot log lists the writable settings with their values after the
+endpoint list.
 
 ### Coordinator Throttling
 

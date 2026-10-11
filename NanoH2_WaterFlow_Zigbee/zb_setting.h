@@ -57,6 +57,10 @@ public:
   // Pushes the effective value to the coordinator.
   void publish();
 
+  // One console line with the endpoint, the name and the value in effect, for the
+  // settings block the boot log prints under the endpoint list. Console only.
+  void printCurrent();
+
   float value() const {
     return _value;
   }

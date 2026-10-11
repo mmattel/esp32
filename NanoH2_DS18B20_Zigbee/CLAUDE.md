@@ -138,7 +138,8 @@ delivery. The entries stay, as fallback thresholds and to keep Z2M's view
 consistent. They do make Z2M's configure step after a join bigger, which the README
 links to coordinator SRSP timeouts. Don't add new ones on the old "no bind, no
 report" reasoning, and don't diagnose missing reports as missing bindings: the
-console's report lines (`refused …`, `not delivered …`) say what actually happened.
+console's `refused …` lines say whether the stack took a report, and Z2M shows
+whether it arrived.
 
 Use sensible values for the thresholds; the firmware manages its own deadband in
 software and these are fallbacks only:

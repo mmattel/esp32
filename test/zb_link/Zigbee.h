@@ -42,6 +42,22 @@ typedef struct esp_zb_nwk_neighbor_info_s {
 // Defined by the test: iterates a table it sets up itself.
 esp_err_t esp_zb_nwk_get_next_neighbor(esp_zb_nwk_info_iterator_t *iterator, esp_zb_nwk_neighbor_info_t *nbr_info);
 
+// ZDO IEEE address request, as esp_zigbee_zdo_command.h declares it. The response
+// type is only ever held as a pointer.
+typedef enum { ESP_ZB_ZDP_STATUS_SUCCESS = 0x00 } esp_zb_zdp_status_t;
+typedef struct esp_zb_zdo_ieee_addr_rsp_s esp_zb_zdo_ieee_addr_rsp_t;
+typedef struct esp_zb_zdo_ieee_addr_req_param_s {
+  uint16_t dst_nwk_addr;
+  uint16_t addr_of_interest;
+  uint8_t request_type;
+  uint8_t start_index;
+} esp_zb_zdo_ieee_addr_req_param_t;
+typedef void (*esp_zb_zdo_ieee_addr_callback_t)(esp_zb_zdp_status_t zdo_status, esp_zb_zdo_ieee_addr_rsp_t *resp,
+                                                void *user_ctx);
+// Defined by the test: records the request.
+void esp_zb_zdo_ieee_addr_req(esp_zb_zdo_ieee_addr_req_param_t *cmd_req, esp_zb_zdo_ieee_addr_callback_t user_cb,
+                              void *user_ctx);
+
 // Defined by the test: records whether the lock was taken and released.
 bool esp_zb_lock_acquire(TickType_t block_ticks);
 void esp_zb_lock_release(void);

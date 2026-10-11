@@ -79,3 +79,27 @@ LinkQuality readParentLink() {
   esp_zb_lock_release();
   return link;
 }
+
+// The answer is not needed - its arrival is the point, see zb_link.h - but the stack
+// is given a callback rather than none, since whether it accepts a null one is not
+// documented.
+static void onProbeAnswer(esp_zb_zdp_status_t, esp_zb_zdo_ieee_addr_rsp_t *, void *) {}
+
+bool probeParent(uint16_t parentAddr) {
+  if (!Zigbee.started()) {
+    return false;
+  }
+  // Under the Zigbee lock like every other call into the stack from loop(): the stack
+  // is not thread-safe, and its own task is running.
+  if (!esp_zb_lock_acquire(portMAX_DELAY)) {
+    return false;
+  }
+  esp_zb_zdo_ieee_addr_req_param_t req = {};
+  req.dst_nwk_addr = parentAddr;
+  req.addr_of_interest = parentAddr;
+  req.request_type = 0;  // single device response: the smallest answer there is
+  req.start_index = 0;
+  esp_zb_zdo_ieee_addr_req(&req, onProbeAnswer, nullptr);
+  esp_zb_lock_release();
+  return true;
+}

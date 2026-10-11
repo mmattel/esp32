@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 2
-#define FW_VERSION_PATCH 0
+#define FW_VERSION_PATCH 1
 
 #define FW_VERSION_STRINGIFY_(x) #x
 #define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
@@ -249,6 +249,15 @@ static const LedColor COLOR_BOOT           = {0, 30, 30};  // cyan, fast flashin
 #define LQI_DELTA                 10
 #define RSSI_DELTA                 5
 #define LINK_RETRY_MS           1000
+
+// The parent is asked for a frame before the link is read - see probeParent() in
+// zb_link.h - and the read waits this long for the answer to come in. A hop to a
+// router answers in tens of milliseconds; a second leaves room for a busy one.
+#define LINK_PROBE_WAIT_MS 1000
+// While the parent's entry has no measurement yet, the link is read every
+// LINK_RETRY_MS, but the parent is asked again only this often: a parent that did
+// not answer once is not helped by being asked every second.
+#define LINK_PROBE_MIN_GAP_MS 10000
 #define LINK_REPORT_MIN_INTERVAL_S 1
 #define LINK_REPORT_HEARTBEAT_S 3600
 

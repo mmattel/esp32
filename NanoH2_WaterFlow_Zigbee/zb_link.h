@@ -36,3 +36,12 @@ struct LinkQuality {
 // parent is still that link - reported with assumed set, since the relationship
 // is the stack's own bookkeeping and not something to depend on.
 LinkQuality readParentLink();
+
+// Asks the parent for its IEEE address, for the answer rather than the address: the
+// answer is a frame from the parent, and a frame heard from the parent is the only
+// thing that puts a measurement into its neighbour entry. An end device that sends
+// reports with no default response asked for may otherwise hear nothing from its
+// parent for minutes, and readParentLink() then keeps finding the entry unmeasured
+// or stale. One frame each way over the single hop to the parent - never through
+// the coordinator. Returns whether the request was handed to the stack.
+bool probeParent(uint16_t parentAddr);

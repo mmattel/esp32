@@ -141,6 +141,10 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   return changed;
 }
 
+void ZbSetting::printCurrent() {
+  Serial.printf("  EP %u  %s = %.*f" CONSOLE_EOL, (unsigned)_ep.getEndpoint(), _description, decimals(), _value);
+}
+
 void ZbSetting::publish() {
   // setAnalogOutput() runs the change callback, which lands in note() - it
   // recognises the value as the one already in effect and ignores it.

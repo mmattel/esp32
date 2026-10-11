@@ -4,6 +4,24 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.1
+
+From the field logs of 2026-10-11, 16:14 and 16:19 (v3.2.0):
+
+**Fixed: crash right after the stack started.** One boot in three ended in `assert failed: vPortExitCritical port.c:618 (port_uxCriticalNesting[0] > 0)` inside the Zigbee stack's task, right after `Zigbee started, rejoining known network`, followed by a reboot. The next statement in `setup()` was `zbReportBegin()`, which registered the stack's send status callback from the main task **without the Zigbee lock**, while the stack task was already running. That registration is gone. The boot flash (3.2.0) ended at the same moment and remains a second suspect; it touches nothing in the stack, but one crash can't clear it. Since the race doesn't show on every boot, this needs several `--reset` captures to confirm.
+
+**Removed: delivery counting.** The send status callback never fired for a single report (`34 sent, 0 delivered, 0 not delivered`). The APS-level confirm handler would hand the application the confirm handling for every frame, so it's no alternative. The summary now reads `reports, last 300 s: N sent, M refused`.
+
+**Fixed: LQI/RSSI missing after a reboot.** `parent 0x380B found, no measurement in it yet` for 8 minutes. The measurement only comes from frames heard from the parent, and since 3.1.2 the coordinator no longer sends Default Responses back. Before each link read, the device now sends its parent a ZDO IEEE address request (`probeParent()` in `zb_link`) and reads 1 s later. That's one hop and never through the coordinator: once per `LINK_INTERVAL_S`, and at most every 10 s while waiting for a first measurement.
+
+**Fixed: force push came every 65 s instead of 60.** The check runs on each reading (~10.8 s), and the next push was timed from the late one. It is now timed from when it was due, so the average is the set interval. A timer more than one interval behind restarts from now instead of catching up.
+
+**Added:** the boot log lists the settings a coordinator can write, with their values, right after the endpoint list.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.2.0
 
 **Added: boot flash.** From power-on until the LED shows a network state, it now flashes cyan fast (100 ms on, 100 ms off). Before, it stayed dark for that time. That can be long: up to `SERIAL_WAIT_MS` (2 s) waiting for a USB host that isn't there, then up to 30 s in `Zigbee.begin()` while the stack rejoins, e.g. after a long power-off. A dark LED for that long looked like a dead board.

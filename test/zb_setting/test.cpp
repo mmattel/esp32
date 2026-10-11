@@ -322,6 +322,13 @@ int main() {
     if (!ok) fails++;
   }
 
+  printf("the line for the boot log's settings block\n");
+  {
+    // Printed, not checked byte for byte here: the stub's Serial does not keep its
+    // output. It has to compile against the real class and run.
+    cw.printCurrent();
+  }
+
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails != 0;
 }
