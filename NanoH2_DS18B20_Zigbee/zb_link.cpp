@@ -95,29 +95,59 @@ static volatile bool probeAnswered = false;
 static volatile uint8_t probeStatus = 0;
 static volatile uint32_t probeAnsweredMs = 0;
 static uint32_t probeSentMs = 0;
-static volatile bool probeMeasured = false;
-static volatile uint8_t probeLqi = 0;
-static volatile int8_t probeRssi = 0;
+static volatile uint16_t probeTarget = 0xFFFF;  // the parent asked; 0xFFFF while nothing is expected
+static volatile bool probeFrameSeen = false;
+static volatile uint8_t probeFrameLqi = 0;
+static volatile uint8_t probeRadioLqi = 0;
+static volatile int8_t probeRadioRssi = 0;
 
 static void onProbeAnswer(esp_zb_zdp_status_t status, esp_zb_zdo_ieee_addr_rsp_t *, void *) {
-  // First thing, before anything else can arrive: the radio's last frame is the
-  // parent's answer only until the next one comes in.
-  if (status == ESP_ZB_ZDP_STATUS_SUCCESS) {
-    probeLqi = esp_ieee802154_get_recent_lqi();
-    probeRssi = esp_ieee802154_get_recent_rssi();
-    probeMeasured = true;
-  }
   probeStatus = (uint8_t)status;
   probeAnsweredMs = millis();
   probeAnswered = true;
 }
 
-bool probeMeasurement(uint8_t *lqi, int8_t *rssi) {
-  if (!probeMeasured) {
+bool probeFrame(ProbeFrame *out) {
+  if (!probeFrameSeen) {
     return false;
   }
-  *lqi = probeLqi;
-  *rssi = probeRssi;
+  out->lqi = probeFrameLqi;
+  out->radioLqi = probeRadioLqi;
+  out->radioRssi = probeRadioRssi;
+  out->rssiVerified = probeRadioLqi == probeFrameLqi;
+  return true;
+}
+
+// The Arduino core's APS indication handler (ZigbeeCore.cpp). Not static there, and
+// declared in no header, so it is declared here to be called after ours: the core
+// uses it to refresh its list of bound devices when a bind or unbind request
+// arrives, and that has to keep working.
+bool zb_apsde_data_indication_handler(esp_zb_apsde_data_ind_t ind);
+
+static const uint16_t ZDO_PROFILE_ID = 0x0000;
+static const uint16_t ZDO_IEEE_ADDR_RSP = 0x8001;
+
+// Runs in the stack's task for every APS frame received, before the stack handles it.
+static bool onApsIndication(esp_zb_apsde_data_ind_t ind) {
+  if (ind.status == 0 && ind.profile_id == ZDO_PROFILE_ID && ind.cluster_id == ZDO_IEEE_ADDR_RSP
+      && ind.src_short_addr == probeTarget && !probeFrameSeen) {
+    // First the radio, while its most recent frame can still be this one.
+    probeRadioLqi = esp_ieee802154_get_recent_lqi();
+    probeRadioRssi = esp_ieee802154_get_recent_rssi();
+    probeFrameLqi = (uint8_t)ind.lqi;
+    probeFrameSeen = true;
+  }
+  return zb_apsde_data_indication_handler(ind);  // false: the stack goes on as usual
+}
+
+bool linkBegin() {
+  if (!Zigbee.started() || !esp_zb_lock_acquire(portMAX_DELAY)) {
+    return false;
+  }
+  // Under the lock: the stack's task is running by now, and registering anything
+  // with it unlocked is what crashed v3.2.0.
+  esp_zb_aps_data_indication_handler_register(onApsIndication);
+  esp_zb_lock_release();
   return true;
 }
 
@@ -140,7 +170,8 @@ bool probeParent(uint16_t parentAddr) {
     return false;
   }
   probeAnswered = false;
-  probeMeasured = false;  // a measurement belongs to the answer of this probe, not an older one
+  probeFrameSeen = false;  // a frame belongs to the answer of this probe, not an older one
+  probeTarget = parentAddr;
   probeSentMs = millis();
   esp_zb_zdo_ieee_addr_req_param_t req = {};
   req.dst_nwk_addr = parentAddr;

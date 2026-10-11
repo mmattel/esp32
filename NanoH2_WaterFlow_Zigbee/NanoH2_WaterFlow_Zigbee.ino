@@ -842,10 +842,10 @@ void handleLinkQuality() {
   }
   // The frame that carried the parent's answer is the measurement whenever there is
   // one: fresher than the neighbour entry, which on this device does not move at all.
-  // See probeMeasurement() in zb_link.h.
-  uint8_t frameLqi = 0;
-  int8_t frameRssi = 0;
-  bool frameMeasured = afterProbe && probeMeasurement(&frameLqi, &frameRssi);
+  // Its LQI is the stack's own for that frame; its RSSI only counts when verified -
+  // see ProbeFrame in zb_link.h.
+  ProbeFrame frame = {};
+  bool frameSeen = afterProbe && probeFrame(&frame);
 
   // Diagnostic, after a read that followed a probe, until this join's first value is
   // published: did the parent answer, what did its frame measure, and what does its
@@ -856,20 +856,24 @@ void handleLinkQuality() {
     if (probeAnswer(&status, &afterMs)) {
       Serial.printf("link probe: parent 0x%04X answered after %lu ms (ZDP status 0x%02X)", linkParentAddr,
                     (unsigned long)afterMs, status);
-      if (frameMeasured) {
-        Serial.printf("; frame LQI %u RSSI %d", frameLqi, frameRssi);
+      if (frameSeen) {
+        Serial.printf("; frame LQI %u, radio LQI %u RSSI %d (%s)", frame.lqi, frame.radioLqi, frame.radioRssi,
+                      frame.rssiVerified ? "matches" : "other frame, RSSI not used");
+      } else {
+        Serial.printf("; answer frame not seen");
       }
-      Serial.printf("; entry LQI %u RSSI %d age %u" CONSOLE_EOL, link.rawLqi, link.rawRssi, link.rawAge);
+      Serial.printf("; entry LQI %u RSSI %d" CONSOLE_EOL, link.rawLqi, link.rawRssi);
     } else {
-      Serial.printf("link probe: parent 0x%04X, no answer within %u ms; entry LQI %u RSSI %d age %u" CONSOLE_EOL,
-                    linkParentAddr, (unsigned)LINK_PROBE_WAIT_MS, link.rawLqi, link.rawRssi, link.rawAge);
+      Serial.printf("link probe: parent 0x%04X, no answer within %u ms; entry LQI %u RSSI %d" CONSOLE_EOL,
+                    linkParentAddr, (unsigned)LINK_PROBE_WAIT_MS, link.rawLqi, link.rawRssi);
     }
   }
-  if (frameMeasured) {
+  if (frameSeen) {
     link.valid = true;
     link.unmeasured = false;
-    link.lqi = frameLqi;
-    link.rssi = frameRssi;
+    link.lqi = frame.lqi;
+    link.rssi = frame.radioRssi;
+    link.rssiUnknown = !frame.rssiVerified;
   }
 
   if (!link.valid) {
@@ -896,12 +900,18 @@ void handleLinkQuality() {
   bool heartbeat = !first && reportOverdue(lastLinkReportMs, LINK_REPORT_HEARTBEAT_S);
   bool due       = first || heartbeat;
   bool lqiMoved  = due || linkMoved(link.lqi,  lqiPublished,  LQI_DELTA);
-  bool rssiMoved = due || linkMoved(link.rssi, rssiPublished, RSSI_DELTA);
+  // An RSSI that could not be verified is not published, and not compared either.
+  bool rssiMoved = !link.rssiUnknown && (due || linkMoved(link.rssi, rssiPublished, RSSI_DELTA));
   bool sendLqi   = ZB_LQI_ENDPOINT  && lqiMoved;
   bool sendRssi  = ZB_RSSI_ENDPOINT && rssiMoved;
 
   if (lqiMoved || rssiMoved || LOG_EVERY_SAMPLE) {
-    Serial.printf("link: parent 0x%04X  LQI %u/255  RSSI %d dBm", link.parentAddr, link.lqi, link.rssi);
+    Serial.printf("link: parent 0x%04X  LQI %u/255", link.parentAddr, link.lqi);
+    if (link.rssiUnknown) {
+      Serial.printf("  RSSI not verified");
+    } else {
+      Serial.printf("  RSSI %d dBm", link.rssi);
+    }
     if (!ZB_LQI_ENDPOINT && !ZB_RSSI_ENDPOINT) {
       Serial.printf(CONSOLE_EOL);
     } else if (!sendLqi && !sendRssi) {
@@ -1101,6 +1111,10 @@ void setup() {
   Serial.printf("%s" CONSOLE_EOL, commissioned ? "Zigbee started, rejoining known network"
                                                : "Zigbee started, waiting to be commissioned");
   zbReportBegin();
+  // Catches the parent's answer to a link probe; must follow Zigbee.begin().
+  if (!linkBegin()) {
+    Serial.printf("link: could not hook the APS indications, LQI and RSSI stay unknown" CONSOLE_EOL);
+  }
   resetJoinWait();
 }
 

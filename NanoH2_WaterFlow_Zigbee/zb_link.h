@@ -32,6 +32,9 @@ struct LinkQuality {
   uint8_t rawLqi;
   int8_t rawRssi;
   uint8_t rawAge;  // the stack's age counter for the entry
+  // lqi is measured but rssi is not: the frame's RSSI could not be verified to be the
+  // parent's (see ProbeFrame). Nothing to publish for the RSSI then.
+  bool rssiUnknown;
 };
 
 // Reads the parent's entry from the neighbour table. Safe to call at any time;
@@ -58,13 +61,27 @@ bool probeParent(uint16_t parentAddr);
 // - which of "not sent", "not answered" and "answered but nothing measured" it is.
 bool probeAnswer(uint8_t *status, uint32_t *afterMs);
 
-// LQI and RSSI of the frame that carried the parent's answer to the last
-// probeParent(), read from the radio driver the moment the answer came in. False
-// until a successful answer has arrived since that probe.
+// The frame that carried the parent's answer to the last probeParent(), caught as it
+// arrived. This is the measurement, not the neighbour entry: on this device the stack
+// leaves the parent's entry at LQI 0 / RSSI +127 however many frames the parent sends
+// (field log of 2026-10-11 17:09).
 //
-// This is the measurement, not the neighbour entry: on this device the stack leaves
-// the parent's entry at LQI 0 / RSSI +127 however many frames the parent sends (field
-// log of 2026-10-11 17:09: seven answers, status 0x00, entry unchanged). The radio
-// driver keeps both values for the most recent frame it received, and right after the
-// answer that is the parent's frame - an end device hears little else.
-bool probeMeasurement(uint8_t *lqi, int8_t *rssi);
+// lqi is the stack's own for that frame (APSDE-DATA.indication), so it is the
+// parent's beyond doubt. The indication carries no RSSI, so the radio driver's values
+// for its most recent frame are read in the same moment - and only trusted when the
+// driver's LQI is the frame's LQI, i.e. the driver's last frame is this one. Reading
+// the driver later, in the ZDO answer callback ~230 ms on, gave LQI 10 / RSSI -91
+// from some distant router instead (field log of 2026-10-11 17:16).
+struct ProbeFrame {
+  uint8_t lqi;        // the answer frame's LQI, from the indication
+  uint8_t radioLqi;   // the radio driver's LQI for its most recent frame, read with it
+  int8_t radioRssi;   // ... and its RSSI
+  bool rssiVerified;  // radioLqi == lqi, so radioRssi is the answer frame's
+};
+// False until the parent's answer to the last probeParent() has been seen.
+bool probeFrame(ProbeFrame *out);
+
+// Puts a handler in front of the stack's APS data indications that catches the
+// parent's answer frame for probeFrame(), then hands every indication on to the
+// Arduino core's own handler unchanged. Call once, after Zigbee.begin().
+bool linkBegin();

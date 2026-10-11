@@ -58,6 +58,26 @@ static esp_zb_zdo_ieee_addr_callback_t probeCallback = nullptr;
 uint32_t hostMillis = 0;
 static uint8_t radioLqi = 0;
 static int8_t radioRssi = 0;
+static esp_zb_apsde_data_indication_callback_t indication = nullptr;
+static int indicationLocksHeld = -1;  // locks held while registering
+void esp_zb_aps_data_indication_handler_register(esp_zb_apsde_data_indication_callback_t cb) {
+  indication = cb;
+  indicationLocksHeld = locksHeld;
+}
+// The Arduino core's own handler, which ours must hand every frame on to.
+static int coreHandlerCalls = 0;
+bool zb_apsde_data_indication_handler(esp_zb_apsde_data_ind_t) {
+  coreHandlerCalls++;
+  return false;
+}
+static esp_zb_apsde_data_ind_t frame(uint16_t src, uint16_t profile, uint16_t cluster, int lqi) {
+  esp_zb_apsde_data_ind_t ind = {};
+  ind.src_short_addr = src;
+  ind.profile_id = profile;
+  ind.cluster_id = cluster;
+  ind.lqi = lqi;
+  return ind;
+}
 uint8_t esp_ieee802154_get_recent_lqi(void) {
   return radioLqi;
 }
@@ -230,22 +250,39 @@ int main() {
     check("a timeout comes back as one", probeAnswer(&status, &after) && status == 0x85 && after == 100);
   }
 
-  printf("the answer's frame is the measurement\n");
+  printf("catching the parent's answer frame\n");
   {
-    uint8_t lqi = 0;
-    int8_t rssi = 0;
+    check("linkBegin() registers a handler", linkBegin() && indication != nullptr);
+    check("under the Zigbee lock", indicationLocksHeld == 1 && locksHeld == 0);
+
+    ProbeFrame f;
     probeParent(0x380B);
-    check("nothing measured before the answer", !probeMeasurement(&lqi, &rssi));
+    check("nothing seen before the answer", !probeFrame(&f));
+    coreHandlerCalls = 0;
+    radioLqi = 30;
+    radioRssi = -88;
+    indication(frame(0x1234, 0x0000, 0x8001, 30));  // someone else's IEEE_addr_rsp
+    indication(frame(0x380B, 0x0104, 0x0006, 30));  // the parent, but not the answer
+    check("other frames are not the answer", !probeFrame(&f));
+    check("but every one goes on to the core", coreHandlerCalls == 2);
+
     radioLqi = 196;
     radioRssi = -41;
-    probeCallback((esp_zb_zdp_status_t)0x00, nullptr, nullptr);
-    radioLqi = 50;  // a later frame from someone else must not change it
-    radioRssi = -90;
-    check("the radio's values at the moment of the answer", probeMeasurement(&lqi, &rssi) && lqi == 196 && rssi == -41);
+    indication(frame(0x380B, 0x0000, 0x8001, 196));
+    check("the parent's answer is seen", probeFrame(&f) && f.lqi == 196);
+    check("radio read with it, and verified by its LQI", f.radioLqi == 196 && f.radioRssi == -41 && f.rssiVerified);
+    check("and handed on as well", coreHandlerCalls == 3);
+    radioLqi = 10;
+    radioRssi = -91;
+    indication(frame(0x380B, 0x0000, 0x8001, 10));  // a second answer must not overwrite the first
+    check("the first answer stays", probeFrame(&f) && f.lqi == 196);
+
     probeParent(0x380B);
-    check("a new probe forgets the old measurement", !probeMeasurement(&lqi, &rssi));
-    probeCallback((esp_zb_zdp_status_t)0x85, nullptr, nullptr);
-    check("a timeout measures nothing", !probeMeasurement(&lqi, &rssi));
+    check("a new probe forgets the old frame", !probeFrame(&f));
+    radioLqi = 10;   // the driver's last frame was something else
+    radioRssi = -91;
+    indication(frame(0x380B, 0x0000, 0x8001, 180));
+    check("LQI from the frame, RSSI not verified", probeFrame(&f) && f.lqi == 180 && !f.rssiVerified);
   }
 
   printf("the raw entry, measured or not\n");

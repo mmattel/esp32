@@ -54,6 +54,27 @@ typedef struct esp_zb_zdo_ieee_addr_req_param_s {
 } esp_zb_zdo_ieee_addr_req_param_t;
 typedef void (*esp_zb_zdo_ieee_addr_callback_t)(esp_zb_zdp_status_t zdo_status, esp_zb_zdo_ieee_addr_rsp_t *resp,
                                                 void *user_ctx);
+// APSDE-DATA.indication, field for field as esp_zigbee_aps.h declares it.
+typedef struct esp_zb_apsde_data_ind_s {
+  uint8_t status;
+  uint8_t dst_addr_mode;
+  uint16_t dst_short_addr;
+  uint8_t dst_endpoint;
+  uint8_t src_addr_mode;
+  uint16_t src_short_addr;
+  uint8_t src_endpoint;
+  uint16_t profile_id;
+  uint16_t cluster_id;
+  uint32_t asdu_length;
+  uint8_t *asdu;
+  uint8_t security_status;
+  int lqi;
+  int rx_time;
+} esp_zb_apsde_data_ind_t;
+typedef bool (*esp_zb_apsde_data_indication_callback_t)(esp_zb_apsde_data_ind_t ind);
+// Defined by the test: keeps the handler, so the test can feed it frames.
+void esp_zb_aps_data_indication_handler_register(esp_zb_apsde_data_indication_callback_t cb);
+
 // The radio driver's last received frame (esp_ieee802154.h), set by the test.
 uint8_t esp_ieee802154_get_recent_lqi(void);
 int8_t esp_ieee802154_get_recent_rssi(void);

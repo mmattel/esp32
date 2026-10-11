@@ -163,10 +163,15 @@ responses off, the device may hear nothing from its parent for minutes.
 `probeParent()` (`zb_link`) sends the parent a ZDO IEEE address request before
 each link read. It's one hop and never goes through the coordinator. The stack
 does **not** update the parent's neighbour entry from those answers: it stays at
-LQI 0 / RSSI +127, as seen on 2026-10-11. So the answer callback reads
-`esp_ieee802154_get_recent_lqi/rssi()` (the last received frame, which is the
-parent's answer), and those values are published. Don't rely on the neighbour
-table for link quality on this device.
+LQI 0 / RSSI +127, as seen on 2026-10-11. So `linkBegin()` puts a handler in front
+of the APS data indications. It catches the parent's `IEEE_addr_rsp` and takes the
+frame's LQI, then calls the Arduino core's `zb_apsde_data_indication_handler()` so
+the core works as before. The RSSI comes from `esp_ieee802154_get_recent_rssi()`,
+read in the same moment, and only counts if the driver's recent LQI equals the
+frame's. Reading the driver later, in the ZDO callback, got another device's frame
+(LQI 10 / RSSI −91). Don't rely on the neighbour table for link quality on this
+device. If the core ever registers its indication handler again (it does so once,
+in `Zigbee.begin()`), `linkBegin()` must run after that.
 
 **A report carries at most 50 characters of string.** `esp_zb_zcl_report_attr_cmd_req()`
 refuses a bigger one with `ESP_ERR_INVALID_SIZE`. The rule, read from the SDK's

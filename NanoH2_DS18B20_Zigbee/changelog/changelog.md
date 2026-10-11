@@ -4,6 +4,29 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.4
+
+**Fixed: wrong LQI/RSSI from 3.2.3.** The field log of 2026-10-11, 17:16 published `LQI 10, RSSI -91 dBm` for a parent 50–60 cm away, which earlier measured about LQI 170–200 and −40 to −48 dBm. 3.2.3 read the radio driver's "most recent frame" in the ZDO answer callback, ~237 ms after the request. By then the radio had picked up other frames, likely broadcasts from a distant router.
+
+Now a handler in front of the stack's APS data indications (`linkBegin()` in `zb_link`) catches the parent's answer frame itself, sender = parent and ZDO `IEEE_addr_rsp`, as it arrives:
+
+- **LQI:** from the indication, the stack's own value for that frame.
+- **RSSI:** the indication has none. The radio driver's values are read in the same moment and used only if its LQI equals the frame's. Otherwise the console says `RSSI not verified` and no RSSI is published.
+- **The core keeps working:** every frame is passed on to the Arduino core's own handler, `zb_apsde_data_indication_handler()`, which keeps its binding bookkeeping.
+- **Locked:** the handler is registered under the Zigbee lock, after `Zigbee.begin()`.
+
+The diagnostic line now shows the frame's LQI next to the radio's, and whether they match:
+
+```
+link probe: parent 0x380B answered after 237 ms (ZDP status 0x00); frame LQI 196, radio LQI 196 RSSI -41 (matches); entry LQI 0 RSSI 127
+```
+
+The 3.2.3 log was the seventh boot in a row without the crash fixed in 3.2.1.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.2.3
 
 **Fixed: LQI/RSSI after a reboot, for real this time.** The v3.2.2 diagnostics (field log of 2026-10-11, 17:09) showed the third case: the parent answers every request (ZDP status `0x00`, after ~231 ms), but the stack leaves its neighbour entry at LQI 0 / RSSI +127. The neighbour table simply isn't a source of link quality on this device.
