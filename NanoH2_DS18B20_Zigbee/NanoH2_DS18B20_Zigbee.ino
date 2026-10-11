@@ -66,6 +66,7 @@
 #include "zb_link_endpoint.h"
 #include "slots.h"
 #include "zb_mirror.h"
+#include "zb_report.h"
 #include "zb_setting.h"
 #include "zb_temp_endpoint.h"
 #include "zb_version.h"
@@ -732,6 +733,10 @@ void onZigbeeConnected() {
   // Whatever the mirror last published went to the previous network, or to nobody
   // at all, so the join line below is what this one gets first.
   zbMirror.forgetPublished();
+  // Before the first line below: the mirror's text attribute has no reporting entry
+  // until applyReporting() creates it, and the stack refuses a report without one -
+  // which is how "Zigbee connected" used to be the one line that never got out.
+  applyReporting();  // must be called after Zigbee.begin()
   logEvent("Zigbee connected");
 
   if (!commissioned) {
@@ -743,7 +748,6 @@ void onZigbeeConnected() {
     Serial.printf("Commissioning stored in NVS" CONSOLE_EOL);
   }
 
-  applyReporting();  // must be called after Zigbee.begin()
   // Once now, in case the coordinator is already bound, and then on the heartbeat
   // for the far more likely case that it is not yet - see handleSettingReports().
   // Delays between publishes spread the post-join burst; see POST_JOIN_REPORT_DELAY_MS.
@@ -1042,6 +1046,9 @@ void readAndPublish() {
     bool heartbeat = !first && !moved && !forcePush && reportOverdue(lastTempReportMs[i], TEMP_REPORT_HEARTBEAT_S);
     bool publish = first || moved || heartbeat || forcePush;
 
+    // Whether the stack took the report, so the console line below says "published"
+    // only for a report that actually left - see zb_report.h for whether it arrived.
+    bool reported = false;
     if (publish) {
       zbTemp[i]->setTemperature(celsius);
       if (Zigbee.connected()) {
@@ -1051,7 +1058,7 @@ void readAndPublish() {
         // is free to rewrite it (Zigbee2MQTT sets 1 °C), which would silently
         // override the configured delta. Off the air there is nobody to report
         // to, and a rejoin resets lastPublished anyway.
-        zbTemp[i]->reportTemperature();
+        reported = zbTemp[i]->reportTemperature();
       }
       lastPublished[i] = celsius;
       lastTempReportMs[i] = millis();
@@ -1076,6 +1083,7 @@ void readAndPublish() {
       Serial.printf("slot %u  EP %u  %s  %.*f C  %s%s" CONSOLE_EOL, i, EP_TEMP_BASE + i, rom, TEMP_PUBLISH_DECIMALS,
                     celsius,
                     !publish ? "within deadband"
+                             : !reported ? (Zigbee.connected() ? "NOT published, report refused" : "not published, offline")
                              : first ? "published (first)"
                              : moved ? "published"
                              : forcePush ? "published (force push)"
@@ -1594,6 +1602,7 @@ void setup() {
   }
   Serial.printf("%s" CONSOLE_EOL, commissioned ? "Zigbee started, rejoining known network"
                                                : "Zigbee started, waiting to be commissioned");
+  zbReportBegin();
   resetJoinWait();
 }
 
@@ -1603,6 +1612,7 @@ void loop() {
   handleSettingWrites();
   handleSettingReports();
   zbMirror.handleReports();
+  zbReportHandle();
   handleTemperature();
   handleLinkQuality();
   handleButton();

@@ -172,7 +172,7 @@ sends the bind commands. No re-interview = no bindings = silent report failures.
   the repo, so check the `EP` lines in the banner to see which build is running.
 - **Host tests** for the pure-logic parts live in `../test/`. Run them with
   `cd test && make` after touching `ds18b20_bus`, `slots`, `zb_setting`, `zb_mirror`,
-  `zb_link`, or `zb_version`.
+  `zb_link`, `zb_version`, or `zb_report`.
 - **`MAX_DS18B20_SENSORS 0`** is a test/isolation mode: no temperature endpoints, no
   1-Wire activity, Zigbee joining only. The real default is 3.
 

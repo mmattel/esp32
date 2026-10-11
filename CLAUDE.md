@@ -95,6 +95,8 @@ Any change to shared logic must be applied to **both** copies:
 | `zb_version.cpp` / `zb_version.h` | Firmware version endpoint |
 | `zb_link_endpoint.cpp` / `zb_link_endpoint.h` | Link quality endpoint base |
 | `zb_link.cpp` / `zb_link.h` | LQI/RSSI measurement |
+| `zb_report.cpp` / `zb_report.h` | Every attribute report (`zbReport()`), reporting entries, delivery tracking |
+| `zb_setting.cpp` / `zb_setting.h` | Writable settings endpoints |
 
 After finishing the DS18B20 side of a change, always check whether the WaterFlow
 copies of the same files differ, then port the change and bump WaterFlow's version
@@ -109,26 +111,41 @@ independently.
 discards all attribute reports on this hardware even when the binding table is
 correctly populated (confirmed in v3.0.x / v2.0.x; related to esp-zigbee-sdk #909).
 
-**All report functions must use direct unicast to coordinator:**
+**Every report goes through `zbReport()` in `zb_report.cpp`** (since DS18B20 v3.1.2 /
+WaterFlow v2.1.2). It sends direct unicast to the coordinator:
 ```cpp
 cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
 cmd.zcl_basic_cmd.dst_addr_u.addr_short = 0x0000;
 cmd.zcl_basic_cmd.dst_endpoint = 1;
+cmd.dis_default_resp = 1;   // no ZCL Default Response back through the coordinator
 ```
 
-Applied in DS18B20 v3.1.0 / WaterFlow v2.1.0 to every report function in the shared
-files above and in `TempEndpoint::reportTemperature()`.
+Never call the core's `reportAnalogInput()`, `reportAnalogOutput()` or
+`reportTemperature()` helpers directly: they use binding-table mode. The endpoint
+classes hide them with versions that call `zbReport()`, and `ZbSetting::publish()`
+calls it directly. The `zb_setting` host test stub has no `reportAnalogOutput()`, so
+a call to it that creeps back in fails to compile.
+
+**Default responses stay off.** With `dis_default_resp = 0`, Z2M answers every
+report with a Default Response sent through the coordinator and back over the mesh.
+On this network the path from the coordinator back to the device's parent is weak,
+and that extra traffic contributes to the coordinator SRSP timeouts (see the
+DS18B20 README, "Coordinator Throttling").
+
+**Delivery is visible on the console.** `zbReport()` records whether the stack took
+the report, and the send status callback records whether it was acknowledged.
+`zbReportHandle()` prints one line when an endpoint starts failing, one when it
+recovers, and a summary every `REPORT_STATS_INTERVAL_S`.
 
 **Custom char-string attributes (0xF000) need an extra step:** Z2M never sends
 configure_reporting for `m.text()` exposes, so the SDK's internal reporting table has
-no entry for attribute 0xF000. Call `esp_zb_zcl_update_reporting_info()` directly
+no entry for attribute 0xF000. Register it with `zbSetReporting()`
 (via `setTextReporting()` on `ZbMirror` and `ZbVersion`) from `applyReporting()` on
-each join, otherwise `reportClusterAttribute()` silently does nothing for those
-attributes.
+each join, otherwise the stack refuses those reports. `applyReporting()` must run
+**before** the first `logEvent()` after a join, or that line's report is refused.
 
-Any new endpoint whose firmware calls a `report*()` method must follow the same
-unicast pattern. For non-standard attributes, also register the reporting config
-manually.
+Any new endpoint that reports must do so through `zbReport()`. For non-standard
+attributes, also register the reporting entry with `zbSetReporting()`.
 
 ---
 
@@ -204,5 +221,5 @@ Check these periodically; a resolved issue may allow removing a workaround.
 ## Host Tests
 
 Pure-logic units have host tests in `test/`. Run with `cd test && make` after
-touching `ds18b20_bus`, `slots`, `zb_setting`, `zb_mirror`, `zb_link`, or
-`zb_version`. No board required.
+touching `ds18b20_bus`, `slots`, `zb_setting`, `zb_mirror`, `zb_link`,
+`zb_version`, or `zb_report`. No board required.

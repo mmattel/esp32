@@ -11,6 +11,17 @@
 #include "../../NanoH2_DS18B20_Zigbee/zb_setting.cpp"
 #undef private
 #include <cassert>
+
+// Credits each report to the endpoint object it came from. Only the analog output's
+// present value is a setting report; anything else would be a report the sketch has
+// no business sending from here.
+bool zbReport(uint8_t srcEndpoint, uint16_t clusterId, uint16_t attrId) {
+  ZigbeeAnalog *ep = ZigbeeAnalog::byEndpoint[srcEndpoint];
+  if (ep && clusterId == ESP_ZB_ZCL_CLUSTER_ID_ANALOG_OUTPUT && attrId == ESP_ZB_ZCL_ATTR_ANALOG_OUTPUT_PRESENT_VALUE_ID) {
+    ep->reports++;
+  }
+  return true;
+}
 #include <cstdarg>
 
 // A written value is announced with logEvent(), which on the device prints and

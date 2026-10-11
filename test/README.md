@@ -192,16 +192,9 @@ Covers:
 - A published line: written to the analog input cluster's text attribute, padded to
   `MIRROR_TEXT_LEN` so a shorter line cannot leave the tail of a longer one behind,
   a `trim()` away from what was printed, with the line count beside it and both
-  reported through the binding table from this endpoint.
-- Every field of the report command, including the ones the sketch has no opinion
-  about. `manuf_code` is the key the stack looks the attribute up by, and the text
-  attribute is added under no manufacturer code at all, so that is what the report has
-  to ask for. The core's own helpers never set it
-  ([arduino-esp32#12917](https://github.com/espressif/arduino-esp32/issues/12917)),
-  which is why the sketch builds this command itself and why the check is here. The
-  test fills the stack with a pattern first (`poisonStack()`) so a field nobody set
-  reads as garbage here rather than as a lucky zero — with a pattern chosen not to
-  collide with the value that is actually correct.
+  reported from this endpoint. How a report is built and addressed is
+  `zb_report`'s job and is checked there; this suite stubs `zbReport()` and checks
+  which attribute went out.
 - The deadband: a line repeated three times costs one report and does not move the
   count; the line before last counts as new again.
 - A leading indent is dropped, and a line longer than `MIRROR_TEXT_LEN` is cut, not
@@ -215,9 +208,12 @@ Covers:
   has been printed.
 - The failure paths: without the text attribute, and with a write the stack refuses,
   the line count still goes out — a text that was not written is not reported, and
-  the console is told once per spell of failing and once again on recovery, since
-  the stack's own `log_e()` is compiled out at the Core Debug Level the board is
-  built with. The `Serial` stub keeps what it printed so that line can be counted
+  the console is told once per spell of failing and once again on recovery, naming
+  the step that failed (setting or reporting, text or counter), since the stack's
+  own `log_e()` is compiled out at the Core Debug Level the board is built with.
+  A refused report is told apart from a write that failed.
+- `setTextReporting()` registers a reporting entry for the text attribute, and only
+  once the attribute exists. The `Serial` stub keeps what it printed so that line can be counted
   and read.
 - `logEvent()` formats once for both the console and the mirror, and a line past its
   own buffer is cut at both ends of that path rather than overrunning either.
@@ -258,14 +254,44 @@ Covers:
   presses read — and created at its own length, unpadded. The mirror pads because a
   longer line comes later; a version cannot change without a reflash.
 - `publish()`: the number written, one report each, and **the text before the
-  number**, so a coordinator acting on the number already has the string. Every
-  field of the report command is checked, `manuf_code` included, for the same reason
-  as in `zb_mirror` and with the same `poisonStack()` first.
+  number**, so a coordinator acting on the number already has the string, reported
+  from this endpoint's analog input cluster. `setTextReporting()` registers the
+  text attribute's reporting entry.
 - Off the air: nothing written, nothing reported, and nothing held back for later
   either — the next join publishes it again, and the answer cannot have changed in
   between.
 - Without the text attribute the number still goes out, which is the half that works
   with no converter, since it is the cluster's own value.
+
+### `zb_report` — every report, and what became of it
+
+The suite for [`zb_report.cpp`](../NanoH2_DS18B20_Zigbee/zb_report.cpp). The stub
+`Zigbee.h` declares the report command and the reporting info with the SDK's
+fields in the SDK's order. The stack calls are recorded, and the test calls the
+send status callback by hand, as the Zigbee task would once a report's fate is
+known.
+
+Covers:
+
+- Every field of the report frame, after `poisonStack()` so an unset field reads as
+  garbage: unicast (`ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT`) to `0x0000` endpoint 1,
+  from the endpoint and for the cluster and attribute asked for, towards the
+  client, not manufacturer specific, under no manufacturer code
+  ([arduino-esp32#12917](https://github.com/espressif/arduino-esp32/issues/12917)),
+  and **no default response** asked for. Taken under the Zigbee lock, and the lock
+  given back.
+- Nothing is sent while the stack is not running.
+- Refusals: one console line per endpoint when a spell starts (naming the attribute
+  and the error), none while it lasts, one with the count when it ends. Each
+  endpoint has its own spell. A Zigbee lock that cannot be had counts as a refusal,
+  reported as a timeout.
+- Losses reported by the send status callback: the same one line at each end of a
+  spell. A loss that ended before `zbReportHandle()` ran still prints both lines.
+  An endpoint number past the table is ignored, not written out of bounds.
+- The summary: not before `REPORT_STATS_INTERVAL_S`, then exactly the counts since
+  the last one. Zeros are printed too, with "(not connected)" while offline.
+- `zbSetReporting()`: endpoint, cluster, attribute, server role, direction, the
+  intervals (also as the defaults), no manufacturer code, HA profile.
 
 ## What these tests do not cover
 

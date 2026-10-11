@@ -1,6 +1,7 @@
 #include "zb_setting.h"
 #include "config.h"
 #include "console.h"
+#include "zb_report.h"
 
 // All this file wants from config.h is the identity it puts on each endpoint, so a
 // config.h that predates those two names costs two errors rather than thirty - but
@@ -126,5 +127,7 @@ void ZbSetting::publish() {
   // setAnalogOutput() runs the change callback, which lands in note() - it
   // recognises the value as the one already in effect and ignores it.
   _ep.setAnalogOutput(_value);
-  _ep.reportAnalogOutput();
+  // Not the core's reportAnalogOutput(): that reports through the binding table,
+  // which silently fails on this device - see zb_report.h.
+  zbReport(_ep.getEndpoint(), ESP_ZB_ZCL_CLUSTER_ID_ANALOG_OUTPUT, ESP_ZB_ZCL_ATTR_ANALOG_OUTPUT_PRESENT_VALUE_ID);
 }

@@ -1,4 +1,5 @@
 #include "zb_mirror.h"
+#include "zb_report.h"
 
 #include <stdarg.h>
 
@@ -77,13 +78,22 @@ void ZbMirror::publish() {
 
   // The text goes first and the sequence number second, so that a coordinator
   // acting on a new number already has the line that number belongs to.
-  bool ok = true;
+  // The first step that failed, so the console can say which one it was: setting an
+  // attribute is local and fails for a different reason than a report does.
+  const char *failed = nullptr;
   if (_hasText) {
-    ok = setText() && reportText();  // a write that failed is not worth reporting
+    if (!setText()) {
+      failed = "setting the text failed";
+    } else if (!reportText()) {  // a write that failed is not worth reporting
+      failed = "reporting the text failed";
+    }
   }
-  if (!setAnalogInput(_sequence) || !reportAnalogInput()) {
-    ok = false;
+  if (!setAnalogInput(_sequence)) {
+    failed = failed ? failed : "setting the counter failed";
+  } else if (!reportAnalogInput()) {
+    failed = failed ? failed : "reporting the counter failed";
   }
+  bool ok = failed == nullptr;
 
   // Whether the line made it onto the air is otherwise invisible. Every failure
   // below this function says so through log_e() or log_w(), and Core Debug Level is
@@ -99,8 +109,12 @@ void ZbMirror::publish() {
   // stops the mirror stops it for every line: a bus that has gone quiet would
   // otherwise turn one failure into a failure message per reading.
   if (ok != _publishWorked) {
-    Serial.printf("Console mirror (EP %u): %s" CONSOLE_EOL, _endpoint,
-                  ok ? "sending again" : "cannot be sent, the console is all there is for now");
+    if (ok) {
+      Serial.printf("Console mirror (EP %u): sending again" CONSOLE_EOL, _endpoint);
+    } else {
+      Serial.printf("Console mirror (EP %u): cannot be sent, %s - the console is all there is for now" CONSOLE_EOL,
+                    _endpoint, failed);
+    }
     _publishWorked = ok;
   }
 
@@ -143,83 +157,23 @@ bool ZbMirror::setText() {
 }
 
 bool ZbMirror::reportText() {
-  // The library reports the attributes it knows about, not this one, so the report
-  // is built here - field for field like ZigbeeAnalog::reportAnalogInput() does, and
-  // one field more. Direct unicast to coordinator 0x0000 endpoint 1: the binding
-  // table mode (ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT) silently fails on
-  // this device even when bindings are populated - confirmed in v2.0.2.
-  //
-  // Zeroed first so that nothing in it is left to whatever the stack happened to
-  // hold: the named fields below do not cover the padding around the bitfields, and
-  // a later SDK can add fields this code has never heard of. The core's own helpers
-  // skip this and get away with it, which is not a reason to.
-  esp_zb_zcl_report_attr_cmd_t cmd = {};
-  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
-  cmd.zcl_basic_cmd.dst_addr_u.addr_short = 0x0000;
-  cmd.zcl_basic_cmd.dst_endpoint = 1;
-  cmd.attributeID = MIRROR_TEXT_ATTR_ID;
-  cmd.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
-  cmd.clusterID = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
-  cmd.zcl_basic_cmd.src_endpoint = _endpoint;
-  cmd.manuf_specific = 0x00U;
-  cmd.dis_default_resp = 0x00U;
-  // Which manufacturer's attribute 0xF000 this is. addText() adds it with
-  // esp_zb_cluster_add_attr(), the non-manufacturer variant, so it is keyed under no
-  // manufacturer at all and that is what has to be asked for - even though the ID
-  // sits in the range ZCL reserves for manufacturers. The name, not the number: it
-  // is 0xFFFF in the SDK generation this builds against and 0x0000 in the next one.
-  // The core's own report helpers leave this field uninitialised, which only works
-  // while the stack ignores it for a report that is not manufacturer specific -
-  // arduino-esp32#12917. If that is ever fixed, this whole function can go back to
-  // being a call to the helper.
-  cmd.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
-
-  return reportClusterAttribute(&cmd);
+  // The library reports the attributes it knows about, not this one - see zb_report.h
+  // for how every report is built and where it goes.
+  return zbReport(_endpoint, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, MIRROR_TEXT_ATTR_ID);
 }
 
 bool ZbMirror::reportAnalogInput() {
-  // Override the base class binding-table mode with direct unicast to coordinator.
-  // Same pattern as reportText() — see that function for the full rationale.
-  esp_zb_zcl_report_attr_cmd_t cmd = {};
-  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
-  cmd.zcl_basic_cmd.dst_addr_u.addr_short = 0x0000;
-  cmd.zcl_basic_cmd.dst_endpoint = 1;
-  cmd.attributeID = ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID;
-  cmd.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
-  cmd.clusterID = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
-  cmd.zcl_basic_cmd.src_endpoint = _endpoint;
-  cmd.manuf_specific = 0x00U;
-  cmd.dis_default_resp = 0x00U;
-  cmd.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
-  return reportClusterAttribute(&cmd);
+  // Hides the core's version, which reports through the binding table - see zb_report.h.
+  return zbReport(_endpoint, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID);
 }
 
 void ZbMirror::setTextReporting(uint16_t minInterval, uint16_t maxInterval) {
   if (!_hasText) {
     return;
   }
-  // The SDK's reportClusterAttribute() looks up a reporting-config entry for the
-  // attribute before sending. setAnalogInputReporting() creates one for presentValue
-  // (float); this creates one for the text attribute (0xF000). Without it, reportText()
-  // fails silently every time it is called - the same as the float would without
-  // setAnalogInputReporting(). Called from applyReporting() on each join because
-  // the Zigbee stack has to be running for esp_zb_zcl_update_reporting_info() to work.
-  //
-  // delta is left 0: char-string is a discrete type, and discrete types carry no
-  // reportableChange threshold (ZCL spec 2.6.7.4).
-  esp_zb_zcl_reporting_info_t ri = {};
-  ri.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
-  ri.ep = _endpoint;
-  ri.cluster_id = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
-  ri.cluster_role = ESP_ZB_ZCL_CLUSTER_SERVER_ROLE;
-  ri.attr_id = MIRROR_TEXT_ATTR_ID;
-  ri.u.send_info.min_interval = minInterval;
-  ri.u.send_info.max_interval = maxInterval;
-  ri.u.send_info.def_min_interval = minInterval;
-  ri.u.send_info.def_max_interval = maxInterval;
-  ri.dst.profile_id = ESP_ZB_AF_HA_PROFILE_ID;
-  ri.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
-  esp_zb_zcl_update_reporting_info(&ri);
+  // The stack refuses a report for an attribute it has no reporting entry for, and
+  // nothing else creates one for this attribute - see zbSetReporting().
+  zbSetReporting(_endpoint, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, MIRROR_TEXT_ATTR_ID, minInterval, maxInterval);
 }
 
 bool ZbMirror::addText() {

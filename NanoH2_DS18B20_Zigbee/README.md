@@ -496,7 +496,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.1
+M5Stack NanoH2 - DS18B20 over Zigbee v3.1.2
 Sensor slots: 3
 ```
 
@@ -682,9 +682,12 @@ temperature and link endpoints only, and the core's analog output cluster takes 
 reporting configuration — and the publish on join is too early to help: a report
 only reaches whoever is already bound, and Zigbee2MQTT binds while it interviews.
 That is why a freshly joined device showed an empty interval and delta until the
-first write. All three settings are therefore repeated every
-`SETTING_REPORT_HEARTBEAT_S` (60 s), which is what fills them in, and what refills
-them after a coordinator restart that lost its state.
+first write. All settings are therefore sent again once,
+`SETTING_REPORT_JOIN_RETRY_MS` (20 s) after the join, which is what fills them in,
+and then repeated every `SETTING_REPORT_HEARTBEAT_S` (1 h), which refills them after
+a coordinator restart that lost its state. Before v3.1.2 the repeat ran every
+minute, which cost the coordinator six reports a minute for values nobody had
+changed. See [Coordinator Throttling](#coordinator-throttling).
 
 ### Why the Delta Moves in Quarters
 
@@ -1117,10 +1120,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.1.1` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.1.1`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30101`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.1.1` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.1.2` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.1.2`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30102`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.1.2` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1152,7 +1155,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.1.1"`) and `FW_VERSION_NUMBER` (`30101`) are built from them, so
+`FW_VERSION` (`"3.1.2"`) and `FW_VERSION_NUMBER` (`30102`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1224,7 +1227,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.1
+M5Stack NanoH2 - DS18B20 over Zigbee v3.1.2
 Sensor slots: 3
 ```
 
@@ -1696,16 +1699,16 @@ Two rules that are not obvious from the Zigbee spec but matter for stability:
 Including it makes Z2M send extra bind and configure_reporting commands on every
 restart for no benefit.
 
-**`reporting:` is absent from all read-only (`STATE_GET`) endpoints.** The firmware
-calls `reportTemperature()` and `reportAnalogInput()` explicitly and manages its
-own deadband and heartbeat in software. Z2M's configure_reporting step for read-only
-endpoints is therefore wasted traffic. With many such endpoints — this device has
-seven (12, 13, 14, 16, 20, 21, 22) — the combined burst of Z2M's configure commands
-and the device's own post-join reports can overwhelm the Z-Stack coordinator's serial
-interface, causing SRSP timeouts that crash Z2M and trigger a Docker restart loop.
-The `reporting:` field is kept only on the writable (`access: 'ALL'`,
-`genAnalogOutput`) settings at endpoints 10, 11 and 15, where Z2M genuinely needs
-to learn when the device changes a value.
+**Every endpoint has a `reporting:` entry, read-only ones included.** Converter 1.1
+removed them from the read-only (`STATE_GET`) endpoints to shrink Z2M's configure
+step after a join. Converters 1.4 to 1.6 put them back, because at the time reports
+were delivered through the binding table, and Z2M only creates a binding for a
+cluster that has a `reporting:` entry. Since firmware v3.1.0 every report goes to
+the coordinator by unicast and no longer needs a binding. So the entries are no
+longer needed for delivery, but they do make the configure step after each join
+bigger again. The firmware calls `reportTemperature()` and `reportAnalogInput()`
+itself and keeps its own deadband and heartbeat in software, so the thresholds in
+these entries are fallbacks only.
 
 ### Coordinator Throttling
 
@@ -1739,6 +1742,31 @@ most and neither setting slows that.
 
 The firmware change removes the burst from this device; the Z2M settings protect
 against any other device that produces a similar burst on join.
+
+**Steady-state traffic** (v3.1.2 and later). The burst is not the only load: every
+report keeps costing the coordinator something after the join as well. Two changes
+cut that down:
+
+- **No Default Response.** Every report is sent with "disable default response"
+  set. Before, the coordinator answered each report with a ZCL Default Response,
+  which Zigbee2MQTT sends as a request of its own through the coordinator's radio
+  and back across the mesh to the device. Over a weak link to the device's parent
+  router, each of those replies can sit in the coordinator's queue through retries.
+  The report itself is still acknowledged at the APS layer.
+- **Settings repeated hourly, not every minute.** See
+  [Reading Interval and Reporting Delta](#reading-interval-and-reporting-delta).
+
+The console now shows whether reports get through. A line is printed when an
+endpoint's reports start being refused by the stack or stop being acknowledged by
+the coordinator, and another when they recover. Every `REPORT_STATS_INTERVAL_S`
+(5 min) a summary follows:
+
+```
+reports, last 300 s: 9 sent, 9 delivered, 0 not delivered, 0 refused
+```
+
+"Delivered" counts every command the stack confirmed, read responses to a refresh
+from Z2M included, so it can run slightly ahead of "sent".
 
 ### When the Endpoint List Changes
 

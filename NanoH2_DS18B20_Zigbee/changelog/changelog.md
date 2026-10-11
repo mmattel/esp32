@@ -4,6 +4,33 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.1.2
+
+**Context:** with v3.1.1 flashed, the mirror text (EP 14) still never arrived in Z2M while the counter did. Temperatures pushed by force push showed as `published (force push)` on the console but did not show up in Z2M. And the Zigbee network still had spells where Z2M's pings to other routers timed out with `SRSP - AF - dataRequest after 6000ms`, the symptom described in the README's "Coordinator Throttling".
+
+**Fixed:**
+
+- **Join order.** `onZigbeeConnected()` printed "Zigbee connected" through the mirror before `applyReporting()` had created the reporting entry for the text attribute, so the first report of every join was refused. `applyReporting()` now runs first.
+- **Settings went through the binding table.** `ZbSetting::publish()` still used the core's `reportAnalogOutput()`, the binding-table mode that silently fails on this device. It now uses unicast like every other report.
+
+**Less traffic through the coordinator:**
+
+- **No Default Response.** Every report is now sent with `dis_default_resp = 1`. Before, the coordinator answered each report with a ZCL Default Response, sent by Z2M as a request of its own through the coordinator and back over the mesh to the device. On this network that path back is the weakest part (coordinator to Terrasse/Pool, LQI 73/79). The APS acknowledgement of each report is unaffected.
+- **Settings repeated hourly instead of every minute.** `SETTING_REPORT_HEARTBEAT_S` 60 → 3600. The minute heartbeat cost six reports a minute (four settings plus the version number and text), about 8,600 a day of unchanged values. The join publish and the one-shot retry 20 s after the join are unchanged.
+
+**Diagnostics:**
+
+- **Report outcome on the console.** A new shared `zb_report.cpp/.h` builds every report in one place (`zbReport()`) and registers the stack's send status callback. The console says when an endpoint's reports start being refused by the stack (with the error) or stop being delivered (no APS acknowledgement after retries), and when they recover. That's one line at each end of a spell, not one per report. Every `REPORT_STATS_INTERVAL_S` (300 s) a summary line follows: sent, delivered, not delivered, refused.
+- **The temperature line tells the truth.** `published` is printed only when the stack took the report. Otherwise it says `NOT published, report refused` or `not published, offline`.
+- **The mirror says which step failed:** setting or reporting, text or counter.
+- **Capture script.** `tools/serial-capture.sh` records the serial console with a timestamp per line, so the device can stay on its real parent with the notebook beside it and the log can be lined up with the Z2M log afterwards.
+
+**Tests:** the `zb_mirror` and `zb_version` host tests had stopped compiling with the unicast change in v3.1.0. They now stub `zbReport()`, and a new `zb_report` suite checks the report frame (unicast to 0x0000 ep 1, no default response, no manufacturer code) and the console lines.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.1.1
 
 **Fixed:** `console_mirror` (EP 14, attribute 0xF000) and `firmware_version` text (EP 16, attribute 0xF000) never auto-updated in Z2M — pressing the refresh button returned the correct value, but no reports arrived automatically. The sequence counter (`mirror_line_count`) did update, so the reporting path was partially working.

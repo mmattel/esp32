@@ -38,7 +38,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 1
+#define FW_VERSION_PATCH 2
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -296,9 +296,14 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // and Zigbee2MQTT binds while interviewing. Nothing then changes until something is
 // written, which is why a freshly joined device showed no interval and no delta
 // until the first write. This closes that. 0 disables it, leaving both readable but
-// never sent. They are two attributes of a mains-powered device, so a minute costs
-// nothing.
-#define SETTING_REPORT_HEARTBEAT_S 60
+// never sent.
+//
+// Hourly, not every minute as before v3.1.2. A minute is not free: it is four settings
+// and two version reports, around 8,600 a day of values nobody changed, all
+// funnelled through the coordinator, which is the node the whole network waits on.
+// The join publish plus the one-shot retry below already fill in a freshly joined
+// device, so the heartbeat only covers a coordinator that lost track since then.
+#define SETTING_REPORT_HEARTBEAT_S 3600
 
 // One-shot re-publish of all settings and the firmware version, fired this many
 // milliseconds after a join - long enough for Z2M to complete its configure step
@@ -308,6 +313,14 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // for the first SETTING_REPORT_HEARTBEAT_S tick. After this one shot,
 // SETTING_REPORT_HEARTBEAT_S takes over as normal.
 #define SETTING_REPORT_JOIN_RETRY_MS 20000
+
+// How often the console gets a one-line summary of the reports since the last
+// one: how many were sent, how many the coordinator acknowledged, how many never
+// arrived and how many the stack refused - see zb_report.h. Console only, so it
+// costs nothing on the air, and in a capture left running it doubles as proof of
+// life with a timestamp. 0 disables the summary. The lines for an endpoint that
+// starts or stops failing are printed either way.
+#define REPORT_STATS_INTERVAL_S 300
 
 /* ------------------------------------------------------------------
  * Pushbutton

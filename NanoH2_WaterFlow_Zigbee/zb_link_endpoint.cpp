@@ -1,21 +1,9 @@
 #include "zb_link_endpoint.h"
+#include "zb_report.h"
 
 bool LinkAnalog::reportAnalogInput() {
-  // Direct unicast to coordinator 0x0000 endpoint 1: the binding table mode
-  // (ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT) silently fails on this
-  // device even when bindings are present - confirmed in v2.0.2.
-  esp_zb_zcl_report_attr_cmd_t cmd = {};
-  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
-  cmd.zcl_basic_cmd.dst_addr_u.addr_short = 0x0000;
-  cmd.zcl_basic_cmd.dst_endpoint = 1;
-  cmd.attributeID = ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID;
-  cmd.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
-  cmd.clusterID = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
-  cmd.zcl_basic_cmd.src_endpoint = _endpoint;
-  cmd.manuf_specific = 0x00U;
-  cmd.dis_default_resp = 0x00U;
-  cmd.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
-  return reportClusterAttribute(&cmd);
+  // Hides the core's version, which reports through the binding table - see zb_report.h.
+  return zbReport(_endpoint, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID);
 }
 
 bool LinkAnalog::setAnalogInputUnits(uint16_t bacnetUnit) {

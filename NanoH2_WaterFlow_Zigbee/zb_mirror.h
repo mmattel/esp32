@@ -8,9 +8,7 @@
 // no converter to be visible, and it changes with every new line, which is what an
 // automation can trigger on even where the text itself is not readable.
 //
-// Reports use direct unicast to the coordinator at short address 0x0000 rather
-// than the binding table. The binding table mode (ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT)
-// silently fails on this device even when bindings are present - confirmed in v2.0.2.
+// Reports go through zbReport(), direct unicast to the coordinator - see zb_report.h.
 //
 // Nothing here can be written: an analog input is read-only by definition, and the
 // text attribute is created read-only as well.

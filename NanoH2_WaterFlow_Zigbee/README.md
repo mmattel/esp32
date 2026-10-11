@@ -478,7 +478,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v2.1.1 (build 20101)
+NanoH2-WaterFlow v2.1.2 (build 20102)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
@@ -580,16 +580,25 @@ Two rules that are not obvious from the Zigbee spec but matter for stability:
 Including it makes Z2M send extra bind and configure_reporting commands on every
 restart for no benefit.
 
-**`reporting:` is absent from all read-only (`STATE_GET`) endpoints.**  The firmware
-calls `reportAnalogInput()` explicitly and manages its own deadband and heartbeat in
-software.  Z2M's configure_reporting step for read-only endpoints is therefore wasted
-traffic.  With many such endpoints — this device has nine (13, 14, 15, 16, 20, 21,
-22, 23, 24) — the combined burst of Z2M's configure commands and the device's own
-post-join reports can overwhelm the Z-Stack coordinator's serial interface, causing
-SRSP timeouts that crash Z2M and trigger a Docker restart loop.  The `reporting:`
-field is kept only on the writable (`access: 'ALL'`, `genAnalogOutput`) settings at
-endpoints 10, 11 and 12, where Z2M genuinely needs to learn when the device changes
-a value.
+**Every endpoint has a `reporting:` entry, read-only ones included.** An earlier
+converter left them off the read-only (`STATE_GET`) endpoints to shrink Z2M's
+configure step after a join. They were put back because at the time reports were
+delivered through the binding table, and Z2M only creates a binding for a cluster
+that has a `reporting:` entry. Since firmware v2.1.0 every report goes to the
+coordinator by unicast and no longer needs a binding. So the entries are no longer
+needed for delivery, but they do make the configure step after each join bigger
+again. The firmware calls `reportAnalogInput()` itself and keeps its own deadband
+and heartbeat in software, so the thresholds in these entries are fallbacks only.
+
+**Steady-state traffic** (v2.1.2 and later). Every report is sent with "disable
+default response" set, so the coordinator no longer answers each one with a ZCL
+Default Response sent back across the mesh. The settings are repeated hourly
+instead of every minute. The console prints a line when an endpoint's reports
+start or stop failing, and a summary every `REPORT_STATS_INTERVAL_S` (5 min):
+
+```
+reports, last 300 s: 2 sent, 2 delivered, 0 not delivered, 0 refused
+```
 
 ### Coordinator Throttling
 

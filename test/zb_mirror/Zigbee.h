@@ -26,8 +26,7 @@ const char *esp_zb_zcl_status_to_name(esp_zb_zcl_status_t status);
 #define ESP_ZB_ZCL_ATTR_TYPE_CHAR_STRING 0x42
 #define ESP_ZB_ZCL_ATTR_ACCESS_READ_ONLY 0x01
 #define ESP_ZB_ZCL_ATTR_ACCESS_REPORTING 0x04
-#define ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT 0x00
-#define ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI 0x00
+#define ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID 0x0055
 #define ESP_ZB_ZCL_AI_COUNT_UNITLESS_COUNT 0x00u
 // "No manufacturer", as the SDK generation the core ships spells it. Worth knowing
 // that the next generation keeps the name but changes the number to 0x0000 and gives
@@ -46,28 +45,6 @@ esp_zb_attribute_list_t *esp_zb_cluster_list_get_cluster(esp_zb_cluster_list_t *
 esp_err_t esp_zb_cluster_add_attr(esp_zb_attribute_list_t *attr_list, uint16_t cluster_id, uint16_t attr_id,
                                   uint8_t attr_type, uint8_t attr_access, void *value_p);
 
-typedef struct esp_zb_zcl_basic_cmd_s {
-  uint8_t src_endpoint;
-} esp_zb_zcl_basic_cmd_t;
-
-// Every field, in the order the SDK declares them, bitfields included - and
-// deliberately no more forgiving than the original. manuf_code is the one that
-// matters most for being here: it is the key the attribute is looked up by, the
-// core's own report helpers never set it, and a stub that quietly left it out could
-// not fail on a report that asks for the wrong one.
-typedef struct esp_zb_zcl_report_attr_cmd_s {
-  esp_zb_zcl_basic_cmd_t zcl_basic_cmd;
-  uint8_t address_mode;
-  uint16_t clusterID;
-  struct {
-    uint8_t manuf_specific : 2;
-    uint8_t direction : 1;
-    uint8_t dis_default_resp : 1;
-  };
-  uint16_t manuf_code;  // the manufacturer code of the attribute to report
-  uint16_t attributeID;
-} esp_zb_zcl_report_attr_cmd_t;
-
 class ZigbeeEP {
 public:
   explicit ZigbeeEP(uint8_t endpoint) : _endpoint(endpoint) {}
@@ -80,15 +57,14 @@ protected:
   // byte the string carries - so the bytes that would go on the air can be read back.
   esp_zb_zcl_status_t setClusterAttribute(uint16_t cluster_id, uint8_t cluster_role, uint16_t attr_id, void *value,
                                           bool check = false);
-  bool reportClusterAttribute(esp_zb_zcl_report_attr_cmd_t *report_attr_cmd);
 };
 
 class ZigbeeAnalog : public ZigbeeEP {
 public:
   explicit ZigbeeAnalog(uint8_t endpoint) : ZigbeeEP(endpoint) {}
-  // Defined by the test: records the value and counts the reports.
+  // Defined by the test: records the value. Reports go through zbReport(), which
+  // the test defines as well - see zb_report.h.
   bool setAnalogInput(float analog);
-  bool reportAnalogInput();
 };
 
 struct ZigbeeCoreStub {

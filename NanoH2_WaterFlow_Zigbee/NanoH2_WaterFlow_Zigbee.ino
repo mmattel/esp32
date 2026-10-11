@@ -51,6 +51,7 @@
 #include "zb_link.h"
 #include "zb_link_endpoint.h"
 #include "zb_mirror.h"
+#include "zb_report.h"
 #include "zb_setting.h"
 #include "zb_version.h"
 
@@ -476,6 +477,10 @@ void publishFlowValues(bool forceAll = false, bool forcePush = false) {
 
 void onZigbeeConnected() {
   zbMirror.forgetPublished();
+  // Before the first line below: the mirror's text attribute has no reporting entry
+  // until applyReporting() creates it, and the stack refuses a report without one -
+  // which is how "Zigbee connected" used to be the one line that never got out.
+  applyReporting();
   logEvent("Zigbee connected");
 
   if (!commissioned) {
@@ -485,7 +490,6 @@ void onZigbeeConnected() {
   }
 
   // Delays between publishes spread the post-join burst; see POST_JOIN_REPORT_DELAY_MS.
-  applyReporting();
   cfgImpulsesPerL.publish();
   delay(POST_JOIN_REPORT_DELAY_MS);
   cfgWritebackS.publish();
@@ -952,6 +956,7 @@ void setup() {
   }
   Serial.printf("%s" CONSOLE_EOL, commissioned ? "Zigbee started, rejoining known network"
                                                : "Zigbee started, waiting to be commissioned");
+  zbReportBegin();
   resetJoinWait();
 }
 
@@ -961,6 +966,7 @@ void loop() {
   handleSettingWrites();
   handleSettingReports();
   zbMirror.handleReports();
+  zbReportHandle();
   handleFlow();
   handleLinkQuality();
   handleButton();
