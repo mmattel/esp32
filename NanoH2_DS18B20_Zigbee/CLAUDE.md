@@ -166,9 +166,10 @@ sends the bind commands. No re-interview = no bindings = silent report failures.
 
 ## Build and Test Environment
 
-- **Builds and flashing happen on a separate machine.** Changes travel via git; serial
-  output comes back as pasted text. The flashed build may lag the repo — check the
-  `EP` lines in the banner to identify which commit is running.
+- **Builds run locally** with the Arduino IDE flatpak's bundled `arduino-cli`. The
+  command, FQBN and library location are in the root `CLAUDE.md`, under "Build and Flash
+  Environment". Compile after every firmware change. The flashed build may still lag
+  the repo, so check the `EP` lines in the banner to see which build is running.
 - **Host tests** for the pure-logic parts live in `../test/`. Run them with
   `cd test && make` after touching `ds18b20_bus`, `slots`, `zb_setting`, `zb_mirror`,
   `zb_link`, or `zb_version`.
@@ -197,5 +198,5 @@ them feels stale.
 | --- | --- | --- |
 | arduino-esp32 #12917 | https://github.com/espressif/arduino-esp32/issues/12917 | Uninitialised `manuf_code` in core report helpers; workaround is in `ZbMirror::reportText()` |
 | esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | `esp_zigbee_zcl_command.c:263` assert on char-string reports; root cause not yet confirmed. Binding-table report mode (`ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT`) silently fails even with valid bindings — fixed in v3.1.0 by switching all reports to direct unicast (0x0000 ep 1). `reportText()` also requires a reporting-config entry in the SDK's internal table for attr 0xF000; fixed in converter v1.6 by adding `reporting:` to both `m.text()` entries so Z2M sends `configure_reporting` for 0xF000 during re-interview. |
-| OneWire PR #165 | https://github.com/PaulStoffregen/OneWire/pull/165 | OneWire library change; check if merged |
+| OneWire PR #165 | https://github.com/PaulStoffregen/OneWire/pull/165 | Adds ESP32-H2/C2 support to OneWire's direct-GPIO layer, the reason `ds18b20_bus` exists. Open, unmerged as of 2026-10-11 |
 | zigbee2mqtt-frontend #2783 | https://github.com/nurikk/zigbee2mqtt-frontend/issues/2783 | Z2M UI: arrow-button changes not transmitted; already noted in README |

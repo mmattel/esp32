@@ -180,9 +180,10 @@ writeback pattern exists to keep write cycles proportional to flow events, not t
 
 ## Build and Test Environment
 
-- **Builds and flashing happen on a separate machine.** Changes travel via git; serial
-  output comes back as pasted text. The flashed build may lag the repo — check the
-  `EP` lines in the boot banner to identify which commit is running.
+- **Builds run locally** with the Arduino IDE flatpak's bundled `arduino-cli`. The
+  command, FQBN and library location are in the root `CLAUDE.md`, under "Build and Flash
+  Environment". Compile after every firmware change. The flashed build may still lag
+  the repo, so check the `EP` lines in the boot banner to see which build is running.
 - **`LOG_EVERY_SAMPLE 1`** in `config.h` prints a serial line for every 1-second sample,
   including zero-flow intervals. Useful for calibrating `impulses_per_litre`. Default is
   `0` (print only when pulses > 0).
