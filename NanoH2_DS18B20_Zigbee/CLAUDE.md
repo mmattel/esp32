@@ -182,6 +182,11 @@ sends the bind commands. No re-interview = no bindings = silent report failures.
 
 - Lines that should reach the console mirror **must use `logEvent()`**, not
   `Serial.printf()` directly. `logEvent()` both prints and hands the line to the mirror.
+- **A mirrored line carries at most `MIRROR_TEXT_LEN` (48) characters**, and the
+  stack refuses more than 50, so the limit cannot be raised. Keep `logEvent()`
+  wording short, and run `cd test && make`: `logevent_len` fails on a fixed
+  wording that can be cut. Text inserted with `%s` is only noted at run time
+  ("line above cut to ...").
 - `Serial.printf()` is fine for output that is debug-only and should not be mirrored.
 - Every line ends with `CONSOLE_EOL` (defined in `config.h`). Never append `\r\n`
   or rely on the driver to expand `\n`.

@@ -10,7 +10,7 @@ CXX ?= g++
 CXXFLAGS := -std=c++17 -Wall -Wextra -Wno-unused-parameter -O1
 
 SKETCH := ../NanoH2_DS18B20_Zigbee
-SUITES := onewire slots zb_setting zb_link zb_mirror zb_version zb_report
+SUITES := onewire slots zb_setting zb_link zb_mirror zb_version zb_report logevent_len
 BINARIES := $(addsuffix /run,$(SUITES))
 
 .PHONY: all clean
@@ -51,6 +51,11 @@ zb_version/run: zb_version/test.cpp zb_version/Arduino.h zb_version/Zigbee.h \
 zb_report/run: zb_report/test.cpp zb_report/Arduino.h zb_report/Zigbee.h \
                $(SKETCH)/zb_report.cpp $(SKETCH)/zb_report.h $(SKETCH)/config.h
 	$(CXX) $(CXXFLAGS) -Izb_report -o $@ $<
+
+# Reads the sources of both sketches rather than compiling them, so it depends on
+# all of them: any edit to a logEvent() line or to MIRROR_TEXT_LEN reruns it.
+logevent_len/run: logevent_len/test.cpp $(wildcard ../NanoH2_*_Zigbee/*.ino ../NanoH2_*_Zigbee/*.cpp ../NanoH2_*_Zigbee/*.h)
+	$(CXX) $(CXXFLAGS) -o $@ $<
 
 clean:
 	rm -f $(BINARIES)

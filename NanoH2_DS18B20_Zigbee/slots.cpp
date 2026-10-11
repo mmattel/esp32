@@ -69,8 +69,10 @@ void slotsReportSummary(const uint64_t *rom, const bool *present) {
   // 42 characters at three slots, against the MIRROR_TEXT_LEN of 48 that the mirror
   // carries - so it goes out whole rather than cut, which is what the wording is
   // chosen for. It is SLOT_SUMMARY_FIXED_CHARS (38) plus one digit per number; the
-  // static_assert below the function checks the widest case. It read "temp sensors (3 slots): 3 on the bus, ..." (61 characters) until
-  // v3.1.4 brought MIRROR_TEXT_LEN down to what the stack accepts - see config.h.
+  // static_assert below the function checks the widest case, which is why
+  // test/logevent_len takes its word for it (mirror-len: checked in code). It read
+  // "temp sensors (3 slots): 3 on the bus, ..." (61 characters) until v3.1.4
+  // brought MIRROR_TEXT_LEN down to what the stack accepts - see config.h.
   logEvent("%u slots: %u on bus, %u missing, %u never seen", (unsigned)MAX_DS18B20_SENSORS,
            (unsigned)onBus, (unsigned)missing, (unsigned)neverSeen);
 }

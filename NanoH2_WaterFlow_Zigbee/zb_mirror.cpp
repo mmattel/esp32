@@ -40,6 +40,18 @@ void ZbMirror::mirror(const char *line) {
   while (*line == ' ') {
     line++;
   }
+  // A line longer than the mirror carries is cut, and the coordinator gets its
+  // start with nothing to say the rest is missing. The console has the whole line -
+  // logEvent() printed it just before this - so a note right under it is enough to
+  // find the culprit. Most lines are fixed wording, and test/logevent_len catches
+  // those before they are ever flashed; this is for the ones put together at run
+  // time, a setting's value or a sensor name, which only show at run time.
+  // Serial.printf(), never logEvent(): this line must not be mirrored itself.
+  size_t len = strlen(line);
+  if (len > MIRROR_TEXT_LEN) {
+    Serial.printf("Console mirror (EP %u): line above cut to %u of %u characters" CONSOLE_EOL, _endpoint,
+                  (unsigned)MIRROR_TEXT_LEN, (unsigned)len);
+  }
   strncpy(_text, line, MIRROR_TEXT_LEN);
   _text[MIRROR_TEXT_LEN] = '\0';
 

@@ -293,6 +293,27 @@ Covers:
 - `zbSetReporting()`: endpoint, cluster, attribute, server role, direction, the
   intervals (also as the defaults), no manufacturer code, HA profile.
 
+### `logevent_len` — every mirrored line fits
+
+Not a compile of the sketch but a read of its sources, both sketches. Every
+`logEvent("…")` call goes to the console mirror, which carries at most
+`MIRROR_TEXT_LEN` characters (48) and cuts the rest. Since the Zigbee stack refuses
+longer strings, the limit cannot be raised. This suite takes each call's format
+string, joins adjacent literals as the compiler does, and estimates the longest
+line it can produce: three digits for a `%u`/`%d`, ten for a `%lu`, sign, three
+digits and the decimals for a `%f`. The mirror drops a leading indent, so that
+doesn't count. Each sketch is checked against the `MIRROR_TEXT_LEN` in its own
+`config.h`.
+
+- A fixed wording that can exceed the limit fails the suite, with file, line and
+  estimated length.
+- A line whose exact range is proven in code, like the slot summary's
+  `static_assert`, carries the marker `mirror-len: checked in code` in a comment
+  within five lines above the call, and is listed instead of failed.
+- A format with `%s` can't be bounded from the source. It's listed with its length
+  without the inserted text (`+s`) and fails only if that alone is too long. For
+  the rest, the mirror notes every cut line on the console at run time.
+
 ## What these tests do not cover
 
 They are host tests with stubs, so anything that only exists on the device is out

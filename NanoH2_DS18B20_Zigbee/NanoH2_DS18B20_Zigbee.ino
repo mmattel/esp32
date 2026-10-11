@@ -1338,7 +1338,7 @@ void inhibitButton(const char *why) {
   resetReady = false;
   // Only the first line is mirrored: it is the fault itself, and the probe below
   // it is wiring diagnostics that belong to whoever has the console open.
-  logEvent("Button on pin %d %s - ignoring it until it goes idle", PIN_BUTTON, why);
+  logEvent("Button %d %s, ignored until idle", PIN_BUTTON, why);
   Serial.printf("  the pin reads %s, and with BUTTON_ACTIVE_HIGH %d that counts as pressed" CONSOLE_EOL,
                 digitalRead(PIN_BUTTON) == HIGH ? "HIGH" : "LOW", BUTTON_ACTIVE_HIGH);
   probeButtonPin();
@@ -1349,7 +1349,7 @@ void inhibitButton(const char *why) {
 // already reads pressed here is at the active level for some other reason.
 void checkButtonIdleAtBoot() {
   if (buttonPressed()) {
-    inhibitButton("already reads pressed at boot");
+    inhibitButton("pressed at boot");  // short: the line has to fit the mirror
   }
 }
 
@@ -1489,7 +1489,7 @@ void handleButton() {
 
   uint32_t held = ms - pressedSinceMs;
   if (held >= BUTTON_STUCK_MS) {
-    inhibitButton("has read pressed for longer than any hold could last");
+    inhibitButton("stuck pressed");  // longer than any hold could last
     return;
   }
   bool ready = held >= FACTORY_RESET_HOLD_MS;

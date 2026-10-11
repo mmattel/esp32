@@ -222,4 +222,7 @@ Check these periodically; a resolved issue may allow removing a workaround.
 
 Pure-logic units have host tests in `test/`. Run with `cd test && make` after
 touching `ds18b20_bus`, `slots`, `zb_setting`, `zb_mirror`, `zb_link`,
-`zb_version`, or `zb_report`. No board required.
+`zb_version`, or `zb_report`, and after adding or rewording any `logEvent()` line in
+either sketch: `logevent_len` checks that every mirrored line fits
+`MIRROR_TEXT_LEN` (48 characters, which the Zigbee stack caps at 50). No board
+required.

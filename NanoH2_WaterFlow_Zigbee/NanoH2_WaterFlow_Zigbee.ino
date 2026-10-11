@@ -828,7 +828,7 @@ void inhibitButton(const char *why) {
   buttonInhibited = true;
   resetArmed  = false;
   resetReady  = false;
-  logEvent("Button on pin %d %s - ignoring until idle", PIN_BUTTON, why);
+  logEvent("Button %d %s, ignored until idle", PIN_BUTTON, why);
   Serial.printf("  pin reads %s, BUTTON_ACTIVE_HIGH %d counts as pressed" CONSOLE_EOL,
                 digitalRead(PIN_BUTTON) == HIGH ? "HIGH" : "LOW", BUTTON_ACTIVE_HIGH);
   probeButtonPin();
@@ -836,7 +836,7 @@ void inhibitButton(const char *why) {
 
 void checkButtonIdleAtBoot() {
   if (buttonPressed()) {
-    inhibitButton("already reads pressed at boot");
+    inhibitButton("pressed at boot");  // short: the line has to fit the mirror
   }
 }
 
@@ -895,7 +895,7 @@ void handleButton() {
 
   uint32_t held = ms - pressedSinceMs;
   if (held >= BUTTON_STUCK_MS) {
-    inhibitButton("has read pressed for longer than any hold could last");
+    inhibitButton("stuck pressed");  // longer than any hold could last
     return;
   }
   bool ready = held >= FACTORY_RESET_HOLD_MS;

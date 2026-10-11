@@ -496,7 +496,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.4
+M5Stack NanoH2 - DS18B20 over Zigbee v3.1.5
 Sensor slots: 3
 ```
 
@@ -1024,7 +1024,7 @@ What is mirrored is what the console calls an event in its own right:
 | `Button: released too early, no reset` | released too early |
 | `slot 1 (28FF…) released, ready for a new sensor` | one line per slot freed by that release, see [replacing a sensor](#replacing-a-sensor) |
 | `Button: no sensor missing, nothing released` | the missing sensor turned up again during the hold |
-| `Button on pin 9 … - ignoring it until it goes idle` | the pin reads pressed with nothing pressing it |
+| `Button 9 pressed at boot, ignored until idle`<br>`Button 9 stuck pressed, ignored until idle` | the pin reads pressed with nothing pressing it |
 | `Button: idle now, back in use` | that pin went idle again, so the button is real after all |
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
 | `Reading interval (s) written from Zigbee: 300.00 -> 300` | a coordinator changed the interval, the delta or the [correction](#temperature-correction) and it moved |
@@ -1096,6 +1096,10 @@ Worth knowing:
   over it, and every text report was refused, which is why the text never arrived
   while the counter did. 48 leaves two characters of margin, and the sketch refuses
   to compile above 50.
+- **A cut line is noted on the console.** A line longer than `MIRROR_TEXT_LEN`
+  arrives cut, with nothing at the coordinator to say so. So the console prints
+  `Console mirror (EP 14): line above cut to 48 of 63 characters` right under it.
+  Fixed wordings are checked before flashing by the `logevent_len` host test.
 - **The text always occupies its full length.** A ZCL string attribute is sized by
   the value it is created with, so the attribute is created at `MIRROR_TEXT_LEN`
   and every line is space-padded to it — the same thing the sensor ID does with
@@ -1126,10 +1130,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.1.4` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.1.4`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30104`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.1.4` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.1.5` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.1.5`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30105`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.1.5` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1161,7 +1165,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.1.4"`) and `FW_VERSION_NUMBER` (`30104`) are built from them, so
+`FW_VERSION` (`"3.1.5"`) and `FW_VERSION_NUMBER` (`30105`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1233,7 +1237,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.4
+M5Stack NanoH2 - DS18B20 over Zigbee v3.1.5
 Sensor slots: 3
 ```
 
@@ -1887,7 +1891,7 @@ button on `G2`; on the on-board `G9` the millivolt line and the arithmetic under
 are absent:
 
 ```
-Button on pin 2 already reads pressed - ignoring it until it goes idle
+Button 2 pressed at boot, ignored until idle
   the pin reads LOW, and with BUTTON_ACTIVE_HIGH 0 that counts as pressed
   probe: pulled towards pressed LOW, pulled towards idle LOW
   probe: 8 mV on the pin with no internal pull, rail is 3300 mV

@@ -253,6 +253,32 @@ int main() {
     check("cut, not overrun", strncmp(trimmed(), longLine, MIRROR_TEXT_LEN) == 0);
   }
 
+  printf("a cut line is said on the console\n");
+  reset();
+  {
+    ZbMirror m(EP_MIRROR);
+    m.addText();
+    char line[MIRROR_TEXT_LEN + 8];
+    memset(line, 'z', MIRROR_TEXT_LEN);
+    line[MIRROR_TEXT_LEN] = '\0';
+    m.mirror(line);
+    check("a line exactly at the limit: no note", strstr(Serial.last, "cut to") == nullptr);
+    memset(line, 'w', MIRROR_TEXT_LEN + 7);
+    line[MIRROR_TEXT_LEN + 7] = '\0';
+    m.mirror(line);
+    char expect[64];
+    snprintf(expect, sizeof(expect), "cut to %u of %u characters", (unsigned)MIRROR_TEXT_LEN,
+             (unsigned)(MIRROR_TEXT_LEN + 7));
+    check("one past it: the note gives both lengths", strstr(Serial.last, expect) != nullptr);
+    // The indent is not part of the line the mirror carries, so it does not count.
+    char indented[MIRROR_TEXT_LEN + 8] = "    ";
+    memset(indented + 4, 'v', MIRROR_TEXT_LEN);
+    indented[MIRROR_TEXT_LEN + 4] = '\0';
+    Serial.last[0] = '\0';
+    m.mirror(indented);
+    check("an indent does not count against the limit", strstr(Serial.last, "cut to") == nullptr);
+  }
+
   printf("off the air\n");
   reset();
   {

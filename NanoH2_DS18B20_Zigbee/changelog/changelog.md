@@ -4,6 +4,19 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.1.5
+
+**Added:** two checks so that lines too long for the console mirror (48 characters) are found early, instead of arriving silently cut at the coordinator.
+
+- **At run time:** `ZbMirror::mirror()` prints `Console mirror (EP 14): line above cut to 48 of N characters` on the console, right under any line it has to cut. This catches lines put together at run time: a ROM code, a setting's name, a value.
+- **Before flashing:** a new host test, `test/logevent_len`, reads the sources of both sketches and estimates the longest line every `logEvent("…")` format can produce. A fixed wording that can exceed the limit fails `make`. A line proven in code (the slot summary's `static_assert`) is marked `mirror-len: checked in code`.
+
+**Changed:** the scan found that the button-stuck line was always cut, even before the inserted reason. It is now `Button 9 pressed at boot, ignored until idle` or `Button 9 stuck pressed, ignored until idle`.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.1.4
 
 **Fixed:** the console mirror text (EP 14) was still refused with `ESP_ERR_INVALID_SIZE` at 56 characters (field log of 2026-10-11, 15:12).
