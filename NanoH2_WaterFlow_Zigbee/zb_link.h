@@ -26,6 +26,12 @@ struct LinkQuality {
   // all because it is a different wait: the parent is known, the radio has simply
   // not heard a frame from it since the entry was created.
   bool unmeasured;
+  // The parent entry's fields as the stack holds them, measured or not - for the
+  // console while a measurement is missing, never for publishing. All 0 when no
+  // parent entry was found.
+  uint8_t rawLqi;
+  int8_t rawRssi;
+  uint8_t rawAge;  // the stack's age counter for the entry
 };
 
 // Reads the parent's entry from the neighbour table. Safe to call at any time;
@@ -45,3 +51,9 @@ LinkQuality readParentLink();
 // or stale. One frame each way over the single hop to the parent - never through
 // the coordinator. Returns whether the request was handed to the stack.
 bool probeParent(uint16_t parentAddr);
+
+// Whether the answer to the last probeParent() has come in since it was sent, and if
+// so its ZDP status (0x00 success, 0x85 timeout, ...) and how many milliseconds it
+// took. The answer is recorded by the stack's task; this reads it. For the console
+// - which of "not sent", "not answered" and "answered but nothing measured" it is.
+bool probeAnswer(uint8_t *status, uint32_t *afterMs);

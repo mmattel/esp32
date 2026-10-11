@@ -4,6 +4,23 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.2
+
+**Diagnostic build.** In the v3.2.1 field logs of 2026-10-11 (16:43 to 16:59, five boots), LQI/RSSI still never appeared: `no measurement in it yet` for 14 minutes, although the parent was asked for a frame every 10 s. There was no crash in any of the five boots, and force push averaged 59.9 s.
+
+To tell the three possible causes apart (request not sent, not answered, or answered but the stack doesn't measure that kind of frame), the console now prints a line after each read that followed a request, while there is no value yet and once when the first one arrives:
+
+```
+link probe: parent 0x380B answered after 23 ms (ZDP status 0x00); entry LQI 0 RSSI 127 age 0
+link probe: parent 0x380B, no answer within 1000 ms; entry LQI 0 RSSI 127 age 0
+```
+
+`zb_link` records the answer's arrival, status and delay (`probeAnswer()`), and `readParentLink()` returns the parent entry's raw LQI, RSSI and age even while they count as unmeasured.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.2.1
 
 From the field logs of 2026-10-11, 16:14 and 16:19 (v3.2.0):

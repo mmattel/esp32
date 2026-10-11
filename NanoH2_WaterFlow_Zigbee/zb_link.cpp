@@ -16,7 +16,7 @@ static bool measured(const esp_zb_nwk_neighbor_info_t &neighbour) {
 }
 
 LinkQuality readParentLink() {
-  LinkQuality link = {false, 0, 0, 0, 0, false, false};
+  LinkQuality link = {};
 
   if (!Zigbee.started()) {
     return link;
@@ -50,6 +50,9 @@ LinkQuality readParentLink() {
     // worth having on the console either way, and it is what the wait for a
     // measurement is a wait for.
     link.parentAddr = neighbour.short_addr;
+    link.rawLqi = neighbour.lqi;
+    link.rawRssi = neighbour.rssi;
+    link.rawAge = neighbour.age;
     if (!measured(neighbour)) {
       link.unmeasured = true;
       continue;
@@ -65,6 +68,9 @@ LinkQuality readParentLink() {
   // more entries and there is a real choice to make, which this cannot make.
   if (!link.valid && !link.unmeasured && link.entries == 1) {
     link.parentAddr = only.short_addr;
+    link.rawLqi = only.lqi;
+    link.rawRssi = only.rssi;
+    link.rawAge = only.age;
     if (measured(only)) {
       link.valid = true;
       link.assumed = true;
@@ -80,10 +86,29 @@ LinkQuality readParentLink() {
   return link;
 }
 
-// The answer is not needed - its arrival is the point, see zb_link.h - but the stack
-// is given a callback rather than none, since whether it accepts a null one is not
-// documented.
-static void onProbeAnswer(esp_zb_zdp_status_t, esp_zb_zdo_ieee_addr_rsp_t *, void *) {}
+// The answer's content is not needed - its arrival is the point, see zb_link.h - but
+// whether it came, with which status and how fast, is what tells the failure cases
+// apart. Written by the stack's task, read by loop() through probeAnswer(): single
+// writer, plain values, and probeSent is only rewritten while no answer is expected.
+static volatile bool probeAnswered = false;
+static volatile uint8_t probeStatus = 0;
+static volatile uint32_t probeAnsweredMs = 0;
+static uint32_t probeSentMs = 0;
+
+static void onProbeAnswer(esp_zb_zdp_status_t status, esp_zb_zdo_ieee_addr_rsp_t *, void *) {
+  probeStatus = (uint8_t)status;
+  probeAnsweredMs = millis();
+  probeAnswered = true;
+}
+
+bool probeAnswer(uint8_t *status, uint32_t *afterMs) {
+  if (!probeAnswered) {
+    return false;
+  }
+  *status = probeStatus;
+  *afterMs = probeAnsweredMs - probeSentMs;
+  return true;
+}
 
 bool probeParent(uint16_t parentAddr) {
   if (!Zigbee.started()) {
@@ -94,6 +119,8 @@ bool probeParent(uint16_t parentAddr) {
   if (!esp_zb_lock_acquire(portMAX_DELAY)) {
     return false;
   }
+  probeAnswered = false;
+  probeSentMs = millis();
   esp_zb_zdo_ieee_addr_req_param_t req = {};
   req.dst_nwk_addr = parentAddr;
   req.addr_of_interest = parentAddr;

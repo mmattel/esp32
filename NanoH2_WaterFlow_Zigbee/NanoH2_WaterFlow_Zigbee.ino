@@ -826,10 +826,12 @@ void handleLinkQuality() {
       linkProbeMs = now;
       return;
     }
+    Serial.printf("link probe: could not be handed to the stack" CONSOLE_EOL);
   }
   if (linkProbePending && (now - linkProbeMs) < LINK_PROBE_WAIT_MS) {
     return;
   }
+  bool afterProbe = linkProbePending;
   linkProbePending = false;
   linkNow   = false;
   lastLinkMs = now;
@@ -837,6 +839,22 @@ void handleLinkQuality() {
   LinkQuality link = readParentLink();
   if (link.valid || link.unmeasured) {
     linkParentAddr = link.parentAddr;  // asked before the next read
+  }
+  // Diagnostic, after every read that followed a probe while there is still nothing
+  // to publish, and once more when the first measurement arrives: did the parent
+  // answer, and what does its entry hold? That tells "not answered" apart from
+  // "answered, but the stack does not measure that kind of frame". Console only.
+  if (afterProbe && (!link.valid || !linkPublished)) {
+    uint8_t status = 0;
+    uint32_t afterMs = 0;
+    if (probeAnswer(&status, &afterMs)) {
+      Serial.printf("link probe: parent 0x%04X answered after %lu ms (ZDP status 0x%02X); entry LQI %u RSSI %d age %u"
+                      CONSOLE_EOL, linkParentAddr, (unsigned long)afterMs, status, link.rawLqi, link.rawRssi,
+                    link.rawAge);
+    } else {
+      Serial.printf("link probe: parent 0x%04X, no answer within %u ms; entry LQI %u RSSI %d age %u" CONSOLE_EOL,
+                    linkParentAddr, (unsigned)LINK_PROBE_WAIT_MS, link.rawLqi, link.rawRssi, link.rawAge);
+    }
   }
   if (!link.valid) {
     if (!linkWaitLogged) {

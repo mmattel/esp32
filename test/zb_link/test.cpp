@@ -54,11 +54,14 @@ static void addNeighbour(uint8_t relationship, uint16_t addr, uint8_t lqi, int8_
 static int probes = 0;
 static esp_zb_zdo_ieee_addr_req_param_t lastProbe;
 static bool probeHadCallback = false;
+static esp_zb_zdo_ieee_addr_callback_t probeCallback = nullptr;
+uint32_t hostMillis = 0;
 void esp_zb_zdo_ieee_addr_req(esp_zb_zdo_ieee_addr_req_param_t *cmd_req, esp_zb_zdo_ieee_addr_callback_t user_cb,
                               void *) {
   probes++;
   lastProbe = *cmd_req;
   probeHadCallback = user_cb != nullptr;
+  probeCallback = user_cb;
 }
 
 int main() {
@@ -198,6 +201,37 @@ int main() {
     probes = 0;
     check("nothing while the stack is down", !probeParent(0x380B) && probes == 0);
     Zigbee.up = true;
+  }
+
+  printf("the probe's answer\n");
+  {
+    uint8_t status = 0xFF;
+    uint32_t after = 0;
+    hostMillis = 1000;
+    probeParent(0x380B);
+    check("nothing before the answer", !probeAnswer(&status, &after));
+    hostMillis = 1023;
+    probeCallback((esp_zb_zdp_status_t)0x00, nullptr, nullptr);  // as the stack's task would
+    check("answered, with its status and how long it took",
+          probeAnswer(&status, &after) && status == 0x00 && after == 23);
+    hostMillis = 5000;
+    probeParent(0x380B);
+    check("a new probe forgets the old answer", !probeAnswer(&status, &after));
+    hostMillis = 5100;
+    probeCallback((esp_zb_zdp_status_t)0x85, nullptr, nullptr);
+    check("a timeout comes back as one", probeAnswer(&status, &after) && status == 0x85 && after == 100);
+  }
+
+  printf("the raw entry, measured or not\n");
+  {
+    tableLen = 0;
+    addNeighbour(ESP_ZB_NWK_RELATIONSHIP_PARENT, 0x380B, 0, 127);
+    LinkQuality r = readParentLink();
+    check("unmeasured, and the raw fields still filled", r.unmeasured && r.rawLqi == 0 && r.rawRssi == 127);
+    tableLen = 0;
+    addNeighbour(ESP_ZB_NWK_RELATIONSHIP_PARENT, 0x380B, 180, -45);
+    r = readParentLink();
+    check("measured: raw and published agree", r.valid && r.rawLqi == 180 && r.rawRssi == -45);
   }
 
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
