@@ -635,9 +635,9 @@ void handleSettingWrites() {
   }
 }
 
-// A one-shot retry fires SETTING_REPORT_JOIN_RETRY_MS after the join, which is
-// when Z2M has finished its configure step and bindings are in place - so the
-// version the user just flashed appears in Z2M within ~20 s rather than ~60 s.
+// A one-shot retry fires SETTING_REPORT_JOIN_RETRY_MS after the join, when Z2M has
+// finished its interview and configure step - so the version the user just
+// flashed appears in Z2M within ~20 s rather than at the hourly heartbeat.
 void handleSettingReports() {
   bool retryDue = joinRetryPending &&
                   (millis() - joinConnectedMs) >= SETTING_REPORT_JOIN_RETRY_MS;

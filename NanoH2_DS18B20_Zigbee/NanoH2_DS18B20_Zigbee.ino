@@ -751,8 +751,8 @@ void onZigbeeConnected() {
     Serial.printf("Commissioning stored in NVS" CONSOLE_EOL);
   }
 
-  // Once now, in case the coordinator is already bound, and then on the heartbeat
-  // for the far more likely case that it is not yet - see handleSettingReports().
+  // Once now, then again 20 s later for a coordinator that was still interviewing
+  // the device, and hourly after that - see handleSettingReports().
   // Delays between publishes spread the post-join burst; see POST_JOIN_REPORT_DELAY_MS.
   cfgInterval.publish();
   delay(POST_JOIN_REPORT_DELAY_MS);
@@ -769,9 +769,8 @@ void onZigbeeConnected() {
 
   // And the firmware version. Sent here because this is the only moment it can have
   // changed - a new version means flashing, flashing reboots, and a reboot rejoins.
-  // Also sent on the handleSettingReports() heartbeat, same reason as the settings:
-  // the coordinator binds while interviewing, so the publish here is too early for
-  // the text attribute to arrive, and the heartbeat is what actually delivers it.
+  // Also sent with the settings by handleSettingReports(), 20 s after the join and
+  // then hourly, for a coordinator that was still interviewing when this went out.
   if (ZB_VERSION_ENDPOINT) {
     zbVersion.publish(FW_VERSION_NUMBER);
     delay(POST_JOIN_REPORT_DELAY_MS);
@@ -912,12 +911,11 @@ void updateLinkState() {
 }
 
 // True when the last value put on the air is older than the heartbeat, so it is
-// repeated even though nothing moved. A report is only sent to whoever is bound,
-// so the one a join produces can predate the binding and be the only one there ever
-// was, and the stack's own reporting configuration is no fallback: a coordinator may
-// overwrite it (Zigbee2MQTT does), and the settings are given none in the first
-// place. Repeating on our own schedule is what closes that, for temperatures, for
-// the link and for the settings alike.
+// repeated even though nothing moved. A coordinator that restarted or missed a
+// report would otherwise wait for the next change, and the stack's own reporting
+// configuration is no fallback: a coordinator may overwrite it (Zigbee2MQTT does),
+// and the settings are given none in the first place. Repeating on our own schedule
+// is what closes that, for temperatures, for the link and for the settings alike.
 bool reportOverdue(uint32_t lastMs, uint32_t heartbeatS) {
   return heartbeatS > 0 && (millis() - lastMs) >= heartbeatS * 1000UL;
 }
@@ -941,14 +939,14 @@ void handleSettingWrites() {
   }
 }
 
-// All three settings, repeated on the heartbeat. Nothing else ever reports them:
+// All four settings, repeated on the heartbeat. Nothing else ever reports them:
 // they only change when a coordinator writes them, and the coordinator that wrote
-// one has the value already - so without this, one that bound after the join publish
-// would show no interval, delta or correction until it wrote one itself.
+// one has the value already - so without this, one that missed the join publish
+// would show no interval, delta, correction or force push until it wrote one itself.
 //
-// A one-shot retry fires SETTING_REPORT_JOIN_RETRY_MS after the join, which is
-// when Z2M has finished its configure step and bindings are in place - so the
-// version the user just flashed appears in Z2M within ~20 s rather than ~60 s.
+// A one-shot retry fires SETTING_REPORT_JOIN_RETRY_MS after the join, when Z2M has
+// finished its interview and configure step - so the version the user just
+// flashed appears in Z2M within ~20 s rather than at the hourly heartbeat.
 void handleSettingReports() {
   bool retryDue = joinRetryPending &&
                   (millis() - joinConnectedMs) >= SETTING_REPORT_JOIN_RETRY_MS;
@@ -1208,7 +1206,7 @@ void handleLinkQuality() {
   // Nothing shown yet means a join or a rejoin, quite possibly through a
   // different parent, so both values count as having moved. So does a heartbeat
   // that has come round: a link that stays good never leaves its deadbands, and
-  // the report a join produces goes out before a coordinator has bound anything.
+  // the report a join produces can reach a coordinator still busy interviewing.
   bool first = !linkPublished;
   bool heartbeat = !first && reportOverdue(lastLinkReportMs, LINK_REPORT_HEARTBEAT_S);
   bool due = first || heartbeat;

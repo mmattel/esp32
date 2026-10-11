@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 6
+#define FW_VERSION_PATCH 7
 
 #define FW_VERSION_STRINGIFY_(x) #x
 #define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
@@ -123,9 +123,9 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 #define FLOW_REPORT_HEARTBEAT_S    3600
 
 // How often the three settings are repeated to the coordinator. Same role
-// as SETTING_REPORT_HEARTBEAT_S in the DS18B20 sketch: a join publish
-// precedes the coordinator's binding, so without this the settings would
-// be invisible until the coordinator wrote them. 0 disables.
+// as SETTING_REPORT_HEARTBEAT_S in the DS18B20 sketch: a coordinator that
+// missed the join publish would not see the settings until it wrote them.
+// 0 disables.
 //
 // Hourly, not every minute as before v2.1.2. A minute is not free: it is four settings
 // and two version reports, around 8,600 a day of values nobody changed, all
@@ -135,12 +135,13 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 #define SETTING_REPORT_HEARTBEAT_S 3600
 
 // One-shot re-publish of all settings and the firmware version, fired this many
-// milliseconds after a join - long enough for Z2M to complete its configure step
-// and establish bindings. The initial publish in onZigbeeConnected() precedes the
-// bindings and is therefore never received; this retry is what actually makes the
-// firmware version and settings appear in Z2M within seconds rather than waiting
-// for the first SETTING_REPORT_HEARTBEAT_S tick. After this one shot,
-// SETTING_REPORT_HEARTBEAT_S takes over as normal.
+// milliseconds after a join - long enough for Z2M to finish interviewing and
+// configuring the device. The publish in onZigbeeConnected() can arrive while Z2M
+// is still busy with that; this retry makes sure the firmware version and the
+// settings are in Z2M within seconds of a join rather than at the first
+// SETTING_REPORT_HEARTBEAT_S tick, an hour later. After this one shot,
+// SETTING_REPORT_HEARTBEAT_S takes over as normal. (This used to be explained by
+// bindings; since every report is unicast, bindings play no part.)
 #define SETTING_REPORT_JOIN_RETRY_MS 20000
 
 // How often the console gets a one-line summary of the reports since the last

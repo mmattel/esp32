@@ -97,17 +97,25 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   // this is the one setting change nothing else announces, and the coordinator
   // that wrote it is not necessarily the one watching.
   //
-  // By endpoint number, not by _description: the description is also the
-  // endpoint's Analog Output description, which a coordinator reads, so it cannot
-  // be shortened, and "Temperature correction (C)" alone is 26 of the 48 characters
-  // the mirror carries. The boot log maps every number to its setting. Two forms,
-  // because three values do not fit either: the old value when the write went
-  // through as sent, the request when it was rounded or clamped. At 7-digit values
-  // with two decimals, WaterFlow's totals, the longer form is 42 characters.
+  // The name is _description up to its unit - "Force push interval (min)" goes out
+  // as "Force push interval" - followed by the endpoint number, so the line fits the
+  // 48 characters the mirror carries. The description itself cannot be shortened:
+  // it is also the endpoint's Analog Output description, which a coordinator reads.
+  // Two forms, because three values do not fit: old -> new when the write went
+  // through as sent, and the request when it was rounded or clamped.
+  //
+  // The zb_setting host test checks the widest realistic cases (a clamped correction, 48; WaterFlow's total near its 9999999
+  // maximum, 48). Only a request far outside a setting's range can exceed that, and
+  // then the mirror cuts the line and the console says so.
+  const char *unit = strstr(_description, " (");
+  int nameLen = unit ? (int)(unit - _description) : (int)strlen(_description);
   if (corrected) {
-    logEvent("EP %u set to %.*f (asked %.2f)", _ep.getEndpoint(), decimals(), applied, requested);
+    // mirror-len: checked in code, by the zb_setting host test - see above
+    logEvent("%.*s EP%u: %.*f, asked %.2f", nameLen, _description, _ep.getEndpoint(), decimals(), applied, requested);
   } else if (changed) {
-    logEvent("EP %u set to %.*f, was %.*f", _ep.getEndpoint(), decimals(), applied, decimals(), _value);
+    // mirror-len: checked in code, by the zb_setting host test - see above
+    logEvent("%.*s EP%u: %.*f -> %.*f", nameLen, _description, _ep.getEndpoint(), decimals(), _value, decimals(),
+             applied);
   }
 
   _value = applied;

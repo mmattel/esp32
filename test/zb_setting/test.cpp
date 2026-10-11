@@ -280,11 +280,12 @@ int main() {
   check("and mirrored back", cw._ep.output, TEMP_CORRECTION_MIN_C);
 
   // The line announcing a write goes to the console mirror, which carries
-  // MIRROR_TEXT_LEN characters, so it names the endpoint rather than the setting.
+  // MIRROR_TEXT_LEN characters: the setting's name without its unit, the endpoint,
+  // and either old -> new or the request that was rounded or clamped.
   printf("the line that announces a write\n");
   {
     char want[64];
-    snprintf(want, sizeof(want), "EP %u set to -5.00 (asked -20.00)", (unsigned)cw._ep.getEndpoint());
+    snprintf(want, sizeof(want), "Temperature correction EP%u: -5.00, asked -20.00", (unsigned)cw._ep.getEndpoint());
     bool ok = strcmp(lastLogged, want) == 0;
     printf("  a clamped write gives the request -> %s\n", ok ? "yes (ok)" : "no (FAIL)");
     if (!ok) fails++;
@@ -292,9 +293,12 @@ int main() {
     target = &cw;
     cw._ep.injectWrite(-4.75f);
     cw.applyPending(s);
-    snprintf(want, sizeof(want), "EP %u set to -4.75, was -5.00", (unsigned)cw._ep.getEndpoint());
+    snprintf(want, sizeof(want), "Temperature correction EP%u: -5.00 -> -4.75", (unsigned)cw._ep.getEndpoint());
     ok = strcmp(lastLogged, want) == 0;
-    printf("  a write taken as sent gives the old value -> %s\n", ok ? "yes (ok)" : "no (FAIL)");
+    printf("  a write taken as sent gives old -> new -> %s\n", ok ? "yes (ok)" : "no (FAIL)");
+    if (!ok) fails++;
+    ok = strlen("Temperature correction EP15: -5.00, asked -20.00") <= MIRROR_TEXT_LEN;
+    printf("  the clamped correction fits the mirror -> %s\n", ok ? "yes (ok)" : "no (FAIL)");
     if (!ok) fails++;
 
     // The widest values any setting in either sketch can hold: WaterFlow's total
@@ -304,7 +308,12 @@ int main() {
     big.load(t);
     big.addEndpoint(onWritten);
     target = &big;
-    big._ep.injectWrite(99999999.0f);  // past the top: clamped, so the longer "(asked ...)" form
+    // Two in-range writes at the top, so the second line has two seven-digit values.
+    // A request far past the range ("asked 100000000.00") would not fit; the
+    // mirror cuts that one and the console says so.
+    big._ep.injectWrite(9999999.0f);
+    big.applyPending(t);
+    big._ep.injectWrite(9999998.0f);
     big.applyPending(t);
     size_t len = strlen(lastLogged);
     ok = len <= MIRROR_TEXT_LEN;

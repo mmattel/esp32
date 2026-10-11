@@ -38,7 +38,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 6
+#define FW_VERSION_PATCH 7
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -284,18 +284,18 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // The heartbeat is also kept in software: this value is handed to the stack, but
 // a coordinator is free to overwrite the reporting configuration it just read -
 // Zigbee2MQTT does - so the sketch republishes on its own schedule as well and
-// the number here is what actually happens. It is what fills in a value at the
-// coordinator that has not moved since the two were bound.
+// the number here is what actually happens. It is what refills a value at a
+// coordinator that restarted while the temperature sat still.
 #define TEMP_REPORT_MIN_INTERVAL_S 1
 #define TEMP_REPORT_HEARTBEAT_S 3600
 
 // How often the interval and the delta are repeated to the coordinator. They get
 // no ZCL reporting configuration at all - the core's analog output cluster takes
 // none - so the only thing that reaches a coordinator is what the sketch reports
-// itself, and the publish on join is too early: a report goes to whoever is bound,
-// and Zigbee2MQTT binds while interviewing. Nothing then changes until something is
-// written, which is why a freshly joined device showed no interval and no delta
-// until the first write. This closes that. 0 disables it, leaving both readable but
+// itself, and the publish on join can come too early for a coordinator that is
+// still interviewing the device. Nothing then changes until something is written,
+// which is why a freshly joined device showed no interval and no delta until the
+// first write. This closes that. 0 disables it, leaving both readable but
 // never sent.
 //
 // Hourly, not every minute as before v3.1.2. A minute is not free: it is four settings
@@ -306,12 +306,13 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 #define SETTING_REPORT_HEARTBEAT_S 3600
 
 // One-shot re-publish of all settings and the firmware version, fired this many
-// milliseconds after a join - long enough for Z2M to complete its configure step
-// and establish bindings. The initial publish in onZigbeeConnected() precedes the
-// bindings and is therefore never received; this retry is what actually makes the
-// firmware version and settings appear in Z2M within seconds rather than waiting
-// for the first SETTING_REPORT_HEARTBEAT_S tick. After this one shot,
-// SETTING_REPORT_HEARTBEAT_S takes over as normal.
+// milliseconds after a join - long enough for Z2M to finish interviewing and
+// configuring the device. The publish in onZigbeeConnected() can arrive while Z2M
+// is still busy with that; this retry makes sure the firmware version and the
+// settings are in Z2M within seconds of a join rather than at the first
+// SETTING_REPORT_HEARTBEAT_S tick, an hour later. After this one shot,
+// SETTING_REPORT_HEARTBEAT_S takes over as normal. (This used to be explained by
+// bindings; since every report is unicast, bindings play no part.)
 #define SETTING_REPORT_JOIN_RETRY_MS 20000
 
 // How often the console gets a one-line summary of the reports since the last
@@ -522,9 +523,9 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 //
 // This matters more here than it does for a temperature: a healthy link sits
 // still, so both values can stay inside their deadbands for days. Without the
-// heartbeat the only report would be the one sent right after the join, which is
-// before a coordinator has bound the cluster and therefore goes nowhere - and the
-// endpoints would then read as unknown for as long as the link stays good.
+// heartbeat the only report would be the one sent right after the join, which a
+// coordinator still interviewing the device can miss - and the endpoints would
+// then read as unknown for as long as the link stays good.
 #define LINK_REPORT_MIN_INTERVAL_S 1
 #define LINK_REPORT_HEARTBEAT_S 3600
 
@@ -571,10 +572,9 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 #define MIRROR_TEXT_ATTR_ID 0xF000
 
 // Repeats the current line even though no new one came along, like
-// LINK_REPORT_HEARTBEAT_S does, and for the same reason: a report goes to
-// whoever is bound at that moment, and right after a join that is still nobody -
-// so the line announcing the join would otherwise be the one line never seen.
-// 0 disables the repeat.
+// LINK_REPORT_HEARTBEAT_S does: a coordinator that restarted, or missed the
+// report, gets the line back within the hour instead of never. 0 disables the
+// repeat.
 #define MIRROR_REPORT_MIN_INTERVAL_S 1
 #define MIRROR_REPORT_HEARTBEAT_S 3600
 

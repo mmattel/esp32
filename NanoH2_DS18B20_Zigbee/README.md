@@ -496,7 +496,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.6
+M5Stack NanoH2 - DS18B20 over Zigbee v3.1.7
 Sensor slots: 3
 ```
 
@@ -643,7 +643,7 @@ could not differ:
 ```
 Reading interval (s): 60 (code default)
 Reporting delta (C): 0.25 (code default)
-EP 11 set to 0.50 (asked 0.44)
+Reporting delta EP11: 0.50, asked 0.44
 ```
 
 The written value keeps two decimals on purpose: it is what the coordinator asked
@@ -787,7 +787,7 @@ quarter-degree step and the same reason for it, same NVS storage, same repeat ev
 
 ```
 Temperature correction (C): 0.00 (code default)
-EP 15 set to -0.50 (asked -0.44)
+Temperature correction EP15: -0.50, asked -0.44
 ```
 
 The correction is added to the raw reading **before** it is rounded to
@@ -1027,7 +1027,7 @@ What is mirrored is what the console calls an event in its own right:
 | `Button 9 pressed at boot, ignored until idle`<br>`Button 9 stuck pressed, ignored until idle` | the pin reads pressed with nothing pressing it |
 | `Button: idle now, back in use` | that pin went idle again, so the button is real after all |
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
-| `EP 10 set to 300, was 60`<br>`EP 11 set to 0.50 (asked 0.44)` | a coordinator changed the interval, the delta, the [correction](#temperature-correction) or the force push and it moved. Named by endpoint (the boot log maps each number to its setting), with the old value, or with the request when it was rounded or clamped |
+| `Force push interval EP17: 1 -> 2`<br>`Reporting delta EP11: 0.50, asked 0.44` | a coordinator changed the interval, the delta, the [correction](#temperature-correction) or the force push and it moved: old -> new, or the request when it was rounded or clamped |
 | `slot 0 (ABCD): read failed, never read yet`, `slot 1 (BEEF) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
 | `3 slots: 1 on bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
 | `slot 0 (ABCD): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
@@ -1106,10 +1106,12 @@ Worth knowing:
   the boot log lists every slot with its full code. The one exception is a sensor
   that's ignored because every slot is taken: it has no slot, so its line keeps the
   whole code.
-- **A setting written from Zigbee is named by its endpoint**, e.g.
-  `EP 15 set to -0.50 (asked -0.44)`. The setting's name is also the endpoint's
-  description, which the coordinator reads, so it can't be shortened, and
-  "Temperature correction (C)" alone would use 26 of the 48 characters.
+- **A setting written from Zigbee is named without its unit, plus its endpoint**,
+  e.g. `Force push interval EP17: 1 -> 2` or
+  `Temperature correction EP15: -5.00, asked -20.00`. The name is the setting's
+  description up to the unit; the description itself stays, because the
+  coordinator reads it. The widest realistic case is 48 characters. Only a request
+  far outside a setting's range can be longer, and then the console notes the cut.
 - **The text always occupies its full length.** A ZCL string attribute is sized by
   the value it is created with, so the attribute is created at `MIRROR_TEXT_LEN`
   and every line is space-padded to it — the same thing the sensor ID does with
@@ -1140,10 +1142,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.1.6` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.1.6`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30106`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.1.6` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.1.7` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.1.7`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30107`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.1.7` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1175,7 +1177,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.1.6"`) and `FW_VERSION_NUMBER` (`30106`) are built from them, so
+`FW_VERSION` (`"3.1.7"`) and `FW_VERSION_NUMBER` (`30107`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1247,7 +1249,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.6
+M5Stack NanoH2 - DS18B20 over Zigbee v3.1.7
 Sensor slots: 3
 ```
 

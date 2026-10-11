@@ -4,6 +4,22 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.1.7
+
+**Confirmed in the field (v3.1.6, 2026-10-11 15:51):** the console mirror text arrives in Z2M. No `ESP_ERR_INVALID_SIZE` refusal after the join, force push every minute, and a setting written from Z2M showed up on the mirror.
+
+**Changed:** a setting written from Zigbee names the setting again, without its unit, plus the endpoint: `Force push interval EP17: 1 -> 2` (was `EP 17 set to 2, was 1`), or `Temperature correction EP15: -5.00, asked -20.00` when the write was rounded or clamped. The widest realistic case is 48 characters, exactly the mirror's limit. Only a request far outside a setting's range is longer, and the console notes that cut.
+
+**Cleaned up:**
+
+- Comments in both sketches no longer explain the join publish, the settings retry and the heartbeats with bindings. Since every report is unicast, bindings play no part.
+- `ds18b20_bus.h`: a comment line ended in `\`, which made the compiler warn about a multi-line comment.
+- The WaterFlow README listed the default partition scheme and "USB CDC On Boot: Disabled". The firmware stops at boot on the default scheme, and its own header says Enabled. The table now matches the DS18B20 sketch's.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.1.6
 
 **Changed:** the slot and settings lines no longer get cut by the console mirror (48 characters). Most of them used to be.

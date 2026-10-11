@@ -140,19 +140,27 @@ straight from USB.
 
 ## Arduino IDE Settings
 
-These are the board settings that have been confirmed to produce a working
-build.  Other settings are left at their defaults.
+Two cores will build this sketch; either needs a 3.x release for the bundled
+`Zigbee` library. The settings are the same as for the
+[DS18B20 sketch](../NanoH2_DS18B20_Zigbee/README.md#arduino-ide-settings), which
+explains them in more detail.
 
-| Setting | Value |
-| --- | --- |
-| Board | ESP32H2 Dev Module |
-| USB CDC On Boot | Disabled |
-| Flash Size | 4 MB (32 Mb) |
-| Partition Scheme | Default 4 MB with spiffs (1.2 MB app / 1.5 MB SPIFFS) |
-| Zigbee Mode | **Zigbee ED (End Device)** |
+| Setting | M5Stack core | Espressif core |
+| --- | --- | --- |
+| Board | **M5Stack → M5NanoH2** | **ESP32H2 Dev Module** |
+| Zigbee mode | **Zigbee ED (end device)** | **Zigbee ED (end device)** |
+| Partition Scheme | **Zigbee 4MB with spiffs** | **Zigbee 4MB with spiffs** |
+| USB CDC On Boot | **Enabled** | **Enabled** |
 
-**Zigbee Mode must be set to ED.** The sketch calls `ZIGBEE_MODE_ED` and
-will not compile as a coordinator.
+Both **Zigbee mode** and **Partition Scheme** default to something else and have
+to be changed by hand:
+
+- **Zigbee mode** not ED, and the sketch does not compile.
+- **Partition Scheme** left at *Default 4MB with spiffs*, and the sketch compiles
+  and flashes, but the partitions the Zigbee stack keeps its network credentials in
+  are missing. The sketch checks for them at boot, says which one is missing and
+  stops with `set Tools -> Partition Scheme to "Zigbee 4MB with spiffs"`. Earlier
+  versions of this README listed the default scheme here, which was wrong.
 
 ---
 
@@ -480,7 +488,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v2.1.6 (build 20106)
+NanoH2-WaterFlow v2.1.7 (build 20107)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
