@@ -145,10 +145,10 @@ static bool onApsIndication(esp_zb_apsde_data_ind_t ind) {
 }
 
 // Runs in the stack's own task, scheduled by linkBegin(). Registering from there
-// rather than from setup() leaves no moment where two tasks are inside the stack:
-// twice now (v3.2.0 and v3.2.4) the stack's task asserted in vPortExitCritical right
-// after Zigbee.begin(), each time in a build that registered a handler from setup()
-// at that moment - unlocked in v3.2.0, locked in v3.2.4.
+// rather than from setup() leaves no moment where two tasks are inside the stack.
+// (This was introduced in v3.2.5 to fix the vPortExitCritical assert after
+// Zigbee.begin(); that turned out to be the unlocked zbSetReporting() - see
+// zb_report.cpp - but registering from the stack's task is no less right for it.)
 static void registerIndication(uint8_t) {
   esp_zb_aps_data_indication_handler_register(onApsIndication);
   indicationHooked = true;

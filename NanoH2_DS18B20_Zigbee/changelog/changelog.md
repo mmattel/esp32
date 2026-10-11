@@ -4,6 +4,22 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.6
+
+**Fixed: the boot crash, for real.** The v3.2.5 field logs of 2026-10-11 (17:47 to 17:50, nine boots) showed the `vPortExitCritical` assert once more, at the same point. That build registered nothing from `setup()` anymore, so the registration theory of 3.2.1 and 3.2.5 was wrong.
+
+The cause: `zbSetReporting()` calls `esp_zb_zcl_update_reporting_info()` for the text attributes of EP 14 and EP 16 **without the Zigbee lock**. It runs from `applyReporting()` on every join, while the stack's task is busy with that very join, so two tasks are inside the stack at once. The Arduino core's own `setClusterReporting()` takes the lock for exactly this call. The timing fits every crash log: `applyReporting()` runs before `Zigbee connected` is printed, and all three crash logs show `Zigbee started`, then the assert, and never `Zigbee connected`. arduino-esp32 #10879 describes the same assert from the same kind of bug in the core's `scanNetworks()` (fixed in PR #11792).
+
+The bug dates from **3.1.1**, when `setTextReporting()` was introduced. It was only seen from 3.2.0 on because nearly every boot was captured from then on: the crash heals itself with a reboot within a second. A full audit of the stack calls in both sketches found no other unlocked one. The host test now checks the lock.
+
+**Confirmed in the same logs:** LQI and RSSI come from the parent's answer frame, e.g. `frame LQI 183, RSSI -44 dBm`. These are the same values the neighbour table gave at the early joins, so the inversion holds.
+
+**Also seen:** one boot ran into the 30 s `Zigbee.begin()` timeout (`Zigbee failed to start, rebooting`) and then joined through a **different parent, `0x2CD7`**. That was the ninth reset within about three minutes, so the usual parent may simply have been busy with the rapid rejoins.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.2.5
 
 From the v3.2.4 field logs of 2026-10-11, 17:25 to 17:33 (seven boots):

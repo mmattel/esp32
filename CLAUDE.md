@@ -171,13 +171,21 @@ of the stack's `esp_zb_rssi_to_lqi()`). Don't use
 `esp_ieee802154_get_recent_rssi()`: it returned noise-floor values, not frames.
 Don't rely on the neighbour table for link quality on this device.
 
-**Register handlers from the stack's own task.** `linkBegin()` doesn't register
-the indication handler itself. It schedules the registration with
-`esp_zb_scheduler_alarm()` (under the lock), and the stack's task runs it. Both
-`vPortExitCritical` crashes (v3.2.0, v3.2.4) happened right after `Zigbee.begin()`
-in builds that registered a handler from `setup()` at that moment. The core
-registers its own indication handler once, in `Zigbee.begin()`, so ours has to
-come after that.
+**Missing locks crash the stack's task.** The `vPortExitCritical` assert
+(`port_uxCriticalNesting[0] > 0`) right after `Zigbee started`, about one boot in
+nine on 2026-10-11, was `zbSetReporting()` calling
+`esp_zb_zcl_update_reporting_info()` **without the lock** from `applyReporting()` on
+every join (since v3.1.1, fixed in v3.2.6). The core's own `setClusterReporting()`
+takes the lock for exactly that call. arduino-esp32 #10879 is the same assert from
+the same kind of bug in the core's `scanNetworks()`, fixed in PR #11792. The crash
+heals itself with a reboot within a second, so it only shows in a capture: count
+boots, not builds. When this assert shows up again, look for an unlocked `esp_zb_*`
+call first.
+
+**Handlers are registered from the stack's own task.** `linkBegin()` schedules the
+indication handler's registration with `esp_zb_scheduler_alarm()` (under the lock),
+and the stack's task runs it. The core registers its own indication handler once,
+in `Zigbee.begin()`, so ours has to come after that.
 
 **A report carries at most 50 characters of string.** `esp_zb_zcl_report_attr_cmd_req()`
 refuses a bigger one with `ESP_ERR_INVALID_SIZE`. The rule, read from the SDK's

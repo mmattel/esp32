@@ -123,7 +123,17 @@ void zbSetReporting(uint8_t endpoint, uint16_t clusterId, uint16_t attrId, uint1
   ri.u.send_info.def_max_interval = maxInterval;
   ri.dst.profile_id = ESP_ZB_AF_HA_PROFILE_ID;
   ri.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
+  // Under the Zigbee lock, as the core's own setClusterReporting() does it. Until
+  // v3.2.6 this ran without it, from applyReporting() on every join - while the stack's
+  // task was busy with that very join. That was the vPortExitCritical assert seen in
+  // the stack's task right after "Zigbee started", about one boot in nine (field logs
+  // of 2026-10-11): two tasks inside the stack at once. arduino-esp32 #10879 is the
+  // same assert from the same cause, an unlocked call, in the core's scanNetworks().
+  if (!esp_zb_lock_acquire(portMAX_DELAY)) {
+    return;
+  }
   esp_zb_zcl_update_reporting_info(&ri);
+  esp_zb_lock_release();
 }
 
 // No send status callback: v3.1.2 registered esp_zb_zcl_command_send_status_handler

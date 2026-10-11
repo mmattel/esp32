@@ -34,8 +34,10 @@ esp_err_t esp_zb_zcl_report_attr_cmd_req(esp_zb_zcl_report_attr_cmd_t *cmd_req) 
   lastReport = *cmd_req;
   return reportResult;
 }
+static int reportingInfoLocksHeld = -1;  // locks held while the stack was called
 void esp_zb_zcl_update_reporting_info(esp_zb_zcl_reporting_info_t *report_info) {
   lastReportingInfo = *report_info;
+  reportingInfoLocksHeld = locksHeld;
 }
 // Must never be called: registering it from the main task, unlocked, as the stack
 // starts was the likely trigger of a vPortExitCritical assert, and it never fired
@@ -172,6 +174,9 @@ int main() {
   check("with the intervals, as the defaults too",
         ri.u.send_info.min_interval == 1 && ri.u.send_info.max_interval == 3600
           && ri.u.send_info.def_min_interval == 1 && ri.u.send_info.def_max_interval == 3600);
+  // The one call that once ran without the lock, from applyReporting() on every join
+  // - and crashed the stack's task about one boot in nine.
+  check("under the Zigbee lock, and the lock given back", reportingInfoLocksHeld == 1 && locksHeld == 0);
   check("under no manufacturer code, in the HA profile",
         ri.manuf_code == ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC && ri.dst.profile_id == ESP_ZB_AF_HA_PROFILE_ID);
 
