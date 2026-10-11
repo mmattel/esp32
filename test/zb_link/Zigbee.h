@@ -42,6 +42,48 @@ typedef struct esp_zb_nwk_neighbor_info_s {
 // Defined by the test: iterates a table it sets up itself.
 esp_err_t esp_zb_nwk_get_next_neighbor(esp_zb_nwk_info_iterator_t *iterator, esp_zb_nwk_neighbor_info_t *nbr_info);
 
+// ZDO IEEE address request, as esp_zigbee_zdo_command.h declares it. The response
+// type is only ever held as a pointer.
+typedef enum { ESP_ZB_ZDP_STATUS_SUCCESS = 0x00 } esp_zb_zdp_status_t;
+typedef struct esp_zb_zdo_ieee_addr_rsp_s esp_zb_zdo_ieee_addr_rsp_t;
+typedef struct esp_zb_zdo_ieee_addr_req_param_s {
+  uint16_t dst_nwk_addr;
+  uint16_t addr_of_interest;
+  uint8_t request_type;
+  uint8_t start_index;
+} esp_zb_zdo_ieee_addr_req_param_t;
+typedef void (*esp_zb_zdo_ieee_addr_callback_t)(esp_zb_zdp_status_t zdo_status, esp_zb_zdo_ieee_addr_rsp_t *resp,
+                                                void *user_ctx);
+// APSDE-DATA.indication, field for field as esp_zigbee_aps.h declares it.
+typedef struct esp_zb_apsde_data_ind_s {
+  uint8_t status;
+  uint8_t dst_addr_mode;
+  uint16_t dst_short_addr;
+  uint8_t dst_endpoint;
+  uint8_t src_addr_mode;
+  uint16_t src_short_addr;
+  uint8_t src_endpoint;
+  uint16_t profile_id;
+  uint16_t cluster_id;
+  uint32_t asdu_length;
+  uint8_t *asdu;
+  uint8_t security_status;
+  int lqi;
+  int rx_time;
+} esp_zb_apsde_data_ind_t;
+typedef bool (*esp_zb_apsde_data_indication_callback_t)(esp_zb_apsde_data_ind_t ind);
+// Defined by the test: keeps the handler, so the test can feed it frames.
+void esp_zb_aps_data_indication_handler_register(esp_zb_apsde_data_indication_callback_t cb);
+
+// The stack's scheduler (esp_zigbee_core.h): runs cb in the stack's task. Defined by
+// the test, which keeps cb and runs it when it chooses.
+typedef void (*esp_zb_callback_t)(uint8_t param);
+void esp_zb_scheduler_alarm(esp_zb_callback_t cb, uint8_t param, uint32_t time);
+
+// Defined by the test: records the request.
+void esp_zb_zdo_ieee_addr_req(esp_zb_zdo_ieee_addr_req_param_t *cmd_req, esp_zb_zdo_ieee_addr_callback_t user_cb,
+                              void *user_ctx);
+
 // Defined by the test: records whether the lock was taken and released.
 bool esp_zb_lock_acquire(TickType_t block_ticks);
 void esp_zb_lock_release(void);

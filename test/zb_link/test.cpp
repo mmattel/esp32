@@ -51,6 +51,62 @@ static void addNeighbour(uint8_t relationship, uint16_t addr, uint8_t lqi, int8_
   n.rssi = rssi;
 }
 
+static int probes = 0;
+static esp_zb_zdo_ieee_addr_req_param_t lastProbe;
+static bool probeHadCallback = false;
+static esp_zb_zdo_ieee_addr_callback_t probeCallback = nullptr;
+uint32_t hostMillis = 0;
+static esp_zb_apsde_data_indication_callback_t indication = nullptr;
+static int indicationLocksHeld = -1;  // locks held while registering
+void esp_zb_aps_data_indication_handler_register(esp_zb_apsde_data_indication_callback_t cb) {
+  indication = cb;
+  indicationLocksHeld = locksHeld;
+}
+// The Arduino core's own handler, which ours must hand every frame on to.
+static int coreHandlerCalls = 0;
+bool zb_apsde_data_indication_handler(esp_zb_apsde_data_ind_t) {
+  coreHandlerCalls++;
+  return false;
+}
+static esp_zb_apsde_data_ind_t frame(uint16_t src, uint16_t profile, uint16_t cluster, int lqi) {
+  esp_zb_apsde_data_ind_t ind = {};
+  ind.src_short_addr = src;
+  ind.profile_id = profile;
+  ind.cluster_id = cluster;
+  ind.lqi = lqi;
+  return ind;
+}
+static esp_zb_callback_t scheduled = nullptr;
+static int scheduledLocksHeld = -1;
+void esp_zb_scheduler_alarm(esp_zb_callback_t cb, uint8_t, uint32_t) {
+  scheduled = cb;
+  scheduledLocksHeld = locksHeld;
+}
+
+// The stack's own conversion, as disassembled from esp_zb_rssi_to_lqi().
+static uint8_t stackRssiToLqi(int rssi) {
+  if (rssi < -80) return 0;
+  if (rssi >= -29) return 255;
+  return (uint8_t)((unsigned)(rssi + 80) * 255 / 50);
+}
+// The stack function the sketch checks itself against at boot. formulaChanged
+// stands in for a later SDK that computes LQI some other way.
+static bool formulaChanged = false;
+extern "C" uint8_t esp_zb_rssi_to_lqi(int8_t rssi) {
+  if (formulaChanged) {
+    return rssi < -90 ? 0 : rssi > -20 ? 255 : (uint8_t)((rssi + 90) * 255 / 70);
+  }
+  return stackRssiToLqi(rssi);
+}
+
+void esp_zb_zdo_ieee_addr_req(esp_zb_zdo_ieee_addr_req_param_t *cmd_req, esp_zb_zdo_ieee_addr_callback_t user_cb,
+                              void *) {
+  probes++;
+  lastProbe = *cmd_req;
+  probeHadCallback = user_cb != nullptr;
+  probeCallback = user_cb;
+}
+
 int main() {
   printf("no parent to report\n");
   Zigbee.up = false;
@@ -173,6 +229,123 @@ int main() {
   l = readParentLink();
   check("lqi 0 with rssi 0 is a measurement", l.valid && !l.unmeasured);
   check("and passes through as it is", l.lqi == 0 && l.rssi == 0);
+
+  printf("probing the parent\n");
+  {
+    int takenBefore = locksTaken;
+    probes = 0;
+    bool sent = probeParent(0x380B);
+    check("handed to the stack", sent && probes == 1);
+    check("to the parent, about the parent", lastProbe.dst_nwk_addr == 0x380B && lastProbe.addr_of_interest == 0x380B);
+    check("the smallest answer: single device", lastProbe.request_type == 0 && lastProbe.start_index == 0);
+    check("with a callback, since a null one is not documented", probeHadCallback);
+    check("under the lock, and the lock given back", locksTaken == takenBefore + 1 && locksHeld == 0);
+    Zigbee.up = false;
+    probes = 0;
+    check("nothing while the stack is down", !probeParent(0x380B) && probes == 0);
+    Zigbee.up = true;
+  }
+
+  printf("the probe's answer\n");
+  {
+    uint8_t status = 0xFF;
+    uint32_t after = 0;
+    hostMillis = 1000;
+    probeParent(0x380B);
+    check("nothing before the answer", !probeAnswer(&status, &after));
+    hostMillis = 1023;
+    probeCallback((esp_zb_zdp_status_t)0x00, nullptr, nullptr);  // as the stack's task would
+    check("answered, with its status and how long it took",
+          probeAnswer(&status, &after) && status == 0x00 && after == 23);
+    hostMillis = 5000;
+    probeParent(0x380B);
+    check("a new probe forgets the old answer", !probeAnswer(&status, &after));
+    hostMillis = 5100;
+    probeCallback((esp_zb_zdp_status_t)0x85, nullptr, nullptr);
+    check("a timeout comes back as one", probeAnswer(&status, &after) && status == 0x85 && after == 100);
+  }
+
+  printf("RSSI back from the stack's LQI\n");
+  {
+    bool allExact = true;
+    for (int rssi = -80; rssi <= -30; rssi++) {
+      bool clipped = true;
+      int back = rssiFromLqi(stackRssiToLqi(rssi), &clipped);
+      if (back != rssi || (clipped != (rssi == -80 || rssi == -30))) {
+        printf("    rssi %d -> lqi %u -> %d%s\n", rssi, stackRssiToLqi(rssi), back, clipped ? " clipped" : "");
+        allExact = false;
+      }
+    }
+    check("every RSSI from -80 to -30 dBm comes back exactly, the ends as bounds", allExact);
+    bool clipped = false;
+    check("the five pairs from the field", rssiFromLqi(183, &clipped) == -44 && rssiFromLqi(209, &clipped) == -39
+                                            && rssiFromLqi(163, &clipped) == -48 && rssiFromLqi(173, &clipped) == -46
+                                            && rssiFromLqi(188, &clipped) == -43);
+    check("LQI 204 is -40 dBm", rssiFromLqi(204, &clipped) == -40 && !clipped);
+    check("255 is a bound at -30", rssiFromLqi(255, &clipped) == -30 && clipped);
+    check("0 is a bound at -80", rssiFromLqi(0, &clipped) == -80 && clipped);
+  }
+
+  printf("the boot-time check of the stack's formula\n");
+  {
+    int8_t bad = 0;
+    check("this SDK's formula is the one expected", linkCheckLqiFormula(&bad));
+    formulaChanged = true;
+    check("a changed formula is caught", !linkCheckLqiFormula(&bad));
+    check("naming an RSSI it no longer gives back", bad >= -81 && bad <= -29);
+    formulaChanged = false;
+    linkCheckLqiFormula(&bad);  // leave it trusted for the frame tests below
+  }
+
+  printf("catching the parent's answer frame\n");
+  {
+    check("linkBegin() schedules, nothing registered yet", linkBegin() && scheduled != nullptr && indication == nullptr);
+    check("scheduled under the Zigbee lock", scheduledLocksHeld == 1 && locksHeld == 0);
+    check("not hooked before the stack ran it", !linkHooked());
+    scheduled(0);  // the stack's task runs it
+    check("the stack's task registers the handler", indication != nullptr && linkHooked());
+
+    ProbeFrame f;
+    probeParent(0x380B);
+    check("nothing seen before the answer", !probeFrame(&f));
+    coreHandlerCalls = 0;
+    indication(frame(0x1234, 0x0000, 0x8001, 30));  // someone else's IEEE_addr_rsp
+    indication(frame(0x380B, 0x0104, 0x0006, 30));  // the parent, but not the answer
+    check("other frames are not the answer", !probeFrame(&f));
+    check("but every one goes on to the core", coreHandlerCalls == 2);
+
+    indication(frame(0x380B, 0x0000, 0x8001, 204));
+    check("the parent's answer is seen", probeFrame(&f) && f.lqi == 204);
+    check("its RSSI from its LQI", f.rssi == -40 && !f.clipped);
+    check("trusted, since the formula checked out", f.rssiTrusted);
+    {
+      int8_t bad = 0;
+      formulaChanged = true;
+      linkCheckLqiFormula(&bad);
+      ProbeFrame g;
+      check("not trusted once the check failed", probeFrame(&g) && !g.rssiTrusted && g.lqi == 204);
+      formulaChanged = false;
+      linkCheckLqiFormula(&bad);
+    }
+    check("and handed on as well", coreHandlerCalls == 3);
+    indication(frame(0x380B, 0x0000, 0x8001, 10));  // a second answer must not overwrite the first
+    check("the first answer stays", probeFrame(&f) && f.lqi == 204);
+
+    probeParent(0x380B);
+    check("a new probe forgets the old frame", !probeFrame(&f));
+  }
+
+  printf("the raw entry, measured or not\n");
+  {
+    tableLen = 0;
+    addNeighbour(ESP_ZB_NWK_RELATIONSHIP_PARENT, 0x380B, 0, 127);
+    LinkQuality r = readParentLink();
+    check("unmeasured, and the raw fields still filled", r.unmeasured && r.rawLqi == 0 && r.rawRssi == 127);
+    tableLen = 0;
+    addNeighbour(ESP_ZB_NWK_RELATIONSHIP_PARENT, 0x380B, 180, -45);
+    r = readParentLink();
+    check("measured: raw and published agree", r.valid && r.rawLqi == 180 && r.rawRssi == -45);
+  }
 
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails ? 1 : 0;

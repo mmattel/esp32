@@ -26,6 +26,15 @@ struct LinkQuality {
   // all because it is a different wait: the parent is known, the radio has simply
   // not heard a frame from it since the entry was created.
   bool unmeasured;
+  // The parent entry's fields as the stack holds them, measured or not - for the
+  // console while a measurement is missing, never for publishing. All 0 when no
+  // parent entry was found.
+  uint8_t rawLqi;
+  int8_t rawRssi;
+  // lqi is measured but rssi is not: the RSSI is computed from the LQI, and
+  // linkCheckLqiFormula() did not confirm the formula on this SDK. Nothing to
+  // publish for the RSSI then.
+  bool rssiUnknown;
 };
 
 // Reads the parent's entry from the neighbour table. Safe to call at any time;
@@ -36,3 +45,65 @@ struct LinkQuality {
 // parent is still that link - reported with assumed set, since the relationship
 // is the stack's own bookkeeping and not something to depend on.
 LinkQuality readParentLink();
+
+// Asks the parent for its IEEE address, for the answer rather than the address: the
+// answer is a frame from the parent, and a frame heard from the parent is the only
+// thing that puts a measurement into its neighbour entry. An end device that sends
+// reports with no default response asked for may otherwise hear nothing from its
+// parent for minutes, and readParentLink() then keeps finding the entry unmeasured
+// or stale. One frame each way over the single hop to the parent - never through
+// the coordinator. Returns whether the request was handed to the stack.
+bool probeParent(uint16_t parentAddr);
+
+// Whether the answer to the last probeParent() has come in since it was sent, and if
+// so its ZDP status (0x00 success, 0x85 timeout, ...) and how many milliseconds it
+// took. The answer is recorded by the stack's task; this reads it. For the console
+// - which of "not sent", "not answered" and "answered but nothing measured" it is.
+bool probeAnswer(uint8_t *status, uint32_t *afterMs);
+
+// The frame that carried the parent's answer to the last probeParent(), caught as it
+// arrived. This is the measurement, not the neighbour entry: on this device the stack
+// leaves the parent's entry at LQI 0 / RSSI +127 however many frames the parent sends
+// (field log of 2026-10-11 17:09).
+//
+// The LQI is the stack's own for that frame (APSDE-DATA.indication), so it is the
+// parent's beyond doubt. The indication carries no RSSI, and none is needed: the
+// stack computes the LQI from the RSSI - see rssiFromLqi(). (Reading the radio
+// driver's "most recent" RSSI instead gave noise-floor values, LQI 7-11 at -101 to
+// -121 dBm, in every one of five captures of 2026-10-11 17:30.)
+struct ProbeFrame {
+  uint8_t lqi;   // the answer frame's LQI, from the indication
+  int8_t rssi;   // the RSSI that LQI was computed from - see rssiFromLqi()
+  bool clipped;  // LQI 0 or 255: rssi is only a bound, at or below -80 / at or above -30
+  bool rssiTrusted;  // linkCheckLqiFormula() found the stack's formula as expected
+};
+// False until the parent's answer to the last probeParent() has been seen.
+bool probeFrame(ProbeFrame *out);
+
+// The inverse of the stack's esp_zb_rssi_to_lqi(), read from its disassembly:
+//   rssi < -80 -> 0,  rssi >= -29 -> 255,  else (rssi + 80) * 255 / 50, rounded down.
+// One dB is 5.1 LQI steps, so every LQI in between comes from exactly one RSSI and
+// this gives it back exactly: ceil(lqi * 50 / 255) - 80. Checked against the five
+// LQI/RSSI pairs the neighbour table delivered on 2026-10-11, all exact. At 0 and 255
+// the RSSI is only a bound - -80 or below, -30 or above (the formula itself reaches
+// 255 at -30) - and *clipped says so.
+int8_t rssiFromLqi(uint8_t lqi, bool *clipped);
+
+// Runs the stack's own esp_zb_rssi_to_lqi() over -81 to -29 dBm and checks that
+// rssiFromLqi() gives every value back - the formula above was read from a
+// disassembly, not from documentation, so a later SDK may compute LQI differently.
+// Until this has run, and if it fails, ProbeFrame::rssiTrusted is false and no
+// RSSI is published: a wrong but plausible RSSI is worse than none. Pure
+// arithmetic, no stack state: call once in setup(), before or after Zigbee.begin().
+// Returns whether it matched; *firstBad is the first RSSI that did not.
+bool linkCheckLqiFormula(int8_t *firstBad);
+
+// Puts a handler in front of the stack's APS data indications that catches the
+// parent's answer frame for probeFrame(), then hands every indication on to the
+// Arduino core's own handler unchanged. Call once, after Zigbee.begin(). The
+// registration itself runs later, in the stack's own task - see zb_link.cpp.
+bool linkBegin();
+
+// Whether the handler is in place yet. False until the stack's task has run the
+// registration that linkBegin() scheduled.
+bool linkHooked();

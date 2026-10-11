@@ -66,6 +66,7 @@
 #include "zb_link_endpoint.h"
 #include "slots.h"
 #include "zb_mirror.h"
+#include "zb_report.h"
 #include "zb_setting.h"
 #include "zb_temp_endpoint.h"
 #include "zb_version.h"
@@ -265,6 +266,13 @@ uint32_t lastLinkMs = 0;
 uint32_t lastLinkReportMs = 0;   // when a link value last went out, for the heartbeat
 bool linkNow = false;            // read the link as soon as there is one
 bool linkWaitLogged = false;     // "nothing to read" already said once this join
+// The parent the link was last read from, so it can be asked for a frame before the
+// next read - see probeParent(). NO_PARENT until a read has found one.
+static const uint16_t NO_PARENT = 0xFFFF;
+uint16_t linkParentAddr = NO_PARENT;
+bool linkProbePending = false;  // asked, waiting LINK_PROBE_WAIT_MS before the read
+bool linkProbedThisJoin = false;
+uint32_t linkProbeMs = 0;       // when the parent was last asked
 bool linkAssumedLogged = false;  // so has the note about an unflagged parent
 
 // When the settings last went out, for their heartbeat. See
@@ -305,6 +313,52 @@ void ledBegin() {
   rgbLedWrite(PIN_RGB, COLOR_OFF.r, COLOR_OFF.g, COLOR_OFF.b);
 }
 
+// The boot flash. setup() blocks - the serial wait, the bus scan, and above all
+// Zigbee.begin(), which waits for the stack for up to 30 s - so loop() cannot drive
+// the LED until it is over. A task of its own can: it starts as the first thing in
+// setup() and flashes COLOR_BOOT until the first updateLed() takes the LED over.
+//
+// One writer at a time: bootLedStop() waits until the task has written its last
+// frame and gone, so the task and ledWrite() never drive the LED together, and
+// ledWrite() starts from a known state - its cache has never been written.
+volatile bool bootLedRunning = false;
+volatile bool bootLedDone = true;
+
+void bootLedTask(void *) {
+  bool on = false;
+  while (bootLedRunning) {
+    on = !on;
+    const LedColor &c = on ? COLOR_BOOT : COLOR_OFF;
+    rgbLedWrite(PIN_RGB, c.r, c.g, c.b);
+    vTaskDelay(pdMS_TO_TICKS(LED_BOOT_FLASH_MS));
+  }
+  rgbLedWrite(PIN_RGB, COLOR_OFF.r, COLOR_OFF.g, COLOR_OFF.b);
+  bootLedDone = true;
+  vTaskDelete(nullptr);
+}
+
+void bootLedStart() {
+  bootLedRunning = true;
+  bootLedDone = false;
+  // Priority 1, just above idle: it only has to be seen, never to be on time, and
+  // must not take anything from the Zigbee task while the stack is starting.
+  if (xTaskCreate(bootLedTask, "bootled", 2048, nullptr, 1, nullptr) != pdPASS) {
+    bootLedRunning = false;  // no flash then, but nothing waits for a task that never ran
+    bootLedDone = true;
+  }
+}
+
+// Called on every updateLed(), so after the first call it is one flag test.
+void bootLedStop() {
+  if (!bootLedRunning) {
+    return;
+  }
+  bootLedRunning = false;
+  while (!bootLedDone) {
+    delay(1);
+  }
+}
+
 // Which half of the flash cycle we are in. The cycle length is a parameter so the
 // sensor fault can have a rhythm of its own; everything else uses the default.
 bool flashOn(uint32_t cycleMs = LED_FLASH_CYCLE_MS) {
@@ -339,6 +393,7 @@ bool anySensorLost() {
 }
 
 void updateLed() {
+  bootLedStop();  // the first call takes the LED over from the boot flash
   // What the LED says while the button is held is what releasing it would do, so
   // these are in the order the hold passes through them - and all of them outrank
   // the link state, since the hold is the thing happening right now. White: the
@@ -380,6 +435,7 @@ void updateLed() {
 // bury the explanation in a boot loop, so flash red and keep the message on the
 // console until the board is reflashed.
 void haltFatal(const char *what) {
+  bootLedStop();  // can be reached from setup(), while the boot flash still runs
   logEvent("FATAL: %s", what);
   while (true) {
     ledWrite(flashOn() ? COLOR_FATAL : COLOR_OFF);
@@ -463,6 +519,8 @@ void scanSensors() {
       DS18B20Bus::romToChars(found[f], rom);
       if (slot < 0) {
         header();
+        // The whole ROM code here: this sensor has no slot, so nothing else names it.
+        // mirror-len: %s<=16
         logEvent("  %s ignored, all %u slots taken", rom, (unsigned)MAX_DS18B20_SENSORS);
         continue;
       }
@@ -495,7 +553,8 @@ void scanSensors() {
     if (report) {
       header();
       DS18B20Bus::romToChars(slotRom[i], rom);
-      logEvent("  slot %u (%s) is configured but missing", (unsigned)i, rom);
+      // mirror-len: %s<=4 - romTail(), see slots.h
+      logEvent("  slot %u (%s) is configured but missing", (unsigned)i, romTail(rom));
     }
   }
 
@@ -728,10 +787,25 @@ void setupEndpoints() {
   }
 }
 
+// The settings a coordinator can write, with the values in effect, printed under the
+// endpoint list so a boot log says what the device is running with. The same values
+// open the log as they are loaded; here they stand next to their endpoints.
+void printSettings() {
+  Serial.printf("Settings (writable from Zigbee):" CONSOLE_EOL);
+  cfgInterval.printCurrent();
+  cfgDelta.printCurrent();
+  cfgCorrection.printCurrent();
+  cfgForcePush.printCurrent();
+}
+
 void onZigbeeConnected() {
   // Whatever the mirror last published went to the previous network, or to nobody
   // at all, so the join line below is what this one gets first.
   zbMirror.forgetPublished();
+  // Before the first line below, so every attribute has its reporting entry from
+  // the first report of a join on. That entry turned out not to be what refused the
+  // mirror's text - its size was, see MIRROR_TEXT_LEN - but the order costs nothing.
+  applyReporting();  // must be called after Zigbee.begin()
   logEvent("Zigbee connected");
 
   if (!commissioned) {
@@ -743,9 +817,8 @@ void onZigbeeConnected() {
     Serial.printf("Commissioning stored in NVS" CONSOLE_EOL);
   }
 
-  applyReporting();  // must be called after Zigbee.begin()
-  // Once now, in case the coordinator is already bound, and then on the heartbeat
-  // for the far more likely case that it is not yet - see handleSettingReports().
+  // Once now, then again 20 s later for a coordinator that was still interviewing
+  // the device, and hourly after that - see handleSettingReports().
   // Delays between publishes spread the post-join burst; see POST_JOIN_REPORT_DELAY_MS.
   cfgInterval.publish();
   delay(POST_JOIN_REPORT_DELAY_MS);
@@ -762,9 +835,8 @@ void onZigbeeConnected() {
 
   // And the firmware version. Sent here because this is the only moment it can have
   // changed - a new version means flashing, flashing reboots, and a reboot rejoins.
-  // Also sent on the handleSettingReports() heartbeat, same reason as the settings:
-  // the coordinator binds while interviewing, so the publish here is too early for
-  // the text attribute to arrive, and the heartbeat is what actually delivers it.
+  // Also sent with the settings by handleSettingReports(), 20 s after the join and
+  // then hourly, for a coordinator that was still interviewing when this went out.
   if (ZB_VERSION_ENDPOINT) {
     zbVersion.publish(FW_VERSION_NUMBER);
     delay(POST_JOIN_REPORT_DELAY_MS);
@@ -790,6 +862,10 @@ void onZigbeeConnected() {
   linkNow = true;
   linkWaitLogged = false;
   linkAssumedLogged = false;
+  // A rejoin may be through a different parent, found by the first read.
+  linkParentAddr = NO_PARENT;
+  linkProbePending = false;
+  linkProbedThisJoin = false;
 }
 
 /* ----------------------------- joining ---------------------------- */
@@ -905,14 +981,28 @@ void updateLinkState() {
 }
 
 // True when the last value put on the air is older than the heartbeat, so it is
-// repeated even though nothing moved. A report is only sent to whoever is bound,
-// so the one a join produces can predate the binding and be the only one there ever
-// was, and the stack's own reporting configuration is no fallback: a coordinator may
-// overwrite it (Zigbee2MQTT does), and the settings are given none in the first
-// place. Repeating on our own schedule is what closes that, for temperatures, for
-// the link and for the settings alike.
+// repeated even though nothing moved. A coordinator that restarted or missed a
+// report would otherwise wait for the next change, and the stack's own reporting
+// configuration is no fallback: a coordinator may overwrite it (Zigbee2MQTT does),
+// and the settings are given none in the first place. Repeating on our own schedule
+// is what closes that, for temperatures, for the link and for the settings alike.
 bool reportOverdue(uint32_t lastMs, uint32_t heartbeatS) {
   return heartbeatS > 0 && (millis() - lastMs) >= heartbeatS * 1000UL;
+}
+
+// Moves a force-push timer on by one interval rather than to now. The check only
+// runs when there is a reading to publish, so a push lands up to one reading
+// interval after it was due; timing the next one from that moment loses the lateness
+// every round - a 1 min push came every 65 s at a 10 s reading interval. Timed from
+// when it was due, the lateness does not add up and the average is the interval.
+// A timer that has fallen more than an interval behind - the push was off, or the
+// device was off the air - starts again from now instead of catching up in a burst.
+void advanceForcePush(uint32_t &lastMs, uint32_t intervalS) {
+  uint32_t intervalMs = intervalS * 1000UL;
+  lastMs += intervalMs;
+  if ((millis() - lastMs) >= intervalMs) {
+    lastMs = millis();
+  }
 }
 
 void handleSettingWrites() {
@@ -934,14 +1024,14 @@ void handleSettingWrites() {
   }
 }
 
-// All three settings, repeated on the heartbeat. Nothing else ever reports them:
+// All four settings, repeated on the heartbeat. Nothing else ever reports them:
 // they only change when a coordinator writes them, and the coordinator that wrote
-// one has the value already - so without this, one that bound after the join publish
-// would show no interval, delta or correction until it wrote one itself.
+// one has the value already - so without this, one that missed the join publish
+// would show no interval, delta, correction or force push until it wrote one itself.
 //
-// A one-shot retry fires SETTING_REPORT_JOIN_RETRY_MS after the join, which is
-// when Z2M has finished its configure step and bindings are in place - so the
-// version the user just flashed appears in Z2M within ~20 s rather than ~60 s.
+// A one-shot retry fires SETTING_REPORT_JOIN_RETRY_MS after the join, when Z2M has
+// finished its interview and configure step - so the version the user just
+// flashed appears in Z2M within ~20 s rather than at the hourly heartbeat.
 void handleSettingReports() {
   bool retryDue = joinRetryPending &&
                   (millis() - joinConnectedMs) >= SETTING_REPORT_JOIN_RETRY_MS;
@@ -1042,6 +1132,9 @@ void readAndPublish() {
     bool heartbeat = !first && !moved && !forcePush && reportOverdue(lastTempReportMs[i], TEMP_REPORT_HEARTBEAT_S);
     bool publish = first || moved || heartbeat || forcePush;
 
+    // Whether the stack took the report, so the console line below says "published"
+    // only for a report that actually left - see zb_report.h for whether it arrived.
+    bool reported = false;
     if (publish) {
       zbTemp[i]->setTemperature(celsius);
       if (Zigbee.connected()) {
@@ -1051,7 +1144,7 @@ void readAndPublish() {
         // is free to rewrite it (Zigbee2MQTT sets 1 °C), which would silently
         // override the configured delta. Off the air there is nobody to report
         // to, and a rejoin resets lastPublished anyway.
-        zbTemp[i]->reportTemperature();
+        reported = zbTemp[i]->reportTemperature();
       }
       lastPublished[i] = celsius;
       lastTempReportMs[i] = millis();
@@ -1076,6 +1169,7 @@ void readAndPublish() {
       Serial.printf("slot %u  EP %u  %s  %.*f C  %s%s" CONSOLE_EOL, i, EP_TEMP_BASE + i, rom, TEMP_PUBLISH_DECIMALS,
                     celsius,
                     !publish ? "within deadband"
+                             : !reported ? (Zigbee.connected() ? "NOT published, report refused" : "not published, offline")
                              : first ? "published (first)"
                              : moved ? "published"
                              : forcePush ? "published (force push)"
@@ -1086,7 +1180,7 @@ void readAndPublish() {
     }
   }
   if (forcePush) {
-    lastForcePushMs = millis();
+    advanceForcePush(lastForcePushMs, forcePushS);
   }
   if (anyPrinted) {
     Serial.printf(CONSOLE_EOL);
@@ -1158,10 +1252,69 @@ void handleLinkQuality() {
   if (!linkNow && (now - lastLinkMs) < linkIntervalMs()) {
     return;
   }
+
+  // Ask the parent for a frame first and read after it had time to answer: without
+  // incoming frames its entry holds no measurement, or an old one. Only once a read
+  // has found the parent, and while waiting for a first measurement not more than
+  // every LINK_PROBE_MIN_GAP_MS.
+  if (!linkProbePending && linkParentAddr != NO_PARENT
+      && (!linkProbedThisJoin || (now - linkProbeMs) >= LINK_PROBE_MIN_GAP_MS)) {
+    if (probeParent(linkParentAddr)) {
+      linkProbePending = true;
+      linkProbedThisJoin = true;
+      linkProbeMs = now;
+      return;
+    }
+    Serial.printf("link probe: could not be handed to the stack" CONSOLE_EOL);
+  }
+  if (linkProbePending && (now - linkProbeMs) < LINK_PROBE_WAIT_MS) {
+    return;
+  }
+  bool afterProbe = linkProbePending;
+  linkProbePending = false;
   linkNow = false;
   lastLinkMs = now;
 
   LinkQuality link = readParentLink();
+  if (link.valid || link.unmeasured) {
+    linkParentAddr = link.parentAddr;  // asked before the next read
+  }
+  // The frame that carried the parent's answer is the measurement whenever there is
+  // one: fresher than the neighbour entry, which on this device does not move at all.
+  // Its LQI is the stack's own for that frame, and its RSSI follows from the LQI -
+  // see ProbeFrame and rssiFromLqi() in zb_link.h.
+  ProbeFrame frame = {};
+  bool frameSeen = afterProbe && probeFrame(&frame);
+
+  // Diagnostic, after a read that followed a probe, until this join's first value is
+  // published: did the parent answer, what did its frame measure, and what does its
+  // neighbour entry hold? Console only.
+  if (afterProbe && (!linkPublished || LOG_EVERY_READING)) {
+    uint8_t status = 0;
+    uint32_t afterMs = 0;
+    if (probeAnswer(&status, &afterMs)) {
+      Serial.printf("link probe: parent 0x%04X answered after %lu ms (ZDP status 0x%02X)", linkParentAddr,
+                    (unsigned long)afterMs, status);
+      if (frameSeen) {
+        Serial.printf("; frame LQI %u, RSSI %s%d dBm", frame.lqi,
+                      !frame.clipped ? "" : frame.lqi == 0 ? "<= " : ">= ", frame.rssi);
+      } else {
+        Serial.printf("; answer frame not seen%s", linkHooked() ? "" : " (indication handler not in place yet)");
+      }
+      Serial.printf("; entry LQI %u RSSI %d" CONSOLE_EOL, link.rawLqi, link.rawRssi);
+    } else {
+      Serial.printf("link probe: parent 0x%04X, no answer within %u ms; entry LQI %u RSSI %d" CONSOLE_EOL,
+                    linkParentAddr, (unsigned)LINK_PROBE_WAIT_MS, link.rawLqi, link.rawRssi);
+    }
+  }
+  if (frameSeen) {
+    link.valid = true;
+    link.unmeasured = false;
+    link.lqi = frame.lqi;
+    link.rssi = frame.rssi;
+    link.rssiUnknown = !frame.rssiTrusted;  // see linkCheckLqiFormula()
+  }
+
   if (!link.valid) {
     // Connected, but the neighbour table has nothing to read. Right after a join
     // that lasts a moment, so come back in a second instead of after a whole
@@ -1197,19 +1350,25 @@ void handleLinkQuality() {
   // Nothing shown yet means a join or a rejoin, quite possibly through a
   // different parent, so both values count as having moved. So does a heartbeat
   // that has come round: a link that stays good never leaves its deadbands, and
-  // the report a join produces goes out before a coordinator has bound anything.
+  // the report a join produces can reach a coordinator still busy interviewing.
   bool first = !linkPublished;
   bool heartbeat = !first && reportOverdue(lastLinkReportMs, LINK_REPORT_HEARTBEAT_S);
   bool due = first || heartbeat;
   bool lqiMoved = due || linkMoved(link.lqi, lqiPublished, LQI_DELTA);
-  bool rssiMoved = due || linkMoved(link.rssi, rssiPublished, RSSI_DELTA);
+  // An RSSI that could not be verified is not published, and not compared either.
+  bool rssiMoved = !link.rssiUnknown && (due || linkMoved(link.rssi, rssiPublished, RSSI_DELTA));
   bool sendLqi = ZB_LQI_ENDPOINT && lqiMoved;
   bool sendRssi = ZB_RSSI_ENDPOINT && rssiMoved;
 
   // A poll that found both values inside their deadbands changed nothing, on the
   // air or on the console, so it says nothing either.
   if (lqiMoved || rssiMoved || LOG_EVERY_READING) {
-    Serial.printf("link: parent 0x%04X  LQI %u/255  RSSI %d dBm", link.parentAddr, link.lqi, link.rssi);
+    Serial.printf("link: parent 0x%04X  LQI %u/255", link.parentAddr, link.lqi);
+    if (link.rssiUnknown) {
+      Serial.printf("  RSSI not verified");
+    } else {
+      Serial.printf("  RSSI %d dBm", link.rssi);
+    }
     if (!ZB_LQI_ENDPOINT && !ZB_RSSI_ENDPOINT) {
       Serial.printf(CONSOLE_EOL);  // console only, there is nothing to publish to
     } else if (!sendLqi && !sendRssi) {
@@ -1330,7 +1489,7 @@ void inhibitButton(const char *why) {
   resetReady = false;
   // Only the first line is mirrored: it is the fault itself, and the probe below
   // it is wiring diagnostics that belong to whoever has the console open.
-  logEvent("Button on pin %d %s - ignoring it until it goes idle", PIN_BUTTON, why);
+  logEvent("Button %d %s, ignored until idle", PIN_BUTTON, why);
   Serial.printf("  the pin reads %s, and with BUTTON_ACTIVE_HIGH %d that counts as pressed" CONSOLE_EOL,
                 digitalRead(PIN_BUTTON) == HIGH ? "HIGH" : "LOW", BUTTON_ACTIVE_HIGH);
   probeButtonPin();
@@ -1341,7 +1500,7 @@ void inhibitButton(const char *why) {
 // already reads pressed here is at the active level for some other reason.
 void checkButtonIdleAtBoot() {
   if (buttonPressed()) {
-    inhibitButton("already reads pressed at boot");
+    inhibitButton("pressed at boot");  // short: the line has to fit the mirror
   }
 }
 
@@ -1400,10 +1559,11 @@ void releaseMissingSlots() {
       // a sensor that has gone quiet.
       zbTemp[i]->setSensorId(sensorId(i).c_str());
     }
-    // 58 characters with a 16-digit ROM code and a one-digit slot, inside the
-    // MIRROR_TEXT_LEN of 64, so the line reaches the coordinator whole. One line per
-    // slot: which sensor was given up on cannot be reconstructed afterwards.
-    logEvent("slot %u (%s) released, ready for a new sensor", (unsigned)i, rom);
+    // One line per slot: which sensor was given up on cannot be reconstructed
+    // afterwards. The full ROM code went to the console with the scan; the mirror
+    // gets its tail, which keeps the line inside MIRROR_TEXT_LEN.
+    // mirror-len: %s<=4 - romTail(), see slots.h
+    logEvent("slot %u (%s) released, ready for a new sensor", (unsigned)i, romTail(rom));
     released++;
   }
 
@@ -1411,7 +1571,7 @@ void releaseMissingSlots() {
     // The hold armed on a missing sensor and a rescan found it again before the
     // release. Nothing to do, and saying so is better than silence after a gesture
     // that was clearly deliberate.
-    logEvent("Button: no sensor is missing any more, nothing released");
+    logEvent("Button: no sensor missing, nothing released");
     return;
   }
 
@@ -1470,7 +1630,7 @@ void handleButton() {
       } else if (wasRelease) {
         releaseMissingSlots();
       } else if (wasArmed) {
-        logEvent("Button: released before the hold was over, no reset");
+        logEvent("Button: released too early, no reset");
       }
     }
   }
@@ -1481,7 +1641,7 @@ void handleButton() {
 
   uint32_t held = ms - pressedSinceMs;
   if (held >= BUTTON_STUCK_MS) {
-    inhibitButton("has read pressed for longer than any hold could last");
+    inhibitButton("stuck pressed");  // longer than any hold could last
     return;
   }
   bool ready = held >= FACTORY_RESET_HOLD_MS;
@@ -1489,7 +1649,7 @@ void handleButton() {
     // Blank line after it: what follows a release is either the reset log or
     // nothing at all, and the gap keeps the prompt apart from both. It is printed
     // separately, since a mirrored line carries no blank line of its own.
-    logEvent("Button: held long enough - release to factory reset");
+    logEvent("Button: release now to factory reset");
     Serial.printf(CONSOLE_EOL);
   }
 
@@ -1500,7 +1660,7 @@ void handleButton() {
   // which is the same condition the flashing blue is showing.
   bool release = !ready && held >= SLOT_RELEASE_HOLD_MS && anySensorLost();
   if (release && !releaseArmed) {
-    logEvent("Button: release now to free the slots of the missing sensors");
+    logEvent("Button: release now to free missing slots");
     Serial.printf("  keep holding to factory reset instead" CONSOLE_EOL);
   }
   resetArmed = held >= FACTORY_RESET_HINT_MS;
@@ -1528,6 +1688,10 @@ void waitForSerialHost() {
 }
 
 void setup() {
+  // The LED first, and flashing, before anything that can take time: the serial
+  // wait below alone is SERIAL_WAIT_MS without a host. See bootLedTask().
+  ledBegin();
+  bootLedStart();
   Serial.begin(115200);
   waitForSerialHost();
   // The version rides on the banner rather than on a line of its own, so the boot
@@ -1544,7 +1708,6 @@ void setup() {
     Serial.printf("Sensor slots: none configured" CONSOLE_EOL);
   }
 
-  ledBegin();
   // Pull the pin to the level the open contact should read, so a disconnected
   // or open button is a defined state rather than a floating one.
   pinMode(PIN_BUTTON, BUTTON_ACTIVE_HIGH ? INPUT_PULLDOWN : INPUT_PULLUP);
@@ -1570,6 +1733,7 @@ void setup() {
   }
 
   setupEndpoints();
+  printSettings();
 
   if (!zigbeePartitionsPresent()) {
     haltFatal("set Tools -> Partition Scheme to \"Zigbee 4MB with spiffs\" and flash again");
@@ -1587,13 +1751,34 @@ void setup() {
     Serial.printf("Zigbee: looking on channel %u only" CONSOLE_EOL, ZB_CHANNEL);
   }
 
-  if (!Zigbee.begin(ZIGBEE_END_DEVICE)) {
-    logEvent("Zigbee failed to start, rebooting");
+  // The RSSI is computed back from the stack's LQI by a formula read from its
+  // disassembly; check once that this SDK still computes it that way, or publish no
+  // RSSI rather than a wrong one. See linkCheckLqiFormula() in zb_link.h.
+  int8_t badRssi = 0;
+  if (!linkCheckLqiFormula(&badRssi)) {
+    logEvent("link: LQI formula changed at %d dBm, no RSSI", badRssi);
+  }
+
+  // How long the stack took to come up, on the console whatever the Core Debug Level:
+  // normally a fraction of a second, but after a long power-off it has run into the
+  // core's 30 s timeout (ZB_BEGIN_TIMEOUT_DEFAULT) - a slow join that is otherwise only
+  // visible as a long wait for the LED to turn green.
+  uint32_t beginStartMs = millis();
+  bool started = Zigbee.begin(ZIGBEE_END_DEVICE);
+  uint32_t beginMs = millis() - beginStartMs;
+  if (!started) {
+    logEvent("Zigbee start failed (%lu ms), rebooting", (unsigned long)beginMs);
     delay(1000);
     ESP.restart();
   }
-  Serial.printf("%s" CONSOLE_EOL, commissioned ? "Zigbee started, rejoining known network"
-                                               : "Zigbee started, waiting to be commissioned");
+  Serial.printf("%s (Zigbee.begin() took %lu ms)" CONSOLE_EOL,
+                commissioned ? "Zigbee started, rejoining known network" : "Zigbee started, waiting to be commissioned",
+                (unsigned long)beginMs);
+  zbReportBegin();
+  // Catches the parent's answer to a link probe; must follow Zigbee.begin().
+  if (!linkBegin()) {
+    Serial.printf("link: could not hook the APS indications, LQI and RSSI stay unknown" CONSOLE_EOL);
+  }
   resetJoinWait();
 }
 
@@ -1603,6 +1788,7 @@ void loop() {
   handleSettingWrites();
   handleSettingReports();
   zbMirror.handleReports();
+  zbReportHandle();
   handleTemperature();
   handleLinkQuality();
   handleButton();

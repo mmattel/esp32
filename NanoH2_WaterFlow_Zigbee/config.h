@@ -14,8 +14,8 @@
  *   major: added/removed endpoint, renamed expose, NVS incompatible
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 2
-#define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 1
+#define FW_VERSION_MINOR 2
+#define FW_VERSION_PATCH 8
 
 #define FW_VERSION_STRINGIFY_(x) #x
 #define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
@@ -75,6 +75,14 @@ static const LedColor COLOR_RESET_ARMED    = {40, 0,  0};  // red
 static const LedColor COLOR_RESET_DONE     = {40, 40, 40}; // white
 static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 
+// Booting: fast cyan flashing from power-on until the LED shows one of the states
+// above. setup() can take a while before it does - up to SERIAL_WAIT_MS waiting for
+// a USB host, and up to 30 s in Zigbee.begin() while the stack rejoins - and a dark
+// LED for that long cannot be told apart from a dead board. Its own colour and a
+// rhythm far faster than the 3 s states, so it reads as "starting" at a glance.
+static const LedColor COLOR_BOOT           = {0, 30, 30};  // cyan, fast flashing: booting
+#define LED_BOOT_FLASH_MS 100  // on time, and off time, of one boot flash
+
 #define LED_FLASH_CYCLE_MS 3000
 #define LED_FLASH_DUTY_PCT 50
 
@@ -123,19 +131,34 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 #define FLOW_REPORT_HEARTBEAT_S    3600
 
 // How often the three settings are repeated to the coordinator. Same role
-// as SETTING_REPORT_HEARTBEAT_S in the DS18B20 sketch: a join publish
-// precedes the coordinator's binding, so without this the settings would
-// be invisible until the coordinator wrote them. 0 disables.
-#define SETTING_REPORT_HEARTBEAT_S 60
+// as SETTING_REPORT_HEARTBEAT_S in the DS18B20 sketch: a coordinator that
+// missed the join publish would not see the settings until it wrote them.
+// 0 disables.
+//
+// Hourly, not every minute as before v2.1.2. A minute is not free: it is four settings
+// and two version reports, around 8,600 a day of values nobody changed, all
+// funnelled through the coordinator, which is the node the whole network waits on.
+// The join publish plus the one-shot retry below already fill in a freshly joined
+// device, so the heartbeat only covers a coordinator that lost track since then.
+#define SETTING_REPORT_HEARTBEAT_S 3600
 
 // One-shot re-publish of all settings and the firmware version, fired this many
-// milliseconds after a join - long enough for Z2M to complete its configure step
-// and establish bindings. The initial publish in onZigbeeConnected() precedes the
-// bindings and is therefore never received; this retry is what actually makes the
-// firmware version and settings appear in Z2M within seconds rather than waiting
-// for the first SETTING_REPORT_HEARTBEAT_S tick. After this one shot,
-// SETTING_REPORT_HEARTBEAT_S takes over as normal.
+// milliseconds after a join - long enough for Z2M to finish interviewing and
+// configuring the device. The publish in onZigbeeConnected() can arrive while Z2M
+// is still busy with that; this retry makes sure the firmware version and the
+// settings are in Z2M within seconds of a join rather than at the first
+// SETTING_REPORT_HEARTBEAT_S tick, an hour later. After this one shot,
+// SETTING_REPORT_HEARTBEAT_S takes over as normal. (This used to be explained by
+// bindings; since every report is unicast, bindings play no part.)
 #define SETTING_REPORT_JOIN_RETRY_MS 20000
+
+// How often the console gets a one-line summary of the reports since the last
+// one: how many were sent, how many the coordinator acknowledged, how many never
+// arrived and how many the stack refused - see zb_report.h. Console only, so it
+// costs nothing on the air, and in a capture left running it doubles as proof of
+// life with a timestamp. 0 disables the summary. The lines for an endpoint that
+// starts or stops failing are printed either way.
+#define REPORT_STATS_INTERVAL_S 300
 
 /* ------------------------------------------------------------------
  * Pushbutton
@@ -226,13 +249,26 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 #define LQI_DELTA                 10
 #define RSSI_DELTA                 5
 #define LINK_RETRY_MS           1000
+
+// The parent is asked for a frame before the link is read - see probeParent() in
+// zb_link.h - and the read waits this long for the answer to come in. A hop to a
+// router answers in tens of milliseconds; a second leaves room for a busy one.
+#define LINK_PROBE_WAIT_MS 1000
+// While the parent's entry has no measurement yet, the link is read every
+// LINK_RETRY_MS, but the parent is asked again only this often: a parent that did
+// not answer once is not helped by being asked every second.
+#define LINK_PROBE_MIN_GAP_MS 10000
 #define LINK_REPORT_MIN_INTERVAL_S 1
 #define LINK_REPORT_HEARTBEAT_S 3600
 
 /* ------------------------------------------------------------------
  * Console mirror
  * ------------------------------------------------------------------ */
-#define MIRROR_TEXT_LEN             64
+// The most the stack accepts in one report is 50 characters - see the DS18B20
+// config.h for how that is derived. 64 (until v2.1.2) and 56 (v2.1.3) were both
+// refused on every line with ESP_ERR_INVALID_SIZE; 48 leaves two characters of
+// margin. zb_mirror.cpp refuses to compile above 50.
+#define MIRROR_TEXT_LEN             48
 #define MIRROR_TEXT_ATTR_ID     0xF000
 #define MIRROR_REPORT_MIN_INTERVAL_S 1
 #define MIRROR_REPORT_HEARTBEAT_S 3600

@@ -37,8 +37,8 @@
  * like a different device.
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 3
-#define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 1
+#define FW_VERSION_MINOR 2
+#define FW_VERSION_PATCH 8
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -151,6 +151,14 @@ static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   held long
 static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: cannot run, see serial
 static const LedColor COLOR_SENSOR_FAULT = {0, 0, 40};     // blue, flashing: a sensor that worked is gone
 static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    release the button to free its slot
+
+// Booting: fast cyan flashing from power-on until the LED shows one of the states
+// above. setup() can take a while before it does - up to SERIAL_WAIT_MS waiting for
+// a USB host, and up to 30 s in Zigbee.begin() while the stack rejoins - and a dark
+// LED for that long cannot be told apart from a dead board. Its own colour and a
+// rhythm far faster than the 3 s states, so it reads as "starting" at a glance.
+static const LedColor COLOR_BOOT = {0, 30, 30};            // cyan, fast flashing: booting
+#define LED_BOOT_FLASH_MS 100                                // on time, and off time, of one boot flash
 
 // Length of one on/off period for the flashing states, and how much of
 // that period the LED is lit.
@@ -284,30 +292,44 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // The heartbeat is also kept in software: this value is handed to the stack, but
 // a coordinator is free to overwrite the reporting configuration it just read -
 // Zigbee2MQTT does - so the sketch republishes on its own schedule as well and
-// the number here is what actually happens. It is what fills in a value at the
-// coordinator that has not moved since the two were bound.
+// the number here is what actually happens. It is what refills a value at a
+// coordinator that restarted while the temperature sat still.
 #define TEMP_REPORT_MIN_INTERVAL_S 1
 #define TEMP_REPORT_HEARTBEAT_S 3600
 
 // How often the interval and the delta are repeated to the coordinator. They get
 // no ZCL reporting configuration at all - the core's analog output cluster takes
 // none - so the only thing that reaches a coordinator is what the sketch reports
-// itself, and the publish on join is too early: a report goes to whoever is bound,
-// and Zigbee2MQTT binds while interviewing. Nothing then changes until something is
-// written, which is why a freshly joined device showed no interval and no delta
-// until the first write. This closes that. 0 disables it, leaving both readable but
-// never sent. They are two attributes of a mains-powered device, so a minute costs
-// nothing.
-#define SETTING_REPORT_HEARTBEAT_S 60
+// itself, and the publish on join can come too early for a coordinator that is
+// still interviewing the device. Nothing then changes until something is written,
+// which is why a freshly joined device showed no interval and no delta until the
+// first write. This closes that. 0 disables it, leaving both readable but
+// never sent.
+//
+// Hourly, not every minute as before v3.1.2. A minute is not free: it is four settings
+// and two version reports, around 8,600 a day of values nobody changed, all
+// funnelled through the coordinator, which is the node the whole network waits on.
+// The join publish plus the one-shot retry below already fill in a freshly joined
+// device, so the heartbeat only covers a coordinator that lost track since then.
+#define SETTING_REPORT_HEARTBEAT_S 3600
 
 // One-shot re-publish of all settings and the firmware version, fired this many
-// milliseconds after a join - long enough for Z2M to complete its configure step
-// and establish bindings. The initial publish in onZigbeeConnected() precedes the
-// bindings and is therefore never received; this retry is what actually makes the
-// firmware version and settings appear in Z2M within seconds rather than waiting
-// for the first SETTING_REPORT_HEARTBEAT_S tick. After this one shot,
-// SETTING_REPORT_HEARTBEAT_S takes over as normal.
+// milliseconds after a join - long enough for Z2M to finish interviewing and
+// configuring the device. The publish in onZigbeeConnected() can arrive while Z2M
+// is still busy with that; this retry makes sure the firmware version and the
+// settings are in Z2M within seconds of a join rather than at the first
+// SETTING_REPORT_HEARTBEAT_S tick, an hour later. After this one shot,
+// SETTING_REPORT_HEARTBEAT_S takes over as normal. (This used to be explained by
+// bindings; since every report is unicast, bindings play no part.)
 #define SETTING_REPORT_JOIN_RETRY_MS 20000
+
+// How often the console gets a one-line summary of the reports since the last
+// one: how many were sent, how many the coordinator acknowledged, how many never
+// arrived and how many the stack refused - see zb_report.h. Console only, so it
+// costs nothing on the air, and in a capture left running it doubles as proof of
+// life with a timestamp. 0 disables the summary. The lines for an endpoint that
+// starts or stops failing are printed either way.
+#define REPORT_STATS_INTERVAL_S 300
 
 /* ------------------------------------------------------------------
  * Pushbutton
@@ -503,15 +525,24 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // moment right after a join. Has to stay below LINK_INTERVAL_S.
 #define LINK_RETRY_MS 1000
 
+// The parent is asked for a frame before the link is read - see probeParent() in
+// zb_link.h - and the read waits this long for the answer to come in. A hop to a
+// router answers in tens of milliseconds; a second leaves room for a busy one.
+#define LINK_PROBE_WAIT_MS 1000
+// While the parent's entry has no measurement yet, the link is read every
+// LINK_RETRY_MS, but the parent is asked again only this often: a parent that did
+// not answer once is not helped by being asked every second.
+#define LINK_PROBE_MIN_GAP_MS 10000
+
 // Repeats the last published values even while they stay inside the deadband,
 // like TEMP_REPORT_HEARTBEAT_S does for temperatures, in software as well as in
 // the reporting configuration handed to the stack. 0 disables it.
 //
 // This matters more here than it does for a temperature: a healthy link sits
 // still, so both values can stay inside their deadbands for days. Without the
-// heartbeat the only report would be the one sent right after the join, which is
-// before a coordinator has bound the cluster and therefore goes nowhere - and the
-// endpoints would then read as unknown for as long as the link stays good.
+// heartbeat the only report would be the one sent right after the join, which a
+// coordinator still interviewing the device can miss - and the endpoints would
+// then read as unknown for as long as the link stays good.
 #define LINK_REPORT_MIN_INTERVAL_S 1
 #define LINK_REPORT_HEARTBEAT_S 3600
 
@@ -541,10 +572,16 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // How much of a line is carried. Anything longer is cut off here, which is why
 // the mirrored lines are the short ones.
 //
-// The ceiling is what a single Zigbee frame holds: an APS payload is around 80
-// bytes, the report adds a ZCL header and the string its length byte, and a value
-// past that would have to be fragmented - which a report is not.
-#define MIRROR_TEXT_LEN 64
+// The ceiling is set by the stack, which refuses a report that is too big with
+// ESP_ERR_INVALID_SIZE. Read from esp_zb_zcl_report_attr_cmd_req() in the SDK this
+// builds against: for a cluster that cannot be fragmented - Analog Input cannot - it
+// allows 82 bytes, minus the 3-byte ZCL header, minus 25 it reserves, and the
+// attribute must fit what is left together with its ID and type (3 bytes). That is
+// 54 - 3 = 51 bytes for the string, length byte included: at most 50 characters.
+// The line is always padded to its full length, so every report is this size.
+// 64 (until v3.1.2) and 56 (v3.1.3) were both refused on every line; 48 leaves two
+// characters of margin. zb_mirror.cpp refuses to compile above 50.
+#define MIRROR_TEXT_LEN 48
 
 // The attribute the text lives in. 0xF000 and up is the range reserved for a
 // manufacturer's own attributes, which keeps it clear of the standard Analog
@@ -552,10 +589,9 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 #define MIRROR_TEXT_ATTR_ID 0xF000
 
 // Repeats the current line even though no new one came along, like
-// LINK_REPORT_HEARTBEAT_S does, and for the same reason: a report goes to
-// whoever is bound at that moment, and right after a join that is still nobody -
-// so the line announcing the join would otherwise be the one line never seen.
-// 0 disables the repeat.
+// LINK_REPORT_HEARTBEAT_S does: a coordinator that restarted, or missed the
+// report, gets the line back within the hour instead of never. 0 disables the
+// repeat.
 #define MIRROR_REPORT_MIN_INTERVAL_S 1
 #define MIRROR_REPORT_HEARTBEAT_S 3600
 

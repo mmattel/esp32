@@ -5,8 +5,12 @@ class ZigbeeEP { public: virtual ~ZigbeeEP() {} };
 class ZigbeeAnalog : public ZigbeeEP {
 public:
   float output = NAN;
-  int reports = 0;
-  explicit ZigbeeAnalog(uint8_t) {}
+  int reports = 0;  // counted by the test's zbReport(), found through byEndpoint
+  explicit ZigbeeAnalog(uint8_t endpoint) : _endpoint(endpoint) { byEndpoint[endpoint] = this; }
+  uint8_t getEndpoint() { return _endpoint; }
+  // The endpoint each value was last constructed on, so zbReport(), which is only
+  // given a number, can credit the report to the object the test holds.
+  static inline ZigbeeAnalog *byEndpoint[256] = {};
   bool setManufacturerAndModel(const char *, const char *) { return true; }
   bool addAnalogOutput() { return true; }
   bool setAnalogOutputApplication(uint32_t) { return true; }
@@ -30,9 +34,15 @@ public:
     if (changed) { changed(v); }
   }
   void (*changed)(float) = nullptr;
-  bool reportAnalogOutput() { reports++; return true; }
+  // No reportAnalogOutput(): the core's reports through the binding table, and the
+  // sketch must not call it - see zb_report.h. Leaving it out makes a call that
+  // creeps back in a compile error here.
+private:
+  uint8_t _endpoint;
 };
 struct ZigbeeCoreStub { bool addEndpoint(ZigbeeEP *) { return true; } };
 static ZigbeeCoreStub Zigbee;
+#define ESP_ZB_ZCL_CLUSTER_ID_ANALOG_OUTPUT 0x000d
+#define ESP_ZB_ZCL_ATTR_ANALOG_OUTPUT_PRESENT_VALUE_ID 0x0055
 #define ESP_ZB_ZCL_AI_TIME_RELATIVE 0u
 #define ESP_ZB_ZCL_AI_TEMPERATURE_OTHER 1u

@@ -1,0 +1,59 @@
+// Every attribute report this sketch sends, in one place, and what became of it.
+//
+// One function builds and sends a report, so every endpoint goes out the same way:
+//
+//   Direct unicast to the coordinator, short address 0x0000, endpoint 1. The
+//   binding table mode the core's own helpers use
+//   (ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT) silently fails on this device
+//   even when the bindings are present - confirmed in DS18B20 v3.0.2 and WaterFlow
+//   v2.0.2, esp-zigbee-sdk #909.
+//
+//   No default response. With the flag clear, the coordinator answers every report
+//   with a ZCL Default Response, which Zigbee2MQTT sends as a request of its own
+//   through the coordinator's radio and back over the mesh to this device. That
+//   doubles the traffic a report costs, and the second half runs from the
+//   coordinator, the one node the whole network queues behind.
+//
+// And whether the stack took each one, which nothing else in the sketch can see:
+// the core logs a refused report through log_e(), which Core Debug Level "None"
+// compiles away. The console gets a line when an attribute's reports start being
+// refused and another when they recover, not one per report, plus a summary every
+// REPORT_STATS_INTERVAL_S. Whether an accepted report arrived is not tracked here -
+// see zbReportBegin() in zb_report.cpp for why.
+//
+// Console only, never logEvent(): a failure line handed to the mirror would be a
+// report of its own, sent down the same path that just failed.
+
+#pragma once
+
+#include <Arduino.h>
+#include "Zigbee.h"
+
+// Sends one attribute of one endpoint's server cluster to the coordinator, as the
+// value the attribute holds now - set it first. Returns whether the stack took
+// the report. Does nothing and returns false while the stack is not running.
+bool zbReport(uint8_t srcEndpoint, uint16_t clusterId, uint16_t attrId);
+
+// Registers the reporting configuration for an attribute in the stack's own table.
+// A standard attribute gets its entry from the core's set*Reporting() calls or from
+// the coordinator's configure_reporting, but an attribute added by hand - the
+// mirror's line, the version string - gets neither, since Zigbee2MQTT sends no
+// configure_reporting for an m.text() expose. Call after Zigbee.begin(), from every
+// join.
+//
+// Not what makes zbReport() work: esp_zb_zcl_report_attr_cmd_req() never looks an
+// entry up (read from the SDK's disassembly). The v3.1.1 theory that it refused
+// reports without one was wrong; what refused the mirror's text was its size - see
+// MIRROR_TEXT_LEN in config.h. Kept because it is harmless and gives the stack's own
+// periodic reporting a configuration for these attributes.
+//
+// No reportable change: these are character strings, a discrete type, and
+// discrete types carry none (ZCL 2.6.7.4).
+void zbSetReporting(uint8_t endpoint, uint16_t clusterId, uint16_t attrId, uint16_t minInterval, uint16_t maxInterval);
+
+// Starts the summary clock. Call once, after Zigbee.begin(). Touches nothing in the
+// stack.
+void zbReportBegin();
+
+// Prints the summary when it is due. Call from loop().
+void zbReportHandle();

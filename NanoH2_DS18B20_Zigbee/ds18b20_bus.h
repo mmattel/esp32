@@ -10,8 +10,8 @@
 // is a compile error rather than a timing problem. The C3 path is exactly what
 // the H2 needs, so the alternative is a patched fork of the library:
 //
-//   #if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 \
-//       || CONFIG_IDF_TARGET_ESP32H2 || CONFIG_IDF_TARGET_ESP32C2
+//   #if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 ||
+//       CONFIG_IDF_TARGET_ESP32H2 || CONFIG_IDF_TARGET_ESP32C2
 //
 // at each of the five #if sites. DallasTemperature itself is fine: what it
 // offers beyond this file is per-sensor resolution and alarms, neither of which

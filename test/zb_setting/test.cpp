@@ -11,18 +11,33 @@
 #include "../../NanoH2_DS18B20_Zigbee/zb_setting.cpp"
 #undef private
 #include <cassert>
+
+// Credits each report to the endpoint object it came from. Only the analog output's
+// present value is a setting report; anything else would be a report the sketch has
+// no business sending from here.
+bool zbReport(uint8_t srcEndpoint, uint16_t clusterId, uint16_t attrId) {
+  ZigbeeAnalog *ep = ZigbeeAnalog::byEndpoint[srcEndpoint];
+  if (ep && clusterId == ESP_ZB_ZCL_CLUSTER_ID_ANALOG_OUTPUT && attrId == ESP_ZB_ZCL_ATTR_ANALOG_OUTPUT_PRESENT_VALUE_ID) {
+    ep->reports++;
+  }
+  return true;
+}
 #include <cstdarg>
 
 // A written value is announced with logEvent(), which on the device prints and
 // hands the same line to the console mirror endpoint (see zb_mirror.cpp). There is
 // no endpoint here, so this is the printing half of it - which is all these tests
 // need, and it keeps zb_setting.cpp free of anything Zigbee to link against.
+//
+// The last line is kept, so the wording can be checked against what the mirror can
+// carry.
+static char lastLogged[160] = "";
 void logEvent(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
-  vprintf(fmt, args);
+  vsnprintf(lastLogged, sizeof(lastLogged), fmt, args);
   va_end(args);
-  printf("\n");
+  printf("%s\n", lastLogged);
 }
 
 // Every settings endpoint also puts FW_VERSION in its Basic cluster, because a
@@ -263,6 +278,56 @@ int main() {
   check("clamped at the bottom of the range", cw.value(), TEMP_CORRECTION_MIN_C);
   check("the clamp is persisted", s.getFloat(NVS_KEY_CORRECTION, NAN), TEMP_CORRECTION_MIN_C);
   check("and mirrored back", cw._ep.output, TEMP_CORRECTION_MIN_C);
+
+  // The line announcing a write goes to the console mirror, which carries
+  // MIRROR_TEXT_LEN characters: the setting's name without its unit, the endpoint,
+  // and either old -> new or the request that was rounded or clamped.
+  printf("the line that announces a write\n");
+  {
+    char want[64];
+    snprintf(want, sizeof(want), "Temperature correction EP%u: -5.00, asked -20.00", (unsigned)cw._ep.getEndpoint());
+    bool ok = strcmp(lastLogged, want) == 0;
+    printf("  a clamped write gives the request -> %s\n", ok ? "yes (ok)" : "no (FAIL)");
+    if (!ok) fails++;
+
+    target = &cw;
+    cw._ep.injectWrite(-4.75f);
+    cw.applyPending(s);
+    snprintf(want, sizeof(want), "Temperature correction EP%u: -5.00 -> -4.75", (unsigned)cw._ep.getEndpoint());
+    ok = strcmp(lastLogged, want) == 0;
+    printf("  a write taken as sent gives old -> new -> %s\n", ok ? "yes (ok)" : "no (FAIL)");
+    if (!ok) fails++;
+    ok = strlen("Temperature correction EP15: -5.00, asked -20.00") <= MIRROR_TEXT_LEN;
+    printf("  the clamped correction fits the mirror -> %s\n", ok ? "yes (ok)" : "no (FAIL)");
+    if (!ok) fails++;
+
+    // The widest values any setting in either sketch can hold: WaterFlow's total
+    // start value, seven digits with a step of 0.001, at endpoint 12.
+    ZbSetting big(12, "tstart", "Total start value (L)", 0.0f, 0.0f, 9999999.0f, 0.001f, ESP_ZB_ZCL_AI_TIME_RELATIVE);
+    Preferences t;
+    big.load(t);
+    big.addEndpoint(onWritten);
+    target = &big;
+    // Two in-range writes at the top, so the second line has two seven-digit values.
+    // A request far past the range ("asked 100000000.00") would not fit; the
+    // mirror cuts that one and the console says so.
+    big._ep.injectWrite(9999999.0f);
+    big.applyPending(t);
+    big._ep.injectWrite(9999998.0f);
+    big.applyPending(t);
+    size_t len = strlen(lastLogged);
+    ok = len <= MIRROR_TEXT_LEN;
+    printf("  at seven-digit values it still fits the mirror: %zu <= %u -> %s\n", len, (unsigned)MIRROR_TEXT_LEN,
+           ok ? "yes (ok)" : "no (FAIL)");
+    if (!ok) fails++;
+  }
+
+  printf("the line for the boot log's settings block\n");
+  {
+    // Printed, not checked byte for byte here: the stub's Serial does not keep its
+    // output. It has to compile against the real class and run.
+    cw.printCurrent();
+  }
 
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails != 0;

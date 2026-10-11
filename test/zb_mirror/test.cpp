@@ -26,7 +26,11 @@ static char wroteText[MIRROR_TEXT_LEN + 2] = "";  // the string itself, as the s
 static esp_zb_zcl_status_t writeStatus = ESP_ZB_ZCL_STATUS_SUCCESS;
 
 static int textReports = 0;
-static esp_zb_zcl_report_attr_cmd_t lastReport;
+static uint8_t reportedEp = 0;
+static uint16_t reportedCluster = 0, reportedAttr = 0;
+static bool reportFails = false;  // zbReport() says the stack refused the report
+static int reportingSet = 0;      // zbSetReporting() calls
+static uint16_t reportingAttr = 0;
 
 static float wroteValue = NAN;
 static int valueReports = 0;
@@ -85,10 +89,23 @@ esp_zb_zcl_status_t ZigbeeEP::setClusterAttribute(uint16_t cluster_id, uint8_t c
   return writeStatus;
 }
 
-bool ZigbeeEP::reportClusterAttribute(esp_zb_zcl_report_attr_cmd_t *report_attr_cmd) {
-  textReports++;
-  lastReport = *report_attr_cmd;
-  return true;
+// How a report is built and addressed is zb_report.cpp's business and has a suite
+// of its own; what matters here is which attribute of which endpoint went out.
+bool zbReport(uint8_t srcEndpoint, uint16_t clusterId, uint16_t attrId) {
+  reportedEp = srcEndpoint;
+  reportedCluster = clusterId;
+  reportedAttr = attrId;
+  if (attrId == MIRROR_TEXT_ATTR_ID) {
+    textReports++;
+  } else {
+    valueReports++;
+  }
+  return !reportFails;
+}
+
+void zbSetReporting(uint8_t, uint16_t, uint16_t attrId, uint16_t, uint16_t) {
+  reportingSet++;
+  reportingAttr = attrId;
 }
 
 bool ZigbeeAnalog::setAnalogInput(float analog) {
@@ -96,10 +113,6 @@ bool ZigbeeAnalog::setAnalogInput(float analog) {
   return true;
 }
 
-bool ZigbeeAnalog::reportAnalogInput() {
-  valueReports++;
-  return true;
-}
 
 static int fails = 0;
 static void check(const char *what, bool ok) {
@@ -113,7 +126,8 @@ static void reset() {
   wroteLenByte = createdLenByte = 0;
   wroteValue = NAN;
   writeStatus = ESP_ZB_ZCL_STATUS_SUCCESS;
-  clusterMissing = addAttrFails = false;
+  clusterMissing = addAttrFails = reportFails = false;
+  reportingSet = 0;
   hostMillis = 0;
   Zigbee.up = true;
   Serial.lines = 0;
@@ -196,22 +210,11 @@ int main() {
     check("a trim() away from the printed line", strcmp(trimmed(), "Zigbee connected") == 0);
     check("the value is the line count", wroteValue == 1.0f);
     check("both were reported", textReports == 1 && valueReports == 1);
-    // Addressed through the binding table: no destination, so it goes to whoever
-    // is bound to the cluster. An address of our own would go nowhere.
-    check("reported to whoever is bound",
-          lastReport.address_mode == ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT);
-    check("reported from this endpoint", lastReport.zcl_basic_cmd.src_endpoint == EP_MIRROR);
-    check("reported to the client side", lastReport.direction == ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI);
-    check("reported as the standard cluster it lives in",
-          lastReport.clusterID == ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT && lastReport.attributeID == MIRROR_TEXT_ATTR_ID);
-    check("not flagged manufacturer specific", lastReport.manuf_specific == 0);
-    // The key the attribute is looked up by, and the one field the core's own report
-    // helpers never set. addText() adds the attribute with the non-manufacturer
-    // variant of add_attr, so the report has to ask for it under no manufacturer -
-    // asking under any other code is asking for an attribute that does not exist.
-    // poisonStack() above is what makes an unset field visible here.
-    check("asked for under no manufacturer code",
-          lastReport.manuf_code == ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC);
+    // The value goes last, so the last report seen is the counter's.
+    check("reported from this endpoint", reportedEp == EP_MIRROR);
+    check("the counter as the cluster's present value",
+          reportedCluster == ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT &&
+            reportedAttr == ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID);
   }
 
   printf("only what changed, and counted as it comes\n");
@@ -248,6 +251,32 @@ int main() {
     check("a longer line is cut to the configured length",
           wroteLenByte == MIRROR_TEXT_LEN && strlen(trimmed()) == MIRROR_TEXT_LEN);
     check("cut, not overrun", strncmp(trimmed(), longLine, MIRROR_TEXT_LEN) == 0);
+  }
+
+  printf("a cut line is said on the console\n");
+  reset();
+  {
+    ZbMirror m(EP_MIRROR);
+    m.addText();
+    char line[MIRROR_TEXT_LEN + 8];
+    memset(line, 'z', MIRROR_TEXT_LEN);
+    line[MIRROR_TEXT_LEN] = '\0';
+    m.mirror(line);
+    check("a line exactly at the limit: no note", strstr(Serial.last, "cut to") == nullptr);
+    memset(line, 'w', MIRROR_TEXT_LEN + 7);
+    line[MIRROR_TEXT_LEN + 7] = '\0';
+    m.mirror(line);
+    char expect[64];
+    snprintf(expect, sizeof(expect), "cut to %u of %u characters", (unsigned)MIRROR_TEXT_LEN,
+             (unsigned)(MIRROR_TEXT_LEN + 7));
+    check("one past it: the note gives both lengths", strstr(Serial.last, expect) != nullptr);
+    // The indent is not part of the line the mirror carries, so it does not count.
+    char indented[MIRROR_TEXT_LEN + 8] = "    ";
+    memset(indented + 4, 'v', MIRROR_TEXT_LEN);
+    indented[MIRROR_TEXT_LEN + 4] = '\0';
+    Serial.last[0] = '\0';
+    m.mirror(indented);
+    check("an indent does not count against the limit", strstr(Serial.last, "cut to") == nullptr);
   }
 
   printf("off the air\n");
@@ -353,6 +382,32 @@ int main() {
     writeStatus = ESP_ZB_ZCL_STATUS_SUCCESS;
     m.mirror("1-Wire bus responding again");
     check("the recovery is said as well", Serial.lines == 2 && strstr(Serial.last, "sending again") != nullptr);
+  }
+
+  printf("a report the stack refuses\n");
+  reset();
+  {
+    ZbMirror m(EP_MIRROR);
+    m.addText();
+    reportFails = true;
+    m.mirror("first");
+    // The text is the first thing reported, so it is the step that is named - which
+    // is what tells a refused report apart from an attribute that could not be set.
+    check("the console names the step that failed", strstr(Serial.last, "reporting the text failed") != nullptr);
+    reportFails = false;
+    m.mirror("second");
+    check("and says when it works again", strstr(Serial.last, "sending again") != nullptr);
+  }
+
+  printf("the text gets a reporting entry\n");
+  reset();
+  {
+    ZbMirror m(EP_MIRROR);
+    m.setTextReporting(1, 3600);
+    check("not without the attribute", reportingSet == 0);
+    m.addText();
+    m.setTextReporting(1, 3600);
+    check("for the text attribute once it exists", reportingSet == 1 && reportingAttr == MIRROR_TEXT_ATTR_ID);
   }
 
   printf("logEvent(): printed and mirrored, same line\n");

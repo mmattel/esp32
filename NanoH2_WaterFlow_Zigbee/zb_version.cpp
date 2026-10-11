@@ -1,5 +1,6 @@
 #include "zb_version.h"
 #include "config.h"
+#include "zb_report.h"
 
 // Same guard as zb_mirror.h, for the same reason: a config.h from before this
 // endpoint existed has neither attribute number, and said once here it is one line
@@ -67,23 +68,9 @@ void ZbVersion::setTextReporting(uint16_t minInterval, uint16_t maxInterval) {
   if (!_hasText) {
     return;
   }
-  // Same rationale as ZbMirror::setTextReporting(): reportText() needs a reporting-
-  // config entry for attr VERSION_TEXT_ATTR_ID in the SDK's internal table, or it
-  // fails silently. Z2M sends configure_reporting for presentValue (from the converter's
-  // reporting: entry) but not for m.text() attributes, so this has to be done here.
-  esp_zb_zcl_reporting_info_t ri = {};
-  ri.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
-  ri.ep = _endpoint;
-  ri.cluster_id = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
-  ri.cluster_role = ESP_ZB_ZCL_CLUSTER_SERVER_ROLE;
-  ri.attr_id = VERSION_TEXT_ATTR_ID;
-  ri.u.send_info.min_interval = minInterval;
-  ri.u.send_info.max_interval = maxInterval;
-  ri.u.send_info.def_min_interval = minInterval;
-  ri.u.send_info.def_max_interval = maxInterval;
-  ri.dst.profile_id = ESP_ZB_AF_HA_PROFILE_ID;
-  ri.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
-  esp_zb_zcl_update_reporting_info(&ri);
+  // Same as ZbMirror::setTextReporting(): nothing else creates a reporting entry for
+  // a hand-added attribute - see zbSetReporting().
+  zbSetReporting(_endpoint, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, VERSION_TEXT_ATTR_ID, minInterval, maxInterval);
 }
 
 bool ZbVersion::addText(const char *version) {
@@ -118,44 +105,14 @@ bool ZbVersion::addText(const char *version) {
 }
 
 bool ZbVersion::reportText() {
-  // Built field by field rather than through a library helper, for the reasons
-  // ZbMirror::reportText() sets out at length: the library reports the attributes it
-  // knows about and not one added by hand, and manuf_code has to say which
-  // manufacturer's 0xF000 this is - no manufacturer's, since the attribute is added
-  // with the non-manufacturer call. Zeroed first so nothing is left to whatever the
-  // stack happened to hold.
-  //
-  // Direct unicast to coordinator 0x0000 endpoint 1: the binding table mode
-  // silently fails on this device even when bindings are present - confirmed in v2.0.2.
-  esp_zb_zcl_report_attr_cmd_t cmd = {};
-  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
-  cmd.zcl_basic_cmd.dst_addr_u.addr_short = 0x0000;
-  cmd.zcl_basic_cmd.dst_endpoint = 1;
-  cmd.attributeID = VERSION_TEXT_ATTR_ID;
-  cmd.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
-  cmd.clusterID = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
-  cmd.zcl_basic_cmd.src_endpoint = _endpoint;
-  cmd.manuf_specific = 0x00U;
-  cmd.dis_default_resp = 0x00U;
-  cmd.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
-
-  return reportClusterAttribute(&cmd);
+  // The library reports the attributes it knows about, not one added by hand - see
+  // zb_report.h for how every report is built and where it goes.
+  return zbReport(_endpoint, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, VERSION_TEXT_ATTR_ID);
 }
 
 bool ZbVersion::reportAnalogInput() {
-  // Override the base class binding-table mode with direct unicast to coordinator.
-  esp_zb_zcl_report_attr_cmd_t cmd = {};
-  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
-  cmd.zcl_basic_cmd.dst_addr_u.addr_short = 0x0000;
-  cmd.zcl_basic_cmd.dst_endpoint = 1;
-  cmd.attributeID = ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID;
-  cmd.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
-  cmd.clusterID = ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT;
-  cmd.zcl_basic_cmd.src_endpoint = _endpoint;
-  cmd.manuf_specific = 0x00U;
-  cmd.dis_default_resp = 0x00U;
-  cmd.manuf_code = ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC;
-  return reportClusterAttribute(&cmd);
+  // Hides the core's version, which reports through the binding table - see zb_report.h.
+  return zbReport(_endpoint, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID);
 }
 
 void ZbVersion::publish(int32_t versionNumber) {

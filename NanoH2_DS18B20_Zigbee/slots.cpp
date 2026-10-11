@@ -66,14 +66,26 @@ void slotsReportSummary(const uint64_t *rom, const bool *present) {
   // to something once it is known: "0 on the bus" with nothing else stated could be
   // a build with no slots at all.
   //
-  // 61 characters at three slots, against the MIRROR_TEXT_LEN of 64 that the mirror
+  // 42 characters at three slots, against the MIRROR_TEXT_LEN of 48 that the mirror
   // carries - so it goes out whole rather than cut, which is what the wording is
-  // chosen for. It is 57 plus one digit per number, so any slot count that is
-  // physically sensible on one 1-Wire bus still fits; a line of 30-odd slots with
-  // two-digit counts everywhere would be the first to lose a character.
-  logEvent("temp sensors (%u slots): %u on the bus, %u missing, %u never seen", (unsigned)MAX_DS18B20_SENSORS,
+  // chosen for. It is SLOT_SUMMARY_FIXED_CHARS (38) plus one digit per number; the
+  // static_assert below the function checks the widest case, which is why
+  // test/logevent_len takes its word for it (mirror-len: checked in code). It read
+  // "temp sensors (3 slots): 3 on the bus, ..." (61 characters) until v3.1.4
+  // brought MIRROR_TEXT_LEN down to what the stack accepts - see config.h.
+  logEvent("%u slots: %u on bus, %u missing, %u never seen", (unsigned)MAX_DS18B20_SENSORS,
            (unsigned)onBus, (unsigned)missing, (unsigned)neverSeen);
 }
+
+// None of the four numbers can be larger than the slot count, so this is the
+// longest the summary can ever get: every number as wide as the slot count. At the
+// ceiling of 16 slots that is 46 characters, inside a MIRROR_TEXT_LEN of 48. A
+// larger slot count or a longer wording that would get the line cut fails here.
+static constexpr size_t decimalDigits(unsigned n) {
+  return n < 10 ? 1 : 1 + decimalDigits(n / 10);
+}
+static_assert(SLOT_SUMMARY_FIXED_CHARS + 4 * decimalDigits(MAX_DS18B20_SENSORS) <= MIRROR_TEXT_LEN,
+              "the slot summary can outgrow the mirrored line at this slot count - shorten the wording");
 
 void slotsForgetSummary() {
   lastOnBus = lastMissing = lastNeverSeen = 0xFF;
@@ -97,7 +109,8 @@ void slotsNoteReading(uint8_t slot, const char *rom, float celsius, bool powerOn
     return;
   }
   porReported[slot] = true;
-  logEvent("slot %u (%s): 85.00 C is the power-on default", (unsigned)slot, rom);
+  // mirror-len: %s<=4 - romTail(), see slots.h
+  logEvent("slot %u (%s): 85.00 C is the power-on default", (unsigned)slot, romTail(rom));
   Serial.printf("  check the supply and the wiring" CONSOLE_EOL);
 }
 
@@ -107,12 +120,14 @@ void slotsReportReadFailure(uint8_t slot, const char *rom) {
   // ago is a contact or a supply that is going. The age of the last good reading is
   // a console detail, because it changes on every attempt and would otherwise defeat
   // the mirror's deadband - every failed read would cost a report.
+  // mirror-len: %s<=4 - romTail(), see slots.h
   if (isnan(lastGoodC[slot])) {
-    logEvent("slot %u (%s): read failed, never read since boot", (unsigned)slot, rom);
+    logEvent("slot %u (%s): read failed, never read yet", (unsigned)slot, romTail(rom));
     return;
   }
 
-  logEvent("slot %u (%s): read failed, last good %.*f C", (unsigned)slot, rom, TEMP_PUBLISH_DECIMALS,
+  // mirror-len: %s<=4
+  logEvent("slot %u (%s): read failed, last %.*f C", (unsigned)slot, romTail(rom), TEMP_PUBLISH_DECIMALS,
            lastGoodC[slot]);
   char age[AGE_TEXT_CHARS];
   ageText(millis() - lastGoodMs[slot], age, sizeof(age));

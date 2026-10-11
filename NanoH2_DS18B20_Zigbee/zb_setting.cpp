@@ -1,6 +1,7 @@
 #include "zb_setting.h"
 #include "config.h"
 #include "console.h"
+#include "zb_report.h"
 
 // All this file wants from config.h is the identity it puts on each endpoint, so a
 // config.h that predates those two names costs two errors rather than thirty - but
@@ -95,8 +96,26 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   // logEvent(), so the new interval or delta also goes out on the console mirror:
   // this is the one setting change nothing else announces, and the coordinator
   // that wrote it is not necessarily the one watching.
-  if (changed || corrected) {
-    logEvent("%s from Zigbee, was %.*f: %.2f -> %.*f", _description, decimals(), _value, requested, decimals(), applied);
+  //
+  // The name is _description up to its unit - "Force push interval (min)" goes out
+  // as "Force push interval" - followed by the endpoint number, so the line fits the
+  // 48 characters the mirror carries. The description itself cannot be shortened:
+  // it is also the endpoint's Analog Output description, which a coordinator reads.
+  // Two forms, because three values do not fit: old -> new when the write went
+  // through as sent, and the request when it was rounded or clamped.
+  //
+  // The zb_setting host test checks the widest realistic cases (a clamped correction, 48; WaterFlow's total near its 9999999
+  // maximum, 48). Only a request far outside a setting's range can exceed that, and
+  // then the mirror cuts the line and the console says so.
+  const char *unit = strstr(_description, " (");
+  int nameLen = unit ? (int)(unit - _description) : (int)strlen(_description);
+  if (corrected) {
+    // mirror-len: checked in code, by the zb_setting host test - see above
+    logEvent("%.*s EP%u: %.*f, asked %.2f", nameLen, _description, _ep.getEndpoint(), decimals(), applied, requested);
+  } else if (changed) {
+    // mirror-len: checked in code, by the zb_setting host test - see above
+    logEvent("%.*s EP%u: %.*f -> %.*f", nameLen, _description, _ep.getEndpoint(), decimals(), _value, decimals(),
+             applied);
   }
 
   _value = applied;
@@ -122,9 +141,15 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   return changed;
 }
 
+void ZbSetting::printCurrent() {
+  Serial.printf("  EP %u  %s = %.*f" CONSOLE_EOL, (unsigned)_ep.getEndpoint(), _description, decimals(), _value);
+}
+
 void ZbSetting::publish() {
   // setAnalogOutput() runs the change callback, which lands in note() - it
   // recognises the value as the one already in effect and ignores it.
   _ep.setAnalogOutput(_value);
-  _ep.reportAnalogOutput();
+  // Not the core's reportAnalogOutput(): that reports through the binding table,
+  // which silently fails on this device - see zb_report.h.
+  zbReport(_ep.getEndpoint(), ESP_ZB_ZCL_CLUSTER_ID_ANALOG_OUTPUT, ESP_ZB_ZCL_ATTR_ANALOG_OUTPUT_PRESENT_VALUE_ID);
 }

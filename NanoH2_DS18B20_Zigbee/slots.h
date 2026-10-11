@@ -39,6 +39,22 @@ void slotsBegin();
 // sketch's slot arrays, MAX_DS18B20_SENSORS long.
 void slotsReportSummary(const uint64_t *rom, const bool *present);
 
+// The last four characters of a ROM code as DS18B20Bus::romToChars() writes it -
+// the serial number's last byte and the CRC - for the lines that go to the console
+// mirror. The whole code does not fit beside the rest of such a line in the 48
+// characters the mirror carries, and the slot number in front already says which
+// sensor it is: the boot log lists every slot with its full code.
+static inline const char *romTail(const char *rom) {
+  size_t len = strlen(rom);
+  return len > 4 ? rom + len - 4 : rom;
+}
+
+// The fixed part of the summary line, every character of it except the four
+// numbers. slots.cpp checks at compile time that the line still fits the mirror with
+// every number at its widest, and the host test checks that this is the wording's
+// real length - so a rewording has to update it, and then has to fit.
+static constexpr size_t SLOT_SUMMARY_FIXED_CHARS = 38;
+
 // Forget what was last reported, so the next slotsReportSummary() says it again
 // whether or not anything moved. Called on a join: the line that went out before
 // the radio was up reached nobody.

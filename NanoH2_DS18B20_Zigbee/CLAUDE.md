@@ -129,16 +129,17 @@ or invisible (internal cleanup), and both get a minor bump so the history stays 
 makes Z2M send extra bind and configure_reporting commands during its configure step for
 no benefit.
 
-**Every endpoint that the firmware ever calls `report*()` on MUST have a `reporting:`
-entry in the converter** — including `STATE_GET` (`genAnalogInput`) ones. Z2M uses
-the presence of a `reporting:` entry to also send a bind command to the device. Without
-the bind, the device's binding table has no entry for that cluster, and every
-`reportAnalogInput()`, `reportTemperature()`, or `reportText()` call is silently
-discarded — Z2M receives nothing and the refresh-button-is-required symptom appears.
-
-This was confirmed twice: v3.0.1 fixed `msTemperatureMeasurement` (EP 20–22), v3.0.2
-fixed `genAnalogInput` (EP 12, 13, 14, 16). The old rule "omit `reporting:` from
-STATE_GET endpoints" was wrong and has been removed.
+**`reporting:` entries are kept on every endpoint, but they no longer carry
+delivery.** Up to firmware v3.0.x, reports went through the binding table, and Z2M
+binds only clusters that have a `reporting:` entry, so a missing entry meant silent
+report loss (fixed in converter 1.4/1.5). Since v3.1.0 every report is unicast to the
+coordinator (`zbReport()`, see the root CLAUDE.md), and bindings no longer matter for
+delivery. The entries stay, as fallback thresholds and to keep Z2M's view
+consistent. They do make Z2M's configure step after a join bigger, which the README
+links to coordinator SRSP timeouts. Don't add new ones on the old "no bind, no
+report" reasoning, and don't diagnose missing reports as missing bindings: the
+console's `refused …` lines say whether the stack took a report, and Z2M shows
+whether it arrived.
 
 Use sensible values for the thresholds; the firmware manages its own deadband in
 software and these are fallbacks only:
@@ -147,8 +148,8 @@ software and these are fallbacks only:
 - Firmware version (changes only on reflash): `{min: 10, max: 65534, change: 1}`
 - Writable settings (`genAnalogOutput`): `{min: 'MIN', max: 'MAX', change: 1}`
 
-After a factory reset+re-pair, always re-interview the device so Z2M's configure step
-sends the bind commands. No re-interview = no bindings = silent report failures.
+After a factory reset+re-pair, still re-interview the device, so Z2M learns the
+endpoints and the converter's exposes apply.
 
 ---
 
@@ -172,7 +173,7 @@ sends the bind commands. No re-interview = no bindings = silent report failures.
   the repo, so check the `EP` lines in the banner to see which build is running.
 - **Host tests** for the pure-logic parts live in `../test/`. Run them with
   `cd test && make` after touching `ds18b20_bus`, `slots`, `zb_setting`, `zb_mirror`,
-  `zb_link`, or `zb_version`.
+  `zb_link`, `zb_version`, or `zb_report`.
 - **`MAX_DS18B20_SENSORS 0`** is a test/isolation mode: no temperature endpoints, no
   1-Wire activity, Zigbee joining only. The real default is 3.
 
@@ -182,6 +183,12 @@ sends the bind commands. No re-interview = no bindings = silent report failures.
 
 - Lines that should reach the console mirror **must use `logEvent()`**, not
   `Serial.printf()` directly. `logEvent()` both prints and hands the line to the mirror.
+- **A mirrored line carries at most `MIRROR_TEXT_LEN` (48) characters**, and the
+  stack refuses more than 50, so the limit cannot be raised. Keep `logEvent()`
+  wording short, and run `cd test && make`: `logevent_len` fails on a fixed
+  wording that can be cut. Text inserted with `%s` is only noted at run time
+  ("line above cut to ..."), unless a `mirror-len: %s<=N` comment above the call
+  bounds it, as the slot lines do for their four-digit ROM tail.
 - `Serial.printf()` is fine for output that is debug-only and should not be mirrored.
 - Every line ends with `CONSOLE_EOL` (defined in `config.h`). Never append `\r\n`
   or rely on the driver to expand `\n`.
@@ -197,6 +204,6 @@ them feels stale.
 | Issue | URL | What it affects |
 | --- | --- | --- |
 | arduino-esp32 #12917 | https://github.com/espressif/arduino-esp32/issues/12917 | Uninitialised `manuf_code` in core report helpers; workaround is in `ZbMirror::reportText()` |
-| esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | `esp_zigbee_zcl_command.c:263` assert on char-string reports; root cause not yet confirmed. Binding-table report mode (`ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT`) silently fails even with valid bindings — fixed in v3.1.0 by switching all reports to direct unicast (0x0000 ep 1). `reportText()` also requires a reporting-config entry in the SDK's internal table for attr 0xF000; fixed in converter v1.6 by adding `reporting:` to both `m.text()` entries so Z2M sends `configure_reporting` for 0xF000 during re-interview. |
+| esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | `esp_zigbee_zcl_command.c:263` assert on char-string reports; root cause not yet confirmed. Binding-table report mode (`ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT`) silently fails even with valid bindings — fixed in v3.1.0 by switching all reports to direct unicast (0x0000 ep 1). The later failure of the mirror text was not this issue but the report size limit (`ESP_ERR_INVALID_SIZE`, 50 characters), fixed in v3.1.4 — see the root CLAUDE.md. |
 | OneWire PR #165 | https://github.com/PaulStoffregen/OneWire/pull/165 | Adds ESP32-H2/C2 support to OneWire's direct-GPIO layer, the reason `ds18b20_bus` exists. Open, unmerged as of 2026-10-11 |
 | zigbee2mqtt-frontend #2783 | https://github.com/nurikk/zigbee2mqtt-frontend/issues/2783 | Z2M UI: arrow-button changes not transmitted; already noted in README |

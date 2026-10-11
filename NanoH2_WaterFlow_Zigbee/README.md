@@ -140,19 +140,27 @@ straight from USB.
 
 ## Arduino IDE Settings
 
-These are the board settings that have been confirmed to produce a working
-build.  Other settings are left at their defaults.
+Two cores will build this sketch; either needs a 3.x release for the bundled
+`Zigbee` library. The settings are the same as for the
+[DS18B20 sketch](../NanoH2_DS18B20_Zigbee/README.md#arduino-ide-settings), which
+explains them in more detail.
 
-| Setting | Value |
-| --- | --- |
-| Board | ESP32H2 Dev Module |
-| USB CDC On Boot | Disabled |
-| Flash Size | 4 MB (32 Mb) |
-| Partition Scheme | Default 4 MB with spiffs (1.2 MB app / 1.5 MB SPIFFS) |
-| Zigbee Mode | **Zigbee ED (End Device)** |
+| Setting | M5Stack core | Espressif core |
+| --- | --- | --- |
+| Board | **M5Stack → M5NanoH2** | **ESP32H2 Dev Module** |
+| Zigbee mode | **Zigbee ED (end device)** | **Zigbee ED (end device)** |
+| Partition Scheme | **Zigbee 4MB with spiffs** | **Zigbee 4MB with spiffs** |
+| USB CDC On Boot | **Enabled** | **Enabled** |
 
-**Zigbee Mode must be set to ED.** The sketch calls `ZIGBEE_MODE_ED` and
-will not compile as a coordinator.
+Both **Zigbee mode** and **Partition Scheme** default to something else and have
+to be changed by hand:
+
+- **Zigbee mode** not ED, and the sketch does not compile.
+- **Partition Scheme** left at *Default 4MB with spiffs*, and the sketch compiles
+  and flashes, but the partitions the Zigbee stack keeps its network credentials in
+  are missing. The sketch checks for them at boot, says which one is missing and
+  stops with `set Tools -> Partition Scheme to "Zigbee 4MB with spiffs"`. Earlier
+  versions of this README listed the default scheme here, which was wrong.
 
 ---
 
@@ -162,6 +170,7 @@ The on-board WS2812 RGB LED reports what the device is doing:
 
 | Colour | Meaning |
 | --- | --- |
+| Cyan (fast flashing) | Booting, from power-on until one of the states below; can last up to about 30 s while the stack rejoins |
 | Magenta (flashing) | Not joined — scanning for a network |
 | Green | Joined and connected |
 | Yellow | Joined but parent link lost; waiting for the stack to reconnect |
@@ -376,7 +385,9 @@ serial console.  Every call to `logEvent()` in the sketch writes the same
 line to both the serial port and the mirror endpoint: the counter
 (`presentValue`, `mirror_line_count_15`) increments on every new line, and
 the text itself goes out in attribute `0xF000`, a ZCL character string
-space-padded to `MIRROR_TEXT_LEN` (64) characters.
+space-padded to `MIRROR_TEXT_LEN` (48) characters. The stack accepts at most 50
+characters in one report. 64 (up to v2.1.2) and 56 (v2.1.3) were both over that,
+and the stack refused every text report as too large.
 
 Lines printed outside `logEvent()` — raw `Serial.printf()` calls for the
 per-sample flow readings — go to serial only.  The mirror carries notable
@@ -478,7 +489,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v2.1.1 (build 20101)
+NanoH2-WaterFlow v2.2.8 (build 20208)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
@@ -580,16 +591,34 @@ Two rules that are not obvious from the Zigbee spec but matter for stability:
 Including it makes Z2M send extra bind and configure_reporting commands on every
 restart for no benefit.
 
-**`reporting:` is absent from all read-only (`STATE_GET`) endpoints.**  The firmware
-calls `reportAnalogInput()` explicitly and manages its own deadband and heartbeat in
-software.  Z2M's configure_reporting step for read-only endpoints is therefore wasted
-traffic.  With many such endpoints — this device has nine (13, 14, 15, 16, 20, 21,
-22, 23, 24) — the combined burst of Z2M's configure commands and the device's own
-post-join reports can overwhelm the Z-Stack coordinator's serial interface, causing
-SRSP timeouts that crash Z2M and trigger a Docker restart loop.  The `reporting:`
-field is kept only on the writable (`access: 'ALL'`, `genAnalogOutput`) settings at
-endpoints 10, 11 and 12, where Z2M genuinely needs to learn when the device changes
-a value.
+**Every endpoint has a `reporting:` entry, read-only ones included.** An earlier
+converter left them off the read-only (`STATE_GET`) endpoints to shrink Z2M's
+configure step after a join. They were put back because at the time reports were
+delivered through the binding table, and Z2M only creates a binding for a cluster
+that has a `reporting:` entry. Since firmware v2.1.0 every report goes to the
+coordinator by unicast and no longer needs a binding. So the entries are no longer
+needed for delivery, but they do make the configure step after each join bigger
+again. The firmware calls `reportAnalogInput()` itself and keeps its own deadband
+and heartbeat in software, so the thresholds in these entries are fallbacks only.
+
+**Steady-state traffic** (v2.1.2 and later). Every report is sent with "disable
+default response" set, so the coordinator no longer answers each one with a ZCL
+Default Response sent back across the mesh. The settings are repeated hourly
+instead of every minute. The console prints a line when an attribute's reports
+start or stop being refused, and a summary every `REPORT_STATS_INTERVAL_S` (5 min):
+
+```
+reports, last 300 s: 2 sent, 0 refused
+```
+
+Without the Default Responses the device may hear nothing from its parent for
+minutes, so before each link reading it asks the parent for a frame (a ZDO IEEE
+address request, one hop, never via the coordinator), which refreshes LQI and
+RSSI. The boot log lists the writable settings with their values after the
+endpoint list, and says how long `Zigbee.begin()` took. A start that runs into the
+core's 30 s timeout prints `Zigbee start failed (… ms), rebooting`. Such a slow
+first join was seen once after a long power-off; see the DS18B20 README, "Cyan says
+the board is starting".
 
 ### Coordinator Throttling
 

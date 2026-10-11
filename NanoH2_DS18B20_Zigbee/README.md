@@ -285,6 +285,7 @@ button](#which-button).
 
 | State | LED |
 | --- | --- |
+| Booting, from power-on until one of the states below | cyan, flashing fast (100 ms on, 100 ms off) |
 | Never joined a network | magenta, flashing on a 3 s cycle |
 | Joined and on the air | solid green |
 | Joined, and a sensor that once worked is missing or unreadable | blue, flashing on a 2 s cycle |
@@ -295,8 +296,26 @@ button](#which-button).
 | Cannot run at all | red, flashing on a 3 s cycle; reason on the serial console |
 
 Cycle length and duty are `LED_FLASH_CYCLE_MS` / `LED_FLASH_DUTY_PCT`, the blue
-one is `LED_SENSOR_FAULT_CYCLE_MS`; all colours are `LedColor` constants at the
-top of `config.h`.
+one is `LED_SENSOR_FAULT_CYCLE_MS`, the boot flash `LED_BOOT_FLASH_MS`; all colours
+are `LedColor` constants at the top of `config.h`.
+
+**Cyan says the board is starting.** Until v3.2.0 the LED stayed dark from power-on
+to the first network state, and that can take a while. Without a USB host attached,
+the sketch first waits `SERIAL_WAIT_MS` (2 s) for one. After that, `Zigbee.begin()`
+waits for the stack, up to 30 s when the network isn't reachable right away, for
+example after a long power-off. A dark LED for that long can't be told apart from a
+dead board. A small task of its own keeps the boot flash going while `setup()` is
+blocked, and hands the LED over on the first regular update.
+
+**A slow first join after a long power-off is known and not yet explained.** Once
+on 2026-10-11, the first boot after the board had been without power for a long
+time (and was then flashed) took about 41 s to turn green. That's the core's 30 s
+timeout in `Zigbee.begin()`, then a reboot that joined at once. Captures of cold
+boots after 10 minutes off joined in under a second. The boot log line
+`Zigbee.begin() took … ms` shows it when it happens. With **Tools → Core Debug
+Level → Info**, the core also prints what the stack does meanwhile (`Device
+rebooted`, `Commissioning failed, trying again…`), which is what's still needed
+to explain it.
 
 **Blue means the network is fine and the 1-Wire side is not.** A slot only holds
 a ROM code because a scan once found that sensor, so blue is never a slot that was
@@ -496,9 +515,27 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.1
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8
 Sensor slots: 3
 ```
+
+The settings a coordinator can write follow the endpoint list, with the values in
+effect, just before the Zigbee stack starts:
+
+```
+EP 22 -> slot 2, sensor 2861640A7D36ED93
+Settings (writable from Zigbee):
+  EP 10  Reading interval (s) = 10
+  EP 11  Reporting delta (C) = 0.25
+  EP 15  Temperature correction (C) = -1.50
+  EP 17  Force push interval (min) = 1
+Zigbee started, rejoining known network (Zigbee.begin() took 290 ms)
+```
+
+The time `Zigbee.begin()` took is part of that line at every Core Debug Level. It's
+normally well under a second. A start that ran into the Arduino core's 30 s timeout
+prints `Zigbee start failed (30012 ms), rebooting` instead, and the next boot tries
+again.
 
 A build with none prints `Sensor slots: none configured` there — the word
 rather than a `0`, so
@@ -587,14 +624,14 @@ be the only way out:
    rescanned at once, so the replacement claims the freed slot immediately.
 
 ```
-Button: release now to free the slots of the missing sensors
+Button: release now to free missing slots
   keep holding to factory reset instead
-slot 1 (2800000BDEADBEEF) released, ready for a new sensor
-temp sensors (3 slots): 2 on the bus, 0 missing, 1 never seen
+slot 1 (BEEF) released, ready for a new sensor
+3 slots: 2 on bus, 0 missing, 1 never seen
 1-Wire scan: 3 DS18B20 found
   28FF1234567890AB assigned to slot 1 (stored)
 
-temp sensors (3 slots): 3 on the bus, 0 missing, 0 never seen
+3 slots: 3 on bus, 0 missing, 0 never seen
 ```
 
 What it leaves alone is the point of it: slots whose sensors are on the bus keep
@@ -643,7 +680,7 @@ could not differ:
 ```
 Reading interval (s): 60 (code default)
 Reporting delta (C): 0.25 (code default)
-Reporting delta (C) written from Zigbee: 0.44 -> 0.50
+Reporting delta EP11: 0.50, asked 0.44
 ```
 
 The written value keeps two decimals on purpose: it is what the coordinator asked
@@ -682,9 +719,12 @@ temperature and link endpoints only, and the core's analog output cluster takes 
 reporting configuration — and the publish on join is too early to help: a report
 only reaches whoever is already bound, and Zigbee2MQTT binds while it interviews.
 That is why a freshly joined device showed an empty interval and delta until the
-first write. All three settings are therefore repeated every
-`SETTING_REPORT_HEARTBEAT_S` (60 s), which is what fills them in, and what refills
-them after a coordinator restart that lost its state.
+first write. All settings are therefore sent again once,
+`SETTING_REPORT_JOIN_RETRY_MS` (20 s) after the join, which is what fills them in,
+and then repeated every `SETTING_REPORT_HEARTBEAT_S` (1 h), which refills them after
+a coordinator restart that lost its state. Before v3.1.2 the repeat ran every
+minute, which cost the coordinator six reports a minute for values nobody had
+changed. See [Coordinator Throttling](#coordinator-throttling).
 
 ### Why the Delta Moves in Quarters
 
@@ -784,7 +824,7 @@ quarter-degree step and the same reason for it, same NVS storage, same repeat ev
 
 ```
 Temperature correction (C): 0.00 (code default)
-Temperature correction (C) written from Zigbee: -0.44 -> -0.50
+Temperature correction EP15: -0.50, asked -0.44
 ```
 
 The correction is added to the raw reading **before** it is rounded to
@@ -949,6 +989,8 @@ values stay unknown rather than being guessed.
 | `LQI_DELTA` | 10 | how far the LQI has to move from the last published value |
 | `RSSI_DELTA` | 5 | the same for the RSSI, in dB |
 | `LINK_RETRY_MS` | 1000 | shorter wait after a read that found no parent entry |
+| `LINK_PROBE_WAIT_MS` | 1000 | how long a read waits after asking the parent for a frame |
+| `LINK_PROBE_MIN_GAP_MS` | 10000 | how often the parent is asked again while there is no measurement yet |
 | `LINK_REPORT_HEARTBEAT_S` | 3600 | repeats the last published values; 0 disables it |
 | `LOG_EVERY_READING` | 0 | 1 also prints the polls held back by a deadband |
 
@@ -960,9 +1002,34 @@ once, since a rejoin may well be through a different parent.
 
 Worth knowing:
 
-- **Both only move when frames arrive.** LQI and RSSI are measured on reception,
-  so they update when the parent sends something — a poll response, a read, a
-  report acknowledgement. `setRxOnWhenIdle(true)` keeps that traffic flowing.
+- **Both only move when frames arrive, so the parent is asked for one.** LQI and
+  RSSI are measured on reception. Since v3.1.2 the coordinator no longer answers
+  each report with a Default Response, so the device can go minutes without
+  hearing anything from its parent. After a reboot the value then never appeared
+  (field log of 2026-10-11: still `no measurement in it yet` after 8 minutes). So
+  before each read, the device sends its parent a ZDO IEEE address request and
+  reads `LINK_PROBE_WAIT_MS` later. That's one small frame each way over the single
+  hop to the parent, never through the coordinator: once per `LINK_INTERVAL_S`, and
+  while waiting for a first measurement at most every `LINK_PROBE_MIN_GAP_MS`.
+- **The values come from the answer's frame, not from the neighbour table.** On
+  this device the stack leaves the parent's neighbour entry at LQI 0 / RSSI +127 no
+  matter how many frames arrive (v3.2.2 diagnostics: seven answers with status
+  `0x00`, entry unchanged). So the device catches the answer frame itself, in the
+  stack's APS data indication, and takes its LQI from there. The handler passes
+  every frame on to the Arduino core's own handler, so the core works as before.
+  The neighbour entry is only a fallback.
+- **The RSSI follows from the LQI.** The stack computes the LQI from the RSSI with
+  a fixed formula, `esp_zb_rssi_to_lqi()`: 0 below −80 dBm, 255 from −30 dBm up,
+  `(RSSI + 80) × 255 / 50` in between. One dB is 5.1 LQI steps, so each LQI comes
+  from exactly one RSSI, and the sketch computes it back exactly
+  (`rssiFromLqi()`). Checked against all five LQI/RSSI pairs the neighbour table
+  delivered, all exact. At LQI 0 and 255 the RSSI is only a bound. The formula
+  was read from a disassembly, not from documentation, so the firmware checks at
+  every boot that the stack still computes it that way. If not, the console says
+  `link: LQI formula changed at … dBm, no RSSI` and the RSSI endpoint gets nothing
+  rather than a wrong value. (v3.2.3/3.2.4
+  read the radio driver's "recent" RSSI instead and got noise-floor values,
+  −101 to −121 dBm.)
 - **Both are read once right after a join or rejoin**, and then every
   `LINK_INTERVAL_S`. To walk the board around and compare candidate spots, lower
   that interval for the trip — there is no manual trigger, since the button does
@@ -1016,20 +1083,20 @@ What is mirrored is what the console calls an event in its own right:
 | --- | --- |
 | `Zigbee connected` | every join and rejoin |
 | `Zigbee link lost` | the radio contact went |
-| `Button: release now to free the slots of the missing sensors` | the hold reached `SLOT_RELEASE_HOLD_MS` and a sensor is missing |
-| `Button: held long enough - release to factory reset` | the hold reached `FACTORY_RESET_HOLD_MS` |
-| `Button: released before the hold was over, no reset` | released too early |
-| `slot 1 (28FF…) released, ready for a new sensor` | one line per slot freed by that release, see [replacing a sensor](#replacing-a-sensor) |
-| `Button: no sensor is missing any more, nothing released` | the missing sensor turned up again during the hold |
-| `Button on pin 9 … - ignoring it until it goes idle` | the pin reads pressed with nothing pressing it |
+| `Button: release now to free missing slots` | the hold reached `SLOT_RELEASE_HOLD_MS` and a sensor is missing |
+| `Button: release now to factory reset` | the hold reached `FACTORY_RESET_HOLD_MS` |
+| `Button: released too early, no reset` | released too early |
+| `slot 1 (BEEF) released, ready for a new sensor` | one line per slot freed by that release, see [replacing a sensor](#replacing-a-sensor) |
+| `Button: no sensor missing, nothing released` | the missing sensor turned up again during the hold |
+| `Button 9 pressed at boot, ignored until idle`<br>`Button 9 stuck pressed, ignored until idle` | the pin reads pressed with nothing pressing it |
 | `Button: idle now, back in use` | that pin went idle again, so the button is real after all |
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
-| `Reading interval (s) written from Zigbee: 300.00 -> 300` | a coordinator changed the interval, the delta or the [correction](#temperature-correction) and it moved |
-| `slot 0 (28FF…): read failed, never read since boot`, `slot 1 (…) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
-| `temp sensors (3 slots): 1 on the bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
-| `slot 0 (28FF…): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
+| `Force push interval EP17: 1 -> 2`<br>`Reporting delta EP11: 0.50, asked 0.44` | a coordinator changed the interval, the delta, the [correction](#temperature-correction) or the force push and it moved: old -> new, or the request when it was rounded or clamped |
+| `slot 0 (ABCD): read failed, never read yet`, `slot 1 (BEEF) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
+| `3 slots: 1 on bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
+| `slot 0 (ABCD): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
 | `1-Wire: no device responded to CONVERT T` | nothing on the bus at all |
-| `FATAL: …`, `Flash partition '…' is missing`, `NVS open failed …`, `Zigbee failed to start …`, `scan: failed` | every error line the sketch prints |
+| `FATAL: …`, `Flash partition '…' is missing`, `NVS open failed …`, `Zigbee start failed …`, `scan: failed` | every error line the sketch prints |
 
 The periodic work is deliberately **not** mirrored — the readings, the link polls,
 the bus rescans, the join hints. Those are what the temperature and link endpoints
@@ -1062,7 +1129,7 @@ device was off the air.
 | Knob | Default | Meaning |
 | --- | --- | --- |
 | `ZB_MIRROR_ENDPOINT` | 1 | 0 drops endpoint 14 and keeps every line console-only |
-| `MIRROR_TEXT_LEN` | 64 | how much of a line is carried; the rest is cut off |
+| `MIRROR_TEXT_LEN` | 48 | how much of a line is carried; the rest is cut off |
 | `MIRROR_TEXT_ATTR_ID` | 0xF000 | the attribute the text lives in |
 | `MIRROR_REPORT_HEARTBEAT_S` | 3600 | repeats the current line; 0 disables it |
 
@@ -1084,9 +1151,31 @@ Worth knowing:
 - **A short button press mirrors nothing**, because it prints nothing: the button
   does one thing, and a press below `FACTORY_RESET_HINT_MS` is not an event. What
   the button *does* produce is in the table above.
-- **64 characters is a frame, not a preference.** An APS payload is around 80
-  bytes, the report adds a ZCL header and the string its length byte, and a report
-  is not fragmented — so a longer line would not arrive, it would be dropped.
+- **48 characters is the stack's limit, not a preference.** A report is not
+  fragmented, and the Zigbee stack refuses one whose string is longer than 50
+  characters with `ESP_ERR_INVALID_SIZE`. That figure comes from the SDK's own
+  report function: 82 bytes, minus the ZCL header, minus 25 it reserves, minus the
+  attribute's ID and type. The line is padded to its full length, so the limit
+  applies to every line, short or long. 64 (up to v3.1.2) and 56 (v3.1.3) were both
+  over it, and every text report was refused, which is why the text never arrived
+  while the counter did. 48 leaves two characters of margin, and the sketch refuses
+  to compile above 50.
+- **A cut line is noted on the console.** A line longer than `MIRROR_TEXT_LEN`
+  arrives cut, with nothing at the coordinator to say so. So the console prints
+  `Console mirror (EP 14): line above cut to 48 of 63 characters` right under it.
+  Fixed wordings are checked before flashing by the `logevent_len` host test.
+- **Mirrored slot lines carry the last four digits of the ROM code**, e.g.
+  `slot 0 (ABCD): read failed, last 21.4 C`. The full 16-digit code doesn't fit
+  beside the rest in 48 characters. The slot number already names the sensor, and
+  the boot log lists every slot with its full code. The one exception is a sensor
+  that's ignored because every slot is taken: it has no slot, so its line keeps the
+  whole code.
+- **A setting written from Zigbee is named without its unit, plus its endpoint**,
+  e.g. `Force push interval EP17: 1 -> 2` or
+  `Temperature correction EP15: -5.00, asked -20.00`. The name is the setting's
+  description up to the unit; the description itself stays, because the
+  coordinator reads it. The widest realistic case is 48 characters. Only a request
+  far outside a setting's range can be longer, and then the console notes the cut.
 - **The text always occupies its full length.** A ZCL string attribute is sized by
   the value it is created with, so the attribute is created at `MIRROR_TEXT_LEN`
   and every line is space-padded to it — the same thing the sensor ID does with
@@ -1117,10 +1206,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.1.1` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.1.1`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30101`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.1.1` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.2.8`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30208`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.2.8` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1152,7 +1241,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.1.1"`) and `FW_VERSION_NUMBER` (`30101`) are built from them, so
+`FW_VERSION` (`"3.2.8"`) and `FW_VERSION_NUMBER` (`30208`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1224,7 +1313,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.1
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8
 Sensor slots: 3
 ```
 
@@ -1282,9 +1371,9 @@ Four states, and what each one prints:
 | State | Line | On the air |
 | --- | --- | --- |
 | never assigned | `slot 2 is unassigned, no sensor has ever claimed it` | no, see below |
-| assigned, not answering the bus scan | `slot 0 (28FF…) is configured but missing` | yes |
-| answering the scan, every attempt bad, none ever good | `slot 0 (28FF…): read failed, never read since boot` | yes |
-| answering the scan, every attempt bad, one was good | `slot 0 (28FF…): read failed, last good 21.4 C` + `that reading was 7 min ago` | the first line only |
+| assigned, not answering the bus scan | `slot 0 (ABCD) is configured but missing` | yes |
+| answering the scan, every attempt bad, none ever good | `slot 0 (ABCD): read failed, never read yet` | yes |
+| answering the scan, every attempt bad, one was good | `slot 0 (ABCD): read failed, last 21.4 C` + `that reading was 7 min ago` | the first line only |
 
 The middle two are the useful pair. A slot only holds a ROM code because a scan
 once found that sensor and wrote the code to NVS, so **`configured but missing`
@@ -1328,7 +1417,7 @@ Since the mirror holds exactly one line, the per-slot detail cannot all fit on
 it, so one summary line goes out whenever the counts change:
 
 ```
-temp sensors (3 slots): 1 on the bus, 1 missing, 1 never seen
+3 slots: 1 on bus, 1 missing, 1 never seen
 ```
 
 That is the whole picture in one line: the slot count is `MAX_DS18B20_SENSORS` and
@@ -1339,11 +1428,11 @@ sent again after every join, because the only scan that ran before the radio cam
 was the one in `setup()`, whose result reached nobody. With every slot reading, the
 counts stop changing and the temperatures themselves are the better answer anyway.
 
-The wording is as short as it is on purpose: at 61 characters it is inside the
-mirror's `MIRROR_TEXT_LEN` of 64, so the copy on endpoint 14 is the whole line
-rather than a cut one. It costs 57 plus one digit per number, which leaves room for
-any slot count a single 1-Wire bus would carry. If you reword it, count the result —
-64 is the most that fits an unfragmented report, so raising the limit is not free.
+The wording is as short as it is on purpose: at 42 characters it is inside the
+mirror's `MIRROR_TEXT_LEN` of 48, so the copy on endpoint 14 is the whole line
+rather than a cut one. It costs 38 plus one digit per number, which leaves room for
+two-digit counts. If you reword it, count the result: the stack accepts at most 50
+characters per report, so raising the limit is not an option.
 
 What is deliberately **not** mirrored: the unassigned-slot lines (three empty
 slots would push each other off a one-line mirror, and an empty slot is not a
@@ -1360,7 +1449,7 @@ can legitimately be at, so the driver flags it rather than dropping it
 it means:
 
 ```
-slot 0 (28FF641E1234ABCD): 85.00 C is the power-on default
+slot 0 (ABCD): 85.00 C is the power-on default
   check the supply and the wiring
 ```
 
@@ -1696,16 +1785,16 @@ Two rules that are not obvious from the Zigbee spec but matter for stability:
 Including it makes Z2M send extra bind and configure_reporting commands on every
 restart for no benefit.
 
-**`reporting:` is absent from all read-only (`STATE_GET`) endpoints.** The firmware
-calls `reportTemperature()` and `reportAnalogInput()` explicitly and manages its
-own deadband and heartbeat in software. Z2M's configure_reporting step for read-only
-endpoints is therefore wasted traffic. With many such endpoints — this device has
-seven (12, 13, 14, 16, 20, 21, 22) — the combined burst of Z2M's configure commands
-and the device's own post-join reports can overwhelm the Z-Stack coordinator's serial
-interface, causing SRSP timeouts that crash Z2M and trigger a Docker restart loop.
-The `reporting:` field is kept only on the writable (`access: 'ALL'`,
-`genAnalogOutput`) settings at endpoints 10, 11 and 15, where Z2M genuinely needs
-to learn when the device changes a value.
+**Every endpoint has a `reporting:` entry, read-only ones included.** Converter 1.1
+removed them from the read-only (`STATE_GET`) endpoints to shrink Z2M's configure
+step after a join. Converters 1.4 to 1.6 put them back, because at the time reports
+were delivered through the binding table, and Z2M only creates a binding for a
+cluster that has a `reporting:` entry. Since firmware v3.1.0 every report goes to
+the coordinator by unicast and no longer needs a binding. So the entries are no
+longer needed for delivery, but they do make the configure step after each join
+bigger again. The firmware calls `reportTemperature()` and `reportAnalogInput()`
+itself and keeps its own deadband and heartbeat in software, so the thresholds in
+these entries are fallbacks only.
 
 ### Coordinator Throttling
 
@@ -1739,6 +1828,31 @@ most and neither setting slows that.
 
 The firmware change removes the burst from this device; the Z2M settings protect
 against any other device that produces a similar burst on join.
+
+**Steady-state traffic** (v3.1.2 and later). The burst is not the only load: every
+report keeps costing the coordinator something after the join as well. Two changes
+cut that down:
+
+- **No Default Response.** Every report is sent with "disable default response"
+  set. Before, the coordinator answered each report with a ZCL Default Response,
+  which Zigbee2MQTT sends as a request of its own through the coordinator's radio
+  and back across the mesh to the device. Over a weak link to the device's parent
+  router, each of those replies can sit in the coordinator's queue through retries.
+  The report itself is still acknowledged at the APS layer.
+- **Settings repeated hourly, not every minute.** See
+  [Reading Interval and Reporting Delta](#reading-interval-and-reporting-delta).
+
+The console shows whether the stack takes the reports. A line is printed when an
+attribute's reports start being refused, with the error, and another when they
+recover. Every `REPORT_STATS_INTERVAL_S` (5 min) a summary follows:
+
+```
+reports, last 300 s: 34 sent, 0 refused
+```
+
+Whether an accepted report arrived is not counted. v3.1.2 to v3.2.0 tried, through
+the stack's send status callback. It never fired for a single report ("34 sent, 0
+delivered" in the field). Whether reports arrive is visible in Z2M.
 
 ### When the Endpoint List Changes
 
@@ -1853,7 +1967,7 @@ button on `G2`; on the on-board `G9` the millivolt line and the arithmetic under
 are absent:
 
 ```
-Button on pin 2 already reads pressed - ignoring it until it goes idle
+Button 2 pressed at boot, ignored until idle
   the pin reads LOW, and with BUTTON_ACTIVE_HIGH 0 that counts as pressed
   probe: pulled towards pressed LOW, pulled towards idle LOW
   probe: 8 mV on the pin with no internal pull, rail is 3300 mV

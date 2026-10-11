@@ -30,7 +30,10 @@ static char updatedValue[VERSION_TEXT_MAX + 2] = "";
 static int airEvents = 0;
 static int textReportedAt = 0, valueReportedAt = 0;
 static int textReports = 0, valueReports = 0;
-static esp_zb_zcl_report_attr_cmd_t lastReport;
+static uint8_t textReportedEp = 0;
+static uint16_t textReportedCluster = 0;
+static int reportingSet = 0;  // zbSetReporting() calls
+static uint16_t reportingAttr = 0;
 static float wroteValue = NAN;
 
 const char *esp_err_to_name(esp_err_t) {
@@ -76,11 +79,24 @@ esp_err_t esp_zb_cluster_update_attr(esp_zb_attribute_list_t *, uint16_t attr_id
   return ESP_OK;
 }
 
-bool ZigbeeEP::reportClusterAttribute(esp_zb_zcl_report_attr_cmd_t *report_attr_cmd) {
-  textReports++;
-  textReportedAt = ++airEvents;
-  lastReport = *report_attr_cmd;
+// How a report is built and addressed is zb_report.cpp's business and has a suite
+// of its own; what matters here is which attribute went out, and in which order.
+bool zbReport(uint8_t srcEndpoint, uint16_t clusterId, uint16_t attrId) {
+  if (attrId == VERSION_TEXT_ATTR_ID) {
+    textReports++;
+    textReportedAt = ++airEvents;
+    textReportedEp = srcEndpoint;
+    textReportedCluster = clusterId;
+  } else if (attrId == ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID) {
+    valueReports++;
+    valueReportedAt = ++airEvents;
+  }
   return true;
+}
+
+void zbSetReporting(uint8_t, uint16_t, uint16_t attrId, uint16_t, uint16_t) {
+  reportingSet++;
+  reportingAttr = attrId;
 }
 
 bool ZigbeeAnalog::setAnalogInput(float analog) {
@@ -88,11 +104,6 @@ bool ZigbeeAnalog::setAnalogInput(float analog) {
   return true;
 }
 
-bool ZigbeeAnalog::reportAnalogInput() {
-  valueReports++;
-  valueReportedAt = ++airEvents;
-  return true;
-}
 
 static int fails = 0;
 static void check(const char *what, bool ok) {
@@ -109,6 +120,9 @@ static void reset() {
   createdValue[0] = updatedValue[0] = '\0';
   airEvents = textReportedAt = valueReportedAt = 0;
   textReports = valueReports = 0;
+  textReportedEp = 0;
+  textReportedCluster = 0;
+  reportingSet = 0;
   wroteValue = NAN;
   Zigbee.up = true;
 }
@@ -206,18 +220,13 @@ int main() {
   check("the number is written", wroteValue == (float)FW_VERSION_NUMBER);
   check("both go out, once each", textReports == 1 && valueReports == 1);
   check("the text before the number", textReportedAt < valueReportedAt);
-  check("the text is reported from this endpoint", lastReport.zcl_basic_cmd.src_endpoint == EP_VERSION);
-  check("as the text attribute", lastReport.attributeID == VERSION_TEXT_ATTR_ID);
-  check("of the analog input cluster", lastReport.clusterID == ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT);
-  check("to whoever is bound", lastReport.address_mode == ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT);
-  check("towards the client", lastReport.direction == ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI);
-  // The attribute sits in the range ZCL reserves for manufacturers but is added with
-  // the non-manufacturer call, so that is the key it has to be looked up by. The core's
-  // own helpers leave this field alone - arduino-esp32#12917 - which is why the sketch
-  // builds the command itself and why this is checked at all.
-  check("under no manufacturer code", lastReport.manuf_code == ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC);
-  check("not a manufacturer specific report", lastReport.manuf_specific == 0);
-  check("no default response asked for", lastReport.dis_default_resp == 0);
+  check("the text is reported from this endpoint", textReportedEp == EP_VERSION);
+  check("of the analog input cluster", textReportedCluster == ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT);
+
+  printf("the text gets a reporting entry\n");
+  reset();
+  version.setTextReporting(0, 65534);
+  check("for the text attribute", reportingSet == 1 && reportingAttr == VERSION_TEXT_ATTR_ID);
 
   printf("publishing when there is nobody to publish to\n");
   reset();
