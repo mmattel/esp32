@@ -38,7 +38,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 3
+#define FW_VERSION_PATCH 4
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -554,14 +554,16 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // How much of a line is carried. Anything longer is cut off here, which is why
 // the mirrored lines are the short ones.
 //
-// The ceiling is what a single Zigbee frame holds. A report is not fragmented, and
-// the stack refuses one that does not fit with ESP_ERR_INVALID_SIZE. Of the 127
-// bytes of an 802.15.4 frame, the MAC, NWK (with both IEEE addresses), security and
-// APS headers leave about 66 for the ZCL frame. The report spends 3 on the ZCL
-// header, 3 on the attribute ID and type and 1 on the string's length byte, and the
-// line is always padded to its full length. 64, the value before v3.1.3, made every
-// mirror report 71 bytes, and the stack refused every one of them. 56 makes 63.
-#define MIRROR_TEXT_LEN 56
+// The ceiling is set by the stack, which refuses a report that is too big with
+// ESP_ERR_INVALID_SIZE. Read from esp_zb_zcl_report_attr_cmd_req() in the SDK this
+// builds against: for a cluster that cannot be fragmented - Analog Input cannot - it
+// allows 82 bytes, minus the 3-byte ZCL header, minus 25 it reserves, and the
+// attribute must fit what is left together with its ID and type (3 bytes). That is
+// 54 - 3 = 51 bytes for the string, length byte included: at most 50 characters.
+// The line is always padded to its full length, so every report is this size.
+// 64 (until v3.1.2) and 56 (v3.1.3) were both refused on every line; 48 leaves two
+// characters of margin. zb_mirror.cpp refuses to compile above 50.
+#define MIRROR_TEXT_LEN 48
 
 // The attribute the text lives in. 0xF000 and up is the range reserved for a
 // manufacturer's own attributes, which keeps it clear of the standard Analog

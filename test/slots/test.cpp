@@ -114,7 +114,7 @@ int main() {
     slotsEmpty();
     slotsReportSummary(rom, present);
     check("a fresh device: every slot never seen",
-          strcmp(lastMirrored(), "sensors (4 slots): 0 on bus, 0 missing, 4 never seen") == 0);
+          strcmp(lastMirrored(), "4 slots: 0 on bus, 0 missing, 4 never seen") == 0);
 
     // Two sensors found, of which one has since stopped answering. The third slot
     // holds a ROM code as well but its sensor never turned up this boot; the fourth
@@ -128,7 +128,7 @@ int main() {
     present[2] = false;
     slotsReportSummary(rom, present);
     check("assigned and answering counts as on the bus",
-          strcmp(lastMirrored(), "sensors (4 slots): 1 on bus, 2 missing, 1 never seen") == 0);
+          strcmp(lastMirrored(), "4 slots: 1 on bus, 2 missing, 1 never seen") == 0);
 
     // The numbers have to add up to the configured count whatever the state, since
     // that is what makes the line readable without knowing the build.
@@ -140,7 +140,7 @@ int main() {
     }
     slotsReportSummary(rom, present);
     check("every slot filled",
-          strcmp(lastMirrored(), "sensors (4 slots): 4 on bus, 0 missing, 0 never seen") == 0);
+          strcmp(lastMirrored(), "4 slots: 4 on bus, 0 missing, 0 never seen") == 0);
   }
 
   printf("the summary fits the line the mirror carries\n");
@@ -154,13 +154,13 @@ int main() {
     slotsReportSummary(rom, present);
 
     // The one line of this sketch's output that is built from four numbers, and the
-    // one that has overflowed while being worded. 48 characters plus a digit per
+    // one that has overflowed while being worded. 38 characters plus a digit per
     // number, so the check is on the budget rather than on today's value: a rewording
     // that spends the slack fails here instead of arriving truncated at the
     // coordinator. A build of more than 9 slots spends one more character on each
     // count that reaches two digits.
     size_t len = strlen(lastMirrored());
-    check("48 characters plus one digit per number", len == 48 + 4);
+    check("38 characters plus one digit per number", len == 38 + 4);
     check("within MIRROR_TEXT_LEN, so it goes out whole", len <= MIRROR_TEXT_LEN);
   }
 

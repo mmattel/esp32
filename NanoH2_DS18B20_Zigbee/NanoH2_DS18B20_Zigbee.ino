@@ -1419,7 +1419,7 @@ void releaseMissingSlots() {
     // The hold armed on a missing sensor and a rescan found it again before the
     // release. Nothing to do, and saying so is better than silence after a gesture
     // that was clearly deliberate.
-    logEvent("Button: no sensor is missing any more, nothing released");
+    logEvent("Button: no sensor missing, nothing released");
     return;
   }
 
@@ -1478,7 +1478,7 @@ void handleButton() {
       } else if (wasRelease) {
         releaseMissingSlots();
       } else if (wasArmed) {
-        logEvent("Button: released before the hold was over, no reset");
+        logEvent("Button: released too early, no reset");
       }
     }
   }
@@ -1497,7 +1497,7 @@ void handleButton() {
     // Blank line after it: what follows a release is either the reset log or
     // nothing at all, and the gap keeps the prompt apart from both. It is printed
     // separately, since a mirrored line carries no blank line of its own.
-    logEvent("Button: held long enough - release to factory reset");
+    logEvent("Button: release now to factory reset");
     Serial.printf(CONSOLE_EOL);
   }
 
@@ -1508,7 +1508,7 @@ void handleButton() {
   // which is the same condition the flashing blue is showing.
   bool release = !ready && held >= SLOT_RELEASE_HOLD_MS && anySensorLost();
   if (release && !releaseArmed) {
-    logEvent("Button: release now to free the missing sensors' slots");
+    logEvent("Button: release now to free missing slots");
     Serial.printf("  keep holding to factory reset instead" CONSOLE_EOL);
   }
   resetArmed = held >= FACTORY_RESET_HINT_MS;

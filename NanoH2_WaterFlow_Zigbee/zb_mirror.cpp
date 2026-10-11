@@ -13,6 +13,12 @@
 // sees the declaration.
 static constexpr size_t CONSOLE_LINE_LEN = 160;
 
+// The stack refuses a report whose string is longer than 50 characters - see
+// MIRROR_TEXT_LEN in config.h - and the line is padded to MIRROR_TEXT_LEN, so above
+// that every single line would be refused. Caught here rather than in the field,
+// which is where 64 and 56 were found out.
+static_assert(MIRROR_TEXT_LEN <= 50, "MIRROR_TEXT_LEN above 50: the stack refuses every mirror report as too big");
+
 void logEvent(const char *fmt, ...) {
   char line[CONSOLE_LINE_LEN];
   va_list args;

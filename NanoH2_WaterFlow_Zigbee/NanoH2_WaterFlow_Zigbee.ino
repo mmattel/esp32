@@ -900,7 +900,7 @@ void handleButton() {
   }
   bool ready = held >= FACTORY_RESET_HOLD_MS;
   if (ready && !resetReady) {
-    logEvent("Button: held long enough - release to factory reset");
+    logEvent("Button: release now to factory reset");
     Serial.printf(CONSOLE_EOL);
   }
   resetArmed = held >= FACTORY_RESET_HINT_MS;

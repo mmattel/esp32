@@ -4,6 +4,22 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.1.4
+
+**Fixed:** the console mirror text (EP 14) was still refused with `ESP_ERR_INVALID_SIZE` at 56 characters (field log of 2026-10-11, 15:12).
+
+**Root cause:** the 3.1.3 limit was an estimate from the radio frame layout, and it was too generous. The real check is in the SDK's `esp_zb_zcl_report_attr_cmd_req()`, read from its disassembly: for a cluster that cannot be fragmented, it allows 82 bytes, subtracts the ZCL header (3) and a fixed reserve of 25, and refuses the report if the attribute's size plus its ID and type (3) does not fit what is left. That leaves 51 bytes for a character string including its length byte, so at most 50 characters. All three field results fit this: 64 refused, 56 refused, the 5-character version string accepted.
+
+**Fix:**
+
+- `MIRROR_TEXT_LEN` 56 → 48, two characters of margin.
+- A `static_assert` in `zb_mirror.cpp` refuses to compile above 50.
+- Shorter wording for the lines that went over 48: the slot summary is now `3 slots: 3 on bus, 0 missing, 0 never seen` (42 characters). Four button lines were shortened, e.g. `Button: release now to factory reset`.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.1.3
 
 **Fixed:** the console mirror text (EP 14) never reached Z2M. This had been true since the mirror existed; the fixes in 3.0.2, 3.1.0 and 3.1.1 each removed a real problem, but not this one.
