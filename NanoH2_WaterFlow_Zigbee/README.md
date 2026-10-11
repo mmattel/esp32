@@ -170,6 +170,7 @@ The on-board WS2812 RGB LED reports what the device is doing:
 
 | Colour | Meaning |
 | --- | --- |
+| Cyan (fast flashing) | Booting, from power-on until one of the states below; can last up to about 30 s while the stack rejoins |
 | Magenta (flashing) | Not joined — scanning for a network |
 | Green | Joined and connected |
 | Yellow | Joined but parent link lost; waiting for the stack to reconnect |
@@ -488,7 +489,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v2.1.7 (build 20107)
+NanoH2-WaterFlow v2.2.0 (build 20200)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)

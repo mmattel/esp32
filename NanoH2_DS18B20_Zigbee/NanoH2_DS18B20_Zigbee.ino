@@ -306,6 +306,52 @@ void ledBegin() {
   rgbLedWrite(PIN_RGB, COLOR_OFF.r, COLOR_OFF.g, COLOR_OFF.b);
 }
 
+// The boot flash. setup() blocks - the serial wait, the bus scan, and above all
+// Zigbee.begin(), which waits for the stack for up to 30 s - so loop() cannot drive
+// the LED until it is over. A task of its own can: it starts as the first thing in
+// setup() and flashes COLOR_BOOT until the first updateLed() takes the LED over.
+//
+// One writer at a time: bootLedStop() waits until the task has written its last
+// frame and gone, so the task and ledWrite() never drive the LED together, and
+// ledWrite() starts from a known state - its cache has never been written.
+volatile bool bootLedRunning = false;
+volatile bool bootLedDone = true;
+
+void bootLedTask(void *) {
+  bool on = false;
+  while (bootLedRunning) {
+    on = !on;
+    const LedColor &c = on ? COLOR_BOOT : COLOR_OFF;
+    rgbLedWrite(PIN_RGB, c.r, c.g, c.b);
+    vTaskDelay(pdMS_TO_TICKS(LED_BOOT_FLASH_MS));
+  }
+  rgbLedWrite(PIN_RGB, COLOR_OFF.r, COLOR_OFF.g, COLOR_OFF.b);
+  bootLedDone = true;
+  vTaskDelete(nullptr);
+}
+
+void bootLedStart() {
+  bootLedRunning = true;
+  bootLedDone = false;
+  // Priority 1, just above idle: it only has to be seen, never to be on time, and
+  // must not take anything from the Zigbee task while the stack is starting.
+  if (xTaskCreate(bootLedTask, "bootled", 2048, nullptr, 1, nullptr) != pdPASS) {
+    bootLedRunning = false;  // no flash then, but nothing waits for a task that never ran
+    bootLedDone = true;
+  }
+}
+
+// Called on every updateLed(), so after the first call it is one flag test.
+void bootLedStop() {
+  if (!bootLedRunning) {
+    return;
+  }
+  bootLedRunning = false;
+  while (!bootLedDone) {
+    delay(1);
+  }
+}
+
 // Which half of the flash cycle we are in. The cycle length is a parameter so the
 // sensor fault can have a rhythm of its own; everything else uses the default.
 bool flashOn(uint32_t cycleMs = LED_FLASH_CYCLE_MS) {
@@ -340,6 +386,7 @@ bool anySensorLost() {
 }
 
 void updateLed() {
+  bootLedStop();  // the first call takes the LED over from the boot flash
   // What the LED says while the button is held is what releasing it would do, so
   // these are in the order the hold passes through them - and all of them outrank
   // the link state, since the hold is the thing happening right now. White: the
@@ -381,6 +428,7 @@ void updateLed() {
 // bury the explanation in a boot loop, so flash red and keep the message on the
 // console until the board is reflashed.
 void haltFatal(const char *what) {
+  bootLedStop();  // can be reached from setup(), while the boot flash still runs
   logEvent("FATAL: %s", what);
   while (true) {
     ledWrite(flashOn() ? COLOR_FATAL : COLOR_OFF);
@@ -1538,6 +1586,10 @@ void waitForSerialHost() {
 }
 
 void setup() {
+  // The LED first, and flashing, before anything that can take time: the serial
+  // wait below alone is SERIAL_WAIT_MS without a host. See bootLedTask().
+  ledBegin();
+  bootLedStart();
   Serial.begin(115200);
   waitForSerialHost();
   // The version rides on the banner rather than on a line of its own, so the boot
@@ -1554,7 +1606,6 @@ void setup() {
     Serial.printf("Sensor slots: none configured" CONSOLE_EOL);
   }
 
-  ledBegin();
   // Pull the pin to the level the open contact should read, so a disconnected
   // or open button is a defined state rather than a floating one.
   pinMode(PIN_BUTTON, BUTTON_ACTIVE_HIGH ? INPUT_PULLDOWN : INPUT_PULLUP);

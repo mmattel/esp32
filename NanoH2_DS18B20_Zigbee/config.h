@@ -37,8 +37,8 @@
  * like a different device.
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 3
-#define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 7
+#define FW_VERSION_MINOR 2
+#define FW_VERSION_PATCH 0
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -151,6 +151,14 @@ static const LedColor COLOR_RESET_DONE = {40, 40, 40};     // white:   held long
 static const LedColor COLOR_FATAL = {40, 0, 0};            // red, flashing: cannot run, see serial
 static const LedColor COLOR_SENSOR_FAULT = {0, 0, 40};     // blue, flashing: a sensor that worked is gone
 static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    release the button to free its slot
+
+// Booting: fast cyan flashing from power-on until the LED shows one of the states
+// above. setup() can take a while before it does - up to SERIAL_WAIT_MS waiting for
+// a USB host, and up to 30 s in Zigbee.begin() while the stack rejoins - and a dark
+// LED for that long cannot be told apart from a dead board. Its own colour and a
+// rhythm far faster than the 3 s states, so it reads as "starting" at a glance.
+static const LedColor COLOR_BOOT = {0, 30, 30};            // cyan, fast flashing: booting
+#define LED_BOOT_FLASH_MS 100                                // on time, and off time, of one boot flash
 
 // Length of one on/off period for the flashing states, and how much of
 // that period the LED is lit.

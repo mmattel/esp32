@@ -4,6 +4,18 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.0
+
+**Added: boot flash.** From power-on until the LED shows a network state, it now flashes cyan fast (100 ms on, 100 ms off). Before, it stayed dark for that time. That can be long: up to `SERIAL_WAIT_MS` (2 s) waiting for a USB host that isn't there, then up to 30 s in `Zigbee.begin()` while the stack rejoins, e.g. after a long power-off. A dark LED for that long looked like a dead board.
+
+`setup()` is blocked during that time, so `loop()` can't drive the LED. A small FreeRTOS task (priority 1) does it instead, started as the first thing in `setup()`. The first `updateLed()` stops it and waits until it has finished, so the task and the main program never drive the LED at the same time. `haltFatal()` stops it too before flashing red.
+
+Minor version: a new feature, no change to the endpoint list or to what the coordinator sees.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.1.7
 
 **Confirmed in the field (v3.1.6, 2026-10-11 15:51):** the console mirror text arrives in Z2M. No `ESP_ERR_INVALID_SIZE` refusal after the join, force push every minute, and a setting written from Z2M showed up on the mirror.

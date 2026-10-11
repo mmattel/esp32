@@ -14,8 +14,8 @@
  *   major: added/removed endpoint, renamed expose, NVS incompatible
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 2
-#define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 7
+#define FW_VERSION_MINOR 2
+#define FW_VERSION_PATCH 0
 
 #define FW_VERSION_STRINGIFY_(x) #x
 #define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
@@ -74,6 +74,14 @@ static const LedColor COLOR_LINK_LOST      = {40, 30, 0};  // yellow
 static const LedColor COLOR_RESET_ARMED    = {40, 0,  0};  // red
 static const LedColor COLOR_RESET_DONE     = {40, 40, 40}; // white
 static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
+
+// Booting: fast cyan flashing from power-on until the LED shows one of the states
+// above. setup() can take a while before it does - up to SERIAL_WAIT_MS waiting for
+// a USB host, and up to 30 s in Zigbee.begin() while the stack rejoins - and a dark
+// LED for that long cannot be told apart from a dead board. Its own colour and a
+// rhythm far faster than the 3 s states, so it reads as "starting" at a glance.
+static const LedColor COLOR_BOOT           = {0, 30, 30};  // cyan, fast flashing: booting
+#define LED_BOOT_FLASH_MS 100  // on time, and off time, of one boot flash
 
 #define LED_FLASH_CYCLE_MS 3000
 #define LED_FLASH_DUTY_PCT 50

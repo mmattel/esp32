@@ -220,12 +220,59 @@ void ledBegin() {
   rgbLedWrite(PIN_RGB, COLOR_OFF.r, COLOR_OFF.g, COLOR_OFF.b);
 }
 
+// The boot flash. setup() blocks - the serial wait, the bus scan, and above all
+// Zigbee.begin(), which waits for the stack for up to 30 s - so loop() cannot drive
+// the LED until it is over. A task of its own can: it starts as the first thing in
+// setup() and flashes COLOR_BOOT until the first updateLed() takes the LED over.
+//
+// One writer at a time: bootLedStop() waits until the task has written its last
+// frame and gone, so the task and ledWrite() never drive the LED together, and
+// ledWrite() starts from a known state - its cache has never been written.
+volatile bool bootLedRunning = false;
+volatile bool bootLedDone = true;
+
+void bootLedTask(void *) {
+  bool on = false;
+  while (bootLedRunning) {
+    on = !on;
+    const LedColor &c = on ? COLOR_BOOT : COLOR_OFF;
+    rgbLedWrite(PIN_RGB, c.r, c.g, c.b);
+    vTaskDelay(pdMS_TO_TICKS(LED_BOOT_FLASH_MS));
+  }
+  rgbLedWrite(PIN_RGB, COLOR_OFF.r, COLOR_OFF.g, COLOR_OFF.b);
+  bootLedDone = true;
+  vTaskDelete(nullptr);
+}
+
+void bootLedStart() {
+  bootLedRunning = true;
+  bootLedDone = false;
+  // Priority 1, just above idle: it only has to be seen, never to be on time, and
+  // must not take anything from the Zigbee task while the stack is starting.
+  if (xTaskCreate(bootLedTask, "bootled", 2048, nullptr, 1, nullptr) != pdPASS) {
+    bootLedRunning = false;  // no flash then, but nothing waits for a task that never ran
+    bootLedDone = true;
+  }
+}
+
+// Called on every updateLed(), so after the first call it is one flag test.
+void bootLedStop() {
+  if (!bootLedRunning) {
+    return;
+  }
+  bootLedRunning = false;
+  while (!bootLedDone) {
+    delay(1);
+  }
+}
+
 bool flashOn(uint32_t cycleMs = LED_FLASH_CYCLE_MS) {
   uint32_t phase = millis() % cycleMs;
   return phase < (cycleMs * LED_FLASH_DUTY_PCT) / 100;
 }
 
 void updateLed() {
+  bootLedStop();  // the first call takes the LED over from the boot flash
   if (resetReady) {
     ledWrite(COLOR_RESET_DONE);
     return;
@@ -242,6 +289,7 @@ void updateLed() {
 }
 
 void haltFatal(const char *what) {
+  bootLedStop();  // can be reached from setup(), while the boot flash still runs
   logEvent("FATAL: %s", what);
   while (true) {
     ledWrite(flashOn() ? COLOR_FATAL : COLOR_OFF);
@@ -918,11 +966,14 @@ void waitForSerialHost() {
 }
 
 void setup() {
+  // The LED first, and flashing, before anything that can take time: the serial
+  // wait below alone is SERIAL_WAIT_MS without a host. See bootLedTask().
+  ledBegin();
+  bootLedStart();
   Serial.begin(115200);
   waitForSerialHost();
   Serial.printf(CONSOLE_EOL "M5Stack NanoH2 - Water Flow over Zigbee v%s" CONSOLE_EOL, FW_VERSION);
 
-  ledBegin();
   pinMode(PIN_BUTTON, BUTTON_ACTIVE_HIGH ? INPUT_PULLDOWN : INPUT_PULLUP);
   delay(1);
   checkButtonIdleAtBoot();

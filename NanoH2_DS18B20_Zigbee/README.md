@@ -285,6 +285,7 @@ button](#which-button).
 
 | State | LED |
 | --- | --- |
+| Booting, from power-on until one of the states below | cyan, flashing fast (100 ms on, 100 ms off) |
 | Never joined a network | magenta, flashing on a 3 s cycle |
 | Joined and on the air | solid green |
 | Joined, and a sensor that once worked is missing or unreadable | blue, flashing on a 2 s cycle |
@@ -295,8 +296,16 @@ button](#which-button).
 | Cannot run at all | red, flashing on a 3 s cycle; reason on the serial console |
 
 Cycle length and duty are `LED_FLASH_CYCLE_MS` / `LED_FLASH_DUTY_PCT`, the blue
-one is `LED_SENSOR_FAULT_CYCLE_MS`; all colours are `LedColor` constants at the
-top of `config.h`.
+one is `LED_SENSOR_FAULT_CYCLE_MS`, the boot flash `LED_BOOT_FLASH_MS`; all colours
+are `LedColor` constants at the top of `config.h`.
+
+**Cyan says the board is starting.** Until v3.2.0 the LED stayed dark from power-on
+to the first network state, and that can take a while. Without a USB host attached,
+the sketch first waits `SERIAL_WAIT_MS` (2 s) for one. After that, `Zigbee.begin()`
+waits for the stack, up to 30 s when the network isn't reachable right away, for
+example after a long power-off. A dark LED for that long can't be told apart from a
+dead board. A small task of its own keeps the boot flash going while `setup()` is
+blocked, and hands the LED over on the first regular update.
 
 **Blue means the network is fine and the 1-Wire side is not.** A slot only holds
 a ROM code because a scan once found that sensor, so blue is never a slot that was
@@ -496,7 +505,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.7
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.0
 Sensor slots: 3
 ```
 
@@ -1142,10 +1151,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.1.7` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.1.7`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30107`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.1.7` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.0` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.2.0`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30200`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.2.0` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1177,7 +1186,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.1.7"`) and `FW_VERSION_NUMBER` (`30107`) are built from them, so
+`FW_VERSION` (`"3.2.0"`) and `FW_VERSION_NUMBER` (`30200`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1249,7 +1258,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.7
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.0
 Sensor slots: 3
 ```
 
