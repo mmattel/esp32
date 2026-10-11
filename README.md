@@ -27,7 +27,14 @@ afterwards. It uses the arduino-cli bundled with the Arduino IDE flatpak. It ref
 while another program has the port open, typically the IDE's Serial Monitor, and
 lists what holds it.
 
+While the device sends nothing, the script prints a status line every 60 s, on
+screen only. So "device quiet" can be told apart from "capture hung". The firmware
+can be silent for minutes when the temperatures stay inside the deadband and force
+push is off. `--reset` restarts the board first, so the boot log arrives within
+seconds as proof that data gets through. The cost is one rejoin.
+
 ```
-tools/serial-capture.sh            # first /dev/ttyACM*
+tools/serial-capture.sh                    # first /dev/ttyACM*
+tools/serial-capture.sh --reset            # restart the board, capture from boot
 tools/serial-capture.sh /dev/ttyACM1
 ```
