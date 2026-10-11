@@ -89,6 +89,15 @@ static uint8_t stackRssiToLqi(int rssi) {
   if (rssi >= -29) return 255;
   return (uint8_t)((unsigned)(rssi + 80) * 255 / 50);
 }
+// The stack function the sketch checks itself against at boot. formulaChanged
+// stands in for a later SDK that computes LQI some other way.
+static bool formulaChanged = false;
+extern "C" uint8_t esp_zb_rssi_to_lqi(int8_t rssi) {
+  if (formulaChanged) {
+    return rssi < -90 ? 0 : rssi > -20 ? 255 : (uint8_t)((rssi + 90) * 255 / 70);
+  }
+  return stackRssiToLqi(rssi);
+}
 
 void esp_zb_zdo_ieee_addr_req(esp_zb_zdo_ieee_addr_req_param_t *cmd_req, esp_zb_zdo_ieee_addr_callback_t user_cb,
                               void *) {
@@ -277,6 +286,17 @@ int main() {
     check("0 is a bound at -80", rssiFromLqi(0, &clipped) == -80 && clipped);
   }
 
+  printf("the boot-time check of the stack's formula\n");
+  {
+    int8_t bad = 0;
+    check("this SDK's formula is the one expected", linkCheckLqiFormula(&bad));
+    formulaChanged = true;
+    check("a changed formula is caught", !linkCheckLqiFormula(&bad));
+    check("naming an RSSI it no longer gives back", bad >= -81 && bad <= -29);
+    formulaChanged = false;
+    linkCheckLqiFormula(&bad);  // leave it trusted for the frame tests below
+  }
+
   printf("catching the parent's answer frame\n");
   {
     check("linkBegin() schedules, nothing registered yet", linkBegin() && scheduled != nullptr && indication == nullptr);
@@ -297,6 +317,16 @@ int main() {
     indication(frame(0x380B, 0x0000, 0x8001, 204));
     check("the parent's answer is seen", probeFrame(&f) && f.lqi == 204);
     check("its RSSI from its LQI", f.rssi == -40 && !f.clipped);
+    check("trusted, since the formula checked out", f.rssiTrusted);
+    {
+      int8_t bad = 0;
+      formulaChanged = true;
+      linkCheckLqiFormula(&bad);
+      ProbeFrame g;
+      check("not trusted once the check failed", probeFrame(&g) && !g.rssiTrusted && g.lqi == 204);
+      formulaChanged = false;
+      linkCheckLqiFormula(&bad);
+    }
     check("and handed on as well", coreHandlerCalls == 3);
     indication(frame(0x380B, 0x0000, 0x8001, 10));  // a second answer must not overwrite the first
     check("the first answer stays", probeFrame(&f) && f.lqi == 204);

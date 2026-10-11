@@ -4,6 +4,16 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.8
+
+**Added: boot-time check of the stack's LQI formula.** The RSSI has been computed back from the frame's LQI since 3.2.5, using a formula read from the disassembly of `esp_zb_rssi_to_lqi()`. A later SDK could change that formula, and the device would then publish a plausible but wrong RSSI. `linkCheckLqiFormula()` now runs the stack's own function over −81 to −29 dBm once at boot and checks that every value comes back. On a mismatch, the console and mirror get `link: LQI formula changed at … dBm, no RSSI`, and nothing is published for RSSI. LQI is unaffected.
+
+**Docs:** root `CLAUDE.md` has a new section, "Core/SDK Assumptions to Re-check After a Core Update", which collects every undocumented core/SDK internal this code relies on, with where it comes from and what happens if it changes.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.2.7
 
 **Added:** the boot log says how long `Zigbee.begin()` took: `Zigbee started, rejoining known network (Zigbee.begin() took 290 ms)`. On failure it prints `Zigbee start failed (30012 ms), rebooting`, which is also mirrored. This is visible at Core Debug Level "None" too.

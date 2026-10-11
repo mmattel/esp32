@@ -31,9 +31,9 @@ struct LinkQuality {
   // parent entry was found.
   uint8_t rawLqi;
   int8_t rawRssi;
-  // lqi is measured but rssi is not. Nothing to publish for the RSSI then. Not set
-  // by anything at present - the RSSI follows from the LQI - and kept so a source
-  // that cannot give both has a way to say so.
+  // lqi is measured but rssi is not: the RSSI is computed from the LQI, and
+  // linkCheckLqiFormula() did not confirm the formula on this SDK. Nothing to
+  // publish for the RSSI then.
   bool rssiUnknown;
 };
 
@@ -75,6 +75,7 @@ struct ProbeFrame {
   uint8_t lqi;   // the answer frame's LQI, from the indication
   int8_t rssi;   // the RSSI that LQI was computed from - see rssiFromLqi()
   bool clipped;  // LQI 0 or 255: rssi is only a bound, at or below -80 / at or above -30
+  bool rssiTrusted;  // linkCheckLqiFormula() found the stack's formula as expected
 };
 // False until the parent's answer to the last probeParent() has been seen.
 bool probeFrame(ProbeFrame *out);
@@ -87,6 +88,15 @@ bool probeFrame(ProbeFrame *out);
 // the RSSI is only a bound - -80 or below, -30 or above (the formula itself reaches
 // 255 at -30) - and *clipped says so.
 int8_t rssiFromLqi(uint8_t lqi, bool *clipped);
+
+// Runs the stack's own esp_zb_rssi_to_lqi() over -81 to -29 dBm and checks that
+// rssiFromLqi() gives every value back - the formula above was read from a
+// disassembly, not from documentation, so a later SDK may compute LQI differently.
+// Until this has run, and if it fails, ProbeFrame::rssiTrusted is false and no
+// RSSI is published: a wrong but plausible RSSI is worse than none. Pure
+// arithmetic, no stack state: call once in setup(), before or after Zigbee.begin().
+// Returns whether it matched; *firstBad is the first RSSI that did not.
+bool linkCheckLqiFormula(int8_t *firstBad);
 
 // Puts a handler in front of the stack's APS data indications that catches the
 // parent's answer frame for probeFrame(), then hands every indication on to the

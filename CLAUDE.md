@@ -285,6 +285,31 @@ receives at least one value report, and the refresh forces that first read.
 
 ---
 
+## Core/SDK Assumptions to Re-check After a Core Update
+
+Several fixes rely on **undocumented internals** of the Arduino core
+(m5stack:esp32 3.3.9) and the Espressif Zigbee SDK it bundles. They were read from
+the core's sources or from disassembly of the SDK libraries
+(`riscv32-esp-elf-objdump` on `~/.arduino15/packages/m5stack/tools/esp32h2-libs/<ver>/lib/*.a`).
+After a core or board-package update, go through this list:
+
+| Assumption | Where it comes from | Used by | If it no longer holds |
+| --- | --- | --- | --- |
+| `zb_apsde_data_indication_handler()` is not `static` | core `ZigbeeCore.cpp`, no header | `zb_link.cpp` calls it after its own indication handler | link error: loud, nothing silent |
+| the core registers its APS indication handler only once, in `Zigbee.begin()` | core `ZigbeeCore.cpp` | `linkBegin()` registers ours afterwards | ours is replaced, and LQI/RSSI stop updating after a rejoin |
+| the stack's LQI is `(RSSI + 80) × 255 / 50`, clipped at −80 / −30 dBm | disassembly of `esp_zb_rssi_to_lqi()` (libzboss_port) | `rssiFromLqi()` | **checked at every boot** by `linkCheckLqiFormula()`: on a mismatch `link: LQI formula changed …`, and no RSSI is published |
+| a report carries at most 50 characters of string (82 − 3 − 25 − 3 bytes) | disassembly of `esp_zb_zcl_report_attr_cmd_req()` | `MIRROR_TEXT_LEN` 48, `static_assert` at 50 | visible: `refused … ESP_ERR_INVALID_SIZE` on the console |
+| `esp_zb_zcl_report_attr_cmd_req()` looks up no reporting entry | same disassembly | — (`setTextReporting()` is kept, harmless) | nothing |
+| the stack doesn't update the parent's neighbour entry from received frames | field observation, 2026-10-11 | `probeFrame()` instead of the table | harmless: the table is the fallback |
+| the core sets `connected` on `Device rebooted`, without contact with the parent | core `ZigbeeCore.cpp` | reading of the boot log | affects interpretation only |
+| `esp_zb_zcl_command_send_status_handler` doesn't fire for ZCL reports | field observation | not used | — |
+| `ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC` is 0xFFFF here and 0x0000 in the next SDK generation | SDK headers | `zbReport()`, by name | nothing, as long as the name is used |
+| `ZigbeeEP::reportClusterAttribute` and the core's report helpers use binding-table mode | core | `zbReport()` instead | — |
+| the core's `setClusterReporting()` / `scanNetworks()` take the Zigbee lock | core | — | arduino-esp32 #10879 shows what a missing lock looks like |
+| `tools/serial-capture.sh` uses esptool **v5** syntax (`--after hard-reset`) and `arduino-cli monitor --timestamp` | IDE flatpak's tools | `--reset`, the capture | `--reset` fails with esptool's error message |
+
+---
+
 ## Known Upstream Issues
 
 | Issue | URL | What it affects |

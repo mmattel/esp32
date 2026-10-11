@@ -515,7 +515,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.7
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8
 Sensor slots: 3
 ```
 
@@ -1023,7 +1023,11 @@ Worth knowing:
   `(RSSI + 80) × 255 / 50` in between. One dB is 5.1 LQI steps, so each LQI comes
   from exactly one RSSI, and the sketch computes it back exactly
   (`rssiFromLqi()`). Checked against all five LQI/RSSI pairs the neighbour table
-  delivered, all exact. At LQI 0 and 255 the RSSI is only a bound. (v3.2.3/3.2.4
+  delivered, all exact. At LQI 0 and 255 the RSSI is only a bound. The formula
+  was read from a disassembly, not from documentation, so the firmware checks at
+  every boot that the stack still computes it that way. If not, the console says
+  `link: LQI formula changed at … dBm, no RSSI` and the RSSI endpoint gets nothing
+  rather than a wrong value. (v3.2.3/3.2.4
   read the radio driver's "recent" RSSI instead and got noise-floor values,
   −101 to −121 dBm.)
 - **Both are read once right after a join or rejoin**, and then every
@@ -1202,10 +1206,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.7` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.2.7`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30207`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.2.7` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.2.8`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30208`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.2.8` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1237,7 +1241,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.2.7"`) and `FW_VERSION_NUMBER` (`30207`) are built from them, so
+`FW_VERSION` (`"3.2.8"`) and `FW_VERSION_NUMBER` (`30208`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1309,7 +1313,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.7
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8
 Sensor slots: 3
 ```
 

@@ -96,6 +96,12 @@ static volatile uint16_t probeTarget = 0xFFFF;  // the parent asked; 0xFFFF whil
 static volatile bool probeFrameSeen = false;
 static volatile uint8_t probeFrameLqi = 0;
 static volatile bool indicationHooked = false;
+static bool lqiFormulaOk = false;
+
+// The stack's conversion (libzboss_port, declared in espressif__esp-zboss-lib's
+// zb_osif_platform.h). Declared here rather than including that header, which
+// brings much of ZBOSS's own configuration with it.
+extern "C" uint8_t esp_zb_rssi_to_lqi(int8_t rssi);
 
 static void onProbeAnswer(esp_zb_zdp_status_t status, esp_zb_zdo_ieee_addr_rsp_t *, void *) {
   probeStatus = (uint8_t)status;
@@ -114,12 +120,33 @@ int8_t rssiFromLqi(uint8_t lqi, bool *clipped) {
   return (int8_t)(((uint16_t)lqi * 50 + 254) / 255 - 80);  // ceil(lqi * 50 / 255) - 80
 }
 
+bool linkCheckLqiFormula(int8_t *firstBad) {
+  lqiFormulaOk = false;
+  for (int rssi = -81; rssi <= -29; rssi++) {
+    uint8_t lqi = esp_zb_rssi_to_lqi((int8_t)rssi);
+    bool clipped = false;
+    int back = rssiFromLqi(lqi, &clipped);
+    // Inside -80..-30 every RSSI must come back exactly; past either end the LQI
+    // must be the clipped value, which rssiFromLqi() reads as the bound.
+    bool ok = rssi < -80   ? (lqi == 0 && back == -80)
+              : rssi > -30 ? (lqi == 255 && back == -30)
+                           : back == rssi;
+    if (!ok) {
+      *firstBad = (int8_t)rssi;
+      return false;
+    }
+  }
+  lqiFormulaOk = true;
+  return true;
+}
+
 bool probeFrame(ProbeFrame *out) {
   if (!probeFrameSeen) {
     return false;
   }
   out->lqi = probeFrameLqi;
   out->rssi = rssiFromLqi(out->lqi, &out->clipped);
+  out->rssiTrusted = lqiFormulaOk;
   return true;
 }
 

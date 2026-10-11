@@ -873,6 +873,7 @@ void handleLinkQuality() {
     link.unmeasured = false;
     link.lqi = frame.lqi;
     link.rssi = frame.rssi;
+    link.rssiUnknown = !frame.rssiTrusted;  // see linkCheckLqiFormula()
   }
 
   if (!link.valid) {
@@ -1100,6 +1101,14 @@ void setup() {
   if (ZB_CHANNEL != 0) {
     Zigbee.setPrimaryChannelMask(1UL << ZB_CHANNEL);
     Serial.printf("Zigbee: looking on channel %u only" CONSOLE_EOL, ZB_CHANNEL);
+  }
+
+  // The RSSI is computed back from the stack's LQI by a formula read from its
+  // disassembly; check once that this SDK still computes it that way, or publish no
+  // RSSI rather than a wrong one. See linkCheckLqiFormula() in zb_link.h.
+  int8_t badRssi = 0;
+  if (!linkCheckLqiFormula(&badRssi)) {
+    logEvent("link: LQI formula changed at %d dBm, no RSSI", badRssi);
   }
 
   // How long the stack took to come up, on the console whatever the Core Debug Level:
