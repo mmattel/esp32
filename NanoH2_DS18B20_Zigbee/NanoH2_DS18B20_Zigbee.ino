@@ -1508,7 +1508,7 @@ void handleButton() {
   // which is the same condition the flashing blue is showing.
   bool release = !ready && held >= SLOT_RELEASE_HOLD_MS && anySensorLost();
   if (release && !releaseArmed) {
-    logEvent("Button: release now to free the slots of the missing sensors");
+    logEvent("Button: release now to free the missing sensors' slots");
     Serial.printf("  keep holding to factory reset instead" CONSOLE_EOL);
   }
   resetArmed = held >= FACTORY_RESET_HINT_MS;

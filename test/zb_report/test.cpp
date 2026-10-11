@@ -114,6 +114,24 @@ int main() {
   check("and only once", Serial.lines == 3);
   zbReport(16, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, 0xF000);
 
+  printf("two attributes on one endpoint keep separate spells\n");
+  // What the mirror does on every line: the text, then the counter, from EP 14.
+  // With only the text refused, the counter's success is not the text recovering.
+  Serial.lines = 0;
+  reportResult = ESP_ERR_INVALID_ARG;
+  zbReport(14, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, 0xF000);
+  reportResult = ESP_OK;
+  zbReport(14, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID);
+  check("the text refused is told", Serial.lines == 1 && strstr(Serial.last, "0xF000 refused"));
+  reportResult = ESP_ERR_INVALID_ARG;
+  zbReport(14, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, 0xF000);
+  reportResult = ESP_OK;
+  zbReport(14, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, ESP_ZB_ZCL_ATTR_ANALOG_INPUT_PRESENT_VALUE_ID);
+  check("the counter's success says nothing about it", Serial.lines == 1);
+  zbReport(14, ESP_ZB_ZCL_CLUSTER_ID_ANALOG_INPUT, 0xF000);
+  check("the text's own success ends its spell",
+        Serial.lines == 2 && strstr(Serial.last, "0xF000 accepted again") && strstr(Serial.last, "2 refused"));
+
   printf("a lock that cannot be had is a refusal\n");
   Serial.lines = 0;
   lockFails = true;

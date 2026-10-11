@@ -114,7 +114,7 @@ int main() {
     slotsEmpty();
     slotsReportSummary(rom, present);
     check("a fresh device: every slot never seen",
-          strcmp(lastMirrored(), "temp sensors (4 slots): 0 on the bus, 0 missing, 4 never seen") == 0);
+          strcmp(lastMirrored(), "sensors (4 slots): 0 on bus, 0 missing, 4 never seen") == 0);
 
     // Two sensors found, of which one has since stopped answering. The third slot
     // holds a ROM code as well but its sensor never turned up this boot; the fourth
@@ -128,7 +128,7 @@ int main() {
     present[2] = false;
     slotsReportSummary(rom, present);
     check("assigned and answering counts as on the bus",
-          strcmp(lastMirrored(), "temp sensors (4 slots): 1 on the bus, 2 missing, 1 never seen") == 0);
+          strcmp(lastMirrored(), "sensors (4 slots): 1 on bus, 2 missing, 1 never seen") == 0);
 
     // The numbers have to add up to the configured count whatever the state, since
     // that is what makes the line readable without knowing the build.
@@ -140,7 +140,7 @@ int main() {
     }
     slotsReportSummary(rom, present);
     check("every slot filled",
-          strcmp(lastMirrored(), "temp sensors (4 slots): 4 on the bus, 0 missing, 0 never seen") == 0);
+          strcmp(lastMirrored(), "sensors (4 slots): 4 on bus, 0 missing, 0 never seen") == 0);
   }
 
   printf("the summary fits the line the mirror carries\n");
@@ -154,13 +154,13 @@ int main() {
     slotsReportSummary(rom, present);
 
     // The one line of this sketch's output that is built from four numbers, and the
-    // one that has overflowed while being worded. 57 characters plus a digit per
+    // one that has overflowed while being worded. 48 characters plus a digit per
     // number, so the check is on the budget rather than on today's value: a rewording
     // that spends the slack fails here instead of arriving truncated at the
     // coordinator. A build of more than 9 slots spends one more character on each
     // count that reaches two digits.
     size_t len = strlen(lastMirrored());
-    check("57 characters plus one digit per number", len == 57 + 4);
+    check("48 characters plus one digit per number", len == 48 + 4);
     check("within MIRROR_TEXT_LEN, so it goes out whole", len <= MIRROR_TEXT_LEN);
   }
 
@@ -180,11 +180,11 @@ int main() {
     rom[1] = 0x2800000BDEADBEEFULL;
     present[1] = true;
     slotsReportSummary(rom, present);
-    check("a sensor turning up is reported", mirrorCount == 2 && onAir("2 on the bus, 0 missing, 2 never seen"));
+    check("a sensor turning up is reported", mirrorCount == 2 && onAir("2 on bus, 0 missing, 2 never seen"));
 
     present[1] = false;
     slotsReportSummary(rom, present);
-    check("and so is one going missing", mirrorCount == 3 && onAir("1 on the bus, 1 missing, 2 never seen"));
+    check("and so is one going missing", mirrorCount == 3 && onAir("1 on bus, 1 missing, 2 never seen"));
 
     // A join: the line that went out before the radio was up reached nobody, so the
     // summary has to be sendable again without anything on the bus having moved.

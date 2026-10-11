@@ -38,7 +38,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 2
+#define FW_VERSION_PATCH 3
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -554,10 +554,14 @@ static const LedColor COLOR_SLOT_RELEASE = {0, 0, 40};     // blue, solid:    re
 // How much of a line is carried. Anything longer is cut off here, which is why
 // the mirrored lines are the short ones.
 //
-// The ceiling is what a single Zigbee frame holds: an APS payload is around 80
-// bytes, the report adds a ZCL header and the string its length byte, and a value
-// past that would have to be fragmented - which a report is not.
-#define MIRROR_TEXT_LEN 64
+// The ceiling is what a single Zigbee frame holds. A report is not fragmented, and
+// the stack refuses one that does not fit with ESP_ERR_INVALID_SIZE. Of the 127
+// bytes of an 802.15.4 frame, the MAC, NWK (with both IEEE addresses), security and
+// APS headers leave about 66 for the ZCL frame. The report spends 3 on the ZCL
+// header, 3 on the attribute ID and type and 1 on the string's length byte, and the
+// line is always padded to its full length. 64, the value before v3.1.3, made every
+// mirror report 71 bytes, and the stack refused every one of them. 56 makes 63.
+#define MIRROR_TEXT_LEN 56
 
 // The attribute the text lives in. 0xF000 and up is the range reserved for a
 // manufacturer's own attributes, which keeps it clear of the standard Analog

@@ -4,6 +4,25 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.1.3
+
+**Fixed:** the console mirror text (EP 14) never reached Z2M. This had been true since the mirror existed; the fixes in 3.0.2, 3.1.0 and 3.1.1 each removed a real problem, but not this one.
+
+**Root cause:** the report was too big. The stack refused every text report with `ESP_ERR_INVALID_SIZE`, which became visible with the 3.1.2 diagnostics (field log of 2026-10-11: `EP 14: report of attribute 0xF000 refused by the stack: ESP_ERR_INVALID_SIZE (260)`). Reports are not fragmented, and of the 127 bytes in a radio frame, the headers (both IEEE addresses in the network header, network security, APS) leave about 66 bytes for the ZCL frame. The line is padded to `MIRROR_TEXT_LEN`, so every text report was 3 (ZCL header) + 3 (attribute ID and type) + 1 (length byte) + 64 = 71 bytes, however short the line. The counter and the short firmware version string fit, which is why they arrived.
+
+**Fix:** `MIRROR_TEXT_LEN` 64 → 56, making a text report 63 bytes. Two lines were shortened to fit:
+
+- The slot summary is now `sensors (3 slots): 3 on bus, 0 missing, 0 never seen` (52 characters). It was `temp sensors (3 slots): 3 on the bus, ...` (61).
+- `Button: release now to free the missing sensors' slots` (was 60 characters).
+
+Lines built from variable text, such as a setting written from Zigbee, can still exceed 56 and are cut. They were already cut at 64 before.
+
+**Diagnostics:** refusals are now tracked per endpoint **and attribute**. In 3.1.2, the counter's successful report right after a refused text report on the same EP 14 printed a misleading "accepted again".
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only. Z2M trims the trailing spaces as before. Lines are now padded to 56 instead of 64.
+
+---
+
 ## 3.1.2
 
 **Context:** with v3.1.1 flashed, the mirror text (EP 14) still never arrived in Z2M while the counter did. Temperatures pushed by force push showed as `published (force push)` on the console but did not show up in Z2M. And the Zigbee network still had spells where Z2M's pings to other routers timed out with `SRSP - AF - dataRequest after 6000ms`, the symptom described in the README's "Coordinator Throttling".

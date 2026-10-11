@@ -496,7 +496,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.2
+M5Stack NanoH2 - DS18B20 over Zigbee v3.1.3
 Sensor slots: 3
 ```
 
@@ -587,14 +587,14 @@ be the only way out:
    rescanned at once, so the replacement claims the freed slot immediately.
 
 ```
-Button: release now to free the slots of the missing sensors
+Button: release now to free the missing sensors' slots
   keep holding to factory reset instead
 slot 1 (2800000BDEADBEEF) released, ready for a new sensor
-temp sensors (3 slots): 2 on the bus, 0 missing, 1 never seen
+sensors (3 slots): 2 on bus, 0 missing, 1 never seen
 1-Wire scan: 3 DS18B20 found
   28FF1234567890AB assigned to slot 1 (stored)
 
-temp sensors (3 slots): 3 on the bus, 0 missing, 0 never seen
+sensors (3 slots): 3 on bus, 0 missing, 0 never seen
 ```
 
 What it leaves alone is the point of it: slots whose sensors are on the bus keep
@@ -1019,7 +1019,7 @@ What is mirrored is what the console calls an event in its own right:
 | --- | --- |
 | `Zigbee connected` | every join and rejoin |
 | `Zigbee link lost` | the radio contact went |
-| `Button: release now to free the slots of the missing sensors` | the hold reached `SLOT_RELEASE_HOLD_MS` and a sensor is missing |
+| `Button: release now to free the missing sensors' slots` | the hold reached `SLOT_RELEASE_HOLD_MS` and a sensor is missing |
 | `Button: held long enough - release to factory reset` | the hold reached `FACTORY_RESET_HOLD_MS` |
 | `Button: released before the hold was over, no reset` | released too early |
 | `slot 1 (28FF…) released, ready for a new sensor` | one line per slot freed by that release, see [replacing a sensor](#replacing-a-sensor) |
@@ -1029,7 +1029,7 @@ What is mirrored is what the console calls an event in its own right:
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
 | `Reading interval (s) written from Zigbee: 300.00 -> 300` | a coordinator changed the interval, the delta or the [correction](#temperature-correction) and it moved |
 | `slot 0 (28FF…): read failed, never read since boot`, `slot 1 (…) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
-| `temp sensors (3 slots): 1 on the bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
+| `sensors (3 slots): 1 on bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
 | `slot 0 (28FF…): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
 | `1-Wire: no device responded to CONVERT T` | nothing on the bus at all |
 | `FATAL: …`, `Flash partition '…' is missing`, `NVS open failed …`, `Zigbee failed to start …`, `scan: failed` | every error line the sketch prints |
@@ -1065,7 +1065,7 @@ device was off the air.
 | Knob | Default | Meaning |
 | --- | --- | --- |
 | `ZB_MIRROR_ENDPOINT` | 1 | 0 drops endpoint 14 and keeps every line console-only |
-| `MIRROR_TEXT_LEN` | 64 | how much of a line is carried; the rest is cut off |
+| `MIRROR_TEXT_LEN` | 56 | how much of a line is carried; the rest is cut off |
 | `MIRROR_TEXT_ATTR_ID` | 0xF000 | the attribute the text lives in |
 | `MIRROR_REPORT_HEARTBEAT_S` | 3600 | repeats the current line; 0 disables it |
 
@@ -1087,9 +1087,13 @@ Worth knowing:
 - **A short button press mirrors nothing**, because it prints nothing: the button
   does one thing, and a press below `FACTORY_RESET_HINT_MS` is not an event. What
   the button *does* produce is in the table above.
-- **64 characters is a frame, not a preference.** An APS payload is around 80
-  bytes, the report adds a ZCL header and the string its length byte, and a report
-  is not fragmented — so a longer line would not arrive, it would be dropped.
+- **56 characters is a frame, not a preference.** A report is not fragmented, and
+  of the 127 bytes in a Zigbee radio frame, the headers (with both IEEE addresses
+  and network security) leave about 66 for the ZCL frame. The report needs 7 of
+  them besides the line itself. Up to v3.1.2 the limit was 64, which made every
+  mirror report 71 bytes. The stack refused each one with `ESP_ERR_INVALID_SIZE`,
+  and that is why the text never arrived while the counter did. v3.1.2 and later show such
+  a refusal on the console.
 - **The text always occupies its full length.** A ZCL string attribute is sized by
   the value it is created with, so the attribute is created at `MIRROR_TEXT_LEN`
   and every line is space-padded to it — the same thing the sensor ID does with
@@ -1120,10 +1124,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.1.2` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.1.2`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30102`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.1.2` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.1.3` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.1.3`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30103`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.1.3` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1155,7 +1159,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.1.2"`) and `FW_VERSION_NUMBER` (`30102`) are built from them, so
+`FW_VERSION` (`"3.1.3"`) and `FW_VERSION_NUMBER` (`30103`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1227,7 +1231,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.1.2
+M5Stack NanoH2 - DS18B20 over Zigbee v3.1.3
 Sensor slots: 3
 ```
 
@@ -1331,7 +1335,7 @@ Since the mirror holds exactly one line, the per-slot detail cannot all fit on
 it, so one summary line goes out whenever the counts change:
 
 ```
-temp sensors (3 slots): 1 on the bus, 1 missing, 1 never seen
+sensors (3 slots): 1 on bus, 1 missing, 1 never seen
 ```
 
 That is the whole picture in one line: the slot count is `MAX_DS18B20_SENSORS` and
@@ -1342,11 +1346,11 @@ sent again after every join, because the only scan that ran before the radio cam
 was the one in `setup()`, whose result reached nobody. With every slot reading, the
 counts stop changing and the temperatures themselves are the better answer anyway.
 
-The wording is as short as it is on purpose: at 61 characters it is inside the
-mirror's `MIRROR_TEXT_LEN` of 64, so the copy on endpoint 14 is the whole line
-rather than a cut one. It costs 57 plus one digit per number, which leaves room for
-any slot count a single 1-Wire bus would carry. If you reword it, count the result —
-64 is the most that fits an unfragmented report, so raising the limit is not free.
+The wording is as short as it is on purpose: at 52 characters it is inside the
+mirror's `MIRROR_TEXT_LEN` of 56, so the copy on endpoint 14 is the whole line
+rather than a cut one. It costs 48 plus one digit per number, which leaves room for
+two-digit counts. If you reword it, count the result: 56 is the most that fits an
+unfragmented report, so raising the limit is not an option.
 
 What is deliberately **not** mirrored: the unassigned-slot lines (three empty
 slots would push each other off a one-line mirror, and an empty slot is not a

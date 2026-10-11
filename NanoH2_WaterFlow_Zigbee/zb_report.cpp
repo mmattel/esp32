@@ -14,8 +14,6 @@ struct EndpointStats {
   // Written by zbReport(), which runs in loop().
   uint32_t accepted = 0;
   uint32_t refused = 0;
-  bool refusing = false;  // inside a spell of refusals, as last printed
-  uint32_t refusedInSpell = 0;
 
   // Written by the send status callback, which runs in the Zigbee task. Single
   // writer, aligned 32-bit values: loop() reads them without a lock and at worst
@@ -34,32 +32,60 @@ struct EndpointStats {
 
 static EndpointStats stats[TRACKED_ENDPOINTS];
 
+// The attributes currently being refused, each with the number of refusals so far.
+// Keyed by endpoint and attribute, not endpoint alone: the mirror and the version
+// each report two attributes from one endpoint, and when only the text is refused,
+// the value's success right after it must not read as the text recovering.
+// A dozen is far more than can fail at once. A refusal past that is still counted,
+// only not printed.
+struct RefusalSpell {
+  uint8_t ep;
+  uint16_t attrId;
+  uint32_t count;  // 0: the entry is free
+};
+static RefusalSpell spells[12];
+
 // Totals as of the last summary, so the next one can say what happened since.
 static uint32_t summaryAccepted = 0, summaryRefused = 0, summaryDelivered = 0, summaryLost = 0;
 static uint32_t lastSummaryMs = 0;
 
-static void noteSubmitted(uint8_t ep, uint16_t attrId, esp_err_t ret) {
-  if (ep >= TRACKED_ENDPOINTS) {
-    return;
+static RefusalSpell *findSpell(uint8_t ep, uint16_t attrId) {
+  for (RefusalSpell &sp : spells) {
+    if (sp.count > 0 && sp.ep == ep && sp.attrId == attrId) {
+      return &sp;
+    }
   }
-  EndpointStats &s = stats[ep];
+  return nullptr;
+}
+
+static void noteSubmitted(uint8_t ep, uint16_t attrId, esp_err_t ret) {
+  RefusalSpell *spell = findSpell(ep, attrId);
   if (ret == ESP_OK) {
-    s.accepted++;
-    if (s.refusing) {
-      Serial.printf("EP %u: reports accepted again, %lu refused before" CONSOLE_EOL, ep,
-                    (unsigned long)s.refusedInSpell);
-      s.refusing = false;
+    if (ep < TRACKED_ENDPOINTS) {
+      stats[ep].accepted++;
+    }
+    if (spell) {
+      Serial.printf("EP %u: reports of attribute 0x%04X accepted again, %lu refused before" CONSOLE_EOL, ep, attrId,
+                    (unsigned long)spell->count);
+      spell->count = 0;
     }
     return;
   }
-  s.refused++;
-  if (!s.refusing) {
-    Serial.printf("EP %u: report of attribute 0x%04X refused by the stack: %s (%d)" CONSOLE_EOL, ep, attrId,
-                  esp_err_to_name(ret), (int)ret);
-    s.refusing = true;
-    s.refusedInSpell = 0;
+  if (ep < TRACKED_ENDPOINTS) {
+    stats[ep].refused++;
   }
-  s.refusedInSpell++;
+  if (spell) {
+    spell->count++;
+    return;
+  }
+  Serial.printf("EP %u: report of attribute 0x%04X refused by the stack: %s (%d)" CONSOLE_EOL, ep, attrId,
+                esp_err_to_name(ret), (int)ret);
+  for (RefusalSpell &sp : spells) {
+    if (sp.count == 0) {
+      sp = {ep, attrId, 1};
+      break;
+    }
+  }
 }
 
 bool zbReport(uint8_t srcEndpoint, uint16_t clusterId, uint16_t attrId) {

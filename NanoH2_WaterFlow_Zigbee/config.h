@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 1
-#define FW_VERSION_PATCH 2
+#define FW_VERSION_PATCH 3
 
 #define FW_VERSION_STRINGIFY_(x) #x
 #define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
@@ -246,7 +246,10 @@ static const LedColor COLOR_FATAL          = {40, 0,  0};  // red, flashing
 /* ------------------------------------------------------------------
  * Console mirror
  * ------------------------------------------------------------------ */
-#define MIRROR_TEXT_LEN             64
+// The most a single unfragmented report can carry, see the DS18B20 config.h: 64,
+// the value before v2.1.3, made every mirror report too big for the frame, and the
+// stack refused all of them with ESP_ERR_INVALID_SIZE.
+#define MIRROR_TEXT_LEN             56
 #define MIRROR_TEXT_ATTR_ID     0xF000
 #define MIRROR_REPORT_MIN_INTERVAL_S 1
 #define MIRROR_REPORT_HEARTBEAT_S 3600

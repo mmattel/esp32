@@ -376,7 +376,9 @@ serial console.  Every call to `logEvent()` in the sketch writes the same
 line to both the serial port and the mirror endpoint: the counter
 (`presentValue`, `mirror_line_count_15`) increments on every new line, and
 the text itself goes out in attribute `0xF000`, a ZCL character string
-space-padded to `MIRROR_TEXT_LEN` (64) characters.
+space-padded to `MIRROR_TEXT_LEN` (56) characters. 56 is the most an unfragmented
+report can carry. Up to v2.1.2 it was 64, and the stack refused every text report
+as too large.
 
 Lines printed outside `logEvent()` — raw `Serial.printf()` calls for the
 per-sample flow readings — go to serial only.  The mirror carries notable
@@ -478,7 +480,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v2.1.2 (build 20102)
+NanoH2-WaterFlow v2.1.3 (build 20103)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)

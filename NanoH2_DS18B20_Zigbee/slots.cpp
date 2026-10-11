@@ -66,12 +66,12 @@ void slotsReportSummary(const uint64_t *rom, const bool *present) {
   // to something once it is known: "0 on the bus" with nothing else stated could be
   // a build with no slots at all.
   //
-  // 61 characters at three slots, against the MIRROR_TEXT_LEN of 64 that the mirror
+  // 52 characters at three slots, against the MIRROR_TEXT_LEN of 56 that the mirror
   // carries - so it goes out whole rather than cut, which is what the wording is
-  // chosen for. It is 57 plus one digit per number, so any slot count that is
-  // physically sensible on one 1-Wire bus still fits; a line of 30-odd slots with
-  // two-digit counts everywhere would be the first to lose a character.
-  logEvent("temp sensors (%u slots): %u on the bus, %u missing, %u never seen", (unsigned)MAX_DS18B20_SENSORS,
+  // chosen for. It is 48 plus one digit per number, so two-digit counts still fit.
+  // Shortened in v3.1.3 from "temp sensors (3 slots): 3 on the bus, ...", 61
+  // characters, when MIRROR_TEXT_LEN came down from 64 - see config.h.
+  logEvent("sensors (%u slots): %u on bus, %u missing, %u never seen", (unsigned)MAX_DS18B20_SENSORS,
            (unsigned)onBus, (unsigned)missing, (unsigned)neverSeen);
 }
 

@@ -89,7 +89,7 @@ Covers:
 - The summary counts: every state in one line, the three numbers always adding up
   to the configured slot count, and a slot that answers the bus counted as on it.
 - The summary's **length budget**. It is the one line built from four numbers, and
-  the one that has overflowed while being worded: the test pins it at 57
+  the one that has overflowed while being worded: the test pins it at 48
   characters plus a digit per number and checks that against `MIRROR_TEXT_LEN`, so
   a rewording that spends the slack fails here instead of arriving truncated at the
   coordinator.
