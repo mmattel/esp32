@@ -96,8 +96,18 @@ bool ZbSetting::applyPending(Preferences &prefs) {
   // logEvent(), so the new interval or delta also goes out on the console mirror:
   // this is the one setting change nothing else announces, and the coordinator
   // that wrote it is not necessarily the one watching.
-  if (changed || corrected) {
-    logEvent("%s from Zigbee, was %.*f: %.2f -> %.*f", _description, decimals(), _value, requested, decimals(), applied);
+  //
+  // By endpoint number, not by _description: the description is also the
+  // endpoint's Analog Output description, which a coordinator reads, so it cannot
+  // be shortened, and "Temperature correction (C)" alone is 26 of the 48 characters
+  // the mirror carries. The boot log maps every number to its setting. Two forms,
+  // because three values do not fit either: the old value when the write went
+  // through as sent, the request when it was rounded or clamped. At 7-digit values
+  // with two decimals, WaterFlow's totals, the longer form is 42 characters.
+  if (corrected) {
+    logEvent("EP %u set to %.*f (asked %.2f)", _ep.getEndpoint(), decimals(), applied, requested);
+  } else if (changed) {
+    logEvent("EP %u set to %.*f, was %.*f", _ep.getEndpoint(), decimals(), applied, decimals(), _value);
   }
 
   _value = applied;

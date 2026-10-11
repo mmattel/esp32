@@ -4,6 +4,19 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.1.6
+
+**Changed:** the slot and settings lines no longer get cut by the console mirror (48 characters). Most of them used to be.
+
+- **Slot lines show the last four digits of the ROM code**, e.g. `slot 0 (ABCD): read failed, last 21.4 C`. The full code is in the boot log for every slot. Affected: power-on default, read failed (`never read since boot` is now `never read yet`, `last good` is now `last`), configured but missing, released. The line for a sensor ignored because every slot is taken keeps the full code, since it has no slot.
+- **A setting written from Zigbee is named by endpoint:** `EP 15 set to -0.50 (asked -0.44)` when the write was rounded or clamped, `EP 10 set to 300, was 60` when it went through as sent. It used to be `<setting name> from Zigbee, was …`, up to about 70 characters. The name stays as it is, because it's also the endpoint's description, which the coordinator reads.
+
+**Tests:** `logevent_len` understands `mirror-len: %s<=N` for inserted text of known width, so these lines are now checked instead of only listed. `zb_setting` checks both wordings, and that the longest possible one (WaterFlow's 7-digit total, clamped) is 44 characters.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only. Anything matching the old wording of these lines, such as an automation on the mirror text, needs updating.
+
+---
+
 ## 3.1.5
 
 **Added:** two checks so that lines too long for the console mirror (48 characters) are found early, instead of arriving silently cut at the coordinator.

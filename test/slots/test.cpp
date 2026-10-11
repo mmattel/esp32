@@ -202,7 +202,7 @@ int main() {
     slotsNoteReading(0, ROM_A, 85.0f, true);
     check("said once, with the slot and the sensor",
           mirrorCount == 1
-              && strcmp(lastMirrored(), "slot 0 (28FF641E1234ABCD): 85.00 C is the power-on default") == 0);
+              && strcmp(lastMirrored(), "slot 0 (ABCD): 85.00 C is the power-on default") == 0);
     check("what to do about it is printed", printed("check the supply and the wiring"));
     // The mirror holds one line; the fault is worth the air, the advice is not.
     check("and stays off the air", !onAir("check the supply"));
@@ -230,7 +230,7 @@ int main() {
     slotsNoteReading(0, ROM_A, 85.0f, true);
     slotsNoteReading(1, ROM_B, 85.0f, true);
     check("counted per slot",
-          mirrorCount == 2 && onAir("slot 0 (28FF641E1234ABCD)") && onAir("slot 1 (2800000BDEADBEEF)"));
+          mirrorCount == 2 && onAir("slot 0 (ABCD)") && onAir("slot 1 (BEEF)"));
   }
 
   printf("a read that failed every attempt\n");
@@ -238,7 +238,7 @@ int main() {
   {
     slotsReportReadFailure(0, ROM_A);
     check("never read since boot, so the wiring is the suspect",
-          strcmp(lastMirrored(), "slot 0 (28FF641E1234ABCD): read failed, never read since boot") == 0);
+          strcmp(lastMirrored(), "slot 0 (ABCD): read failed, never read yet") == 0);
     check("nothing to say about an age", !printed("ago"));
 
     // A slot that was reading until a moment ago is a different fault with a
@@ -249,7 +249,7 @@ int main() {
     hostMillis = 4000 + 95 * 1000UL;
     slotsReportReadFailure(0, ROM_A);
     char want[128];
-    snprintf(want, sizeof(want), "slot 0 (28FF641E1234ABCD): read failed, last good %.*f C",
+    snprintf(want, sizeof(want), "slot 0 (ABCD): read failed, last %.*f C",
              TEMP_PUBLISH_DECIMALS, 21.5f);
     check("says what it last read", strcmp(lastMirrored(), want) == 0);
     check("and how long ago that was", printed("that reading was 1 min ago"));
@@ -269,7 +269,7 @@ int main() {
     // does not throw it away.
     slotsSensorGone(0);
     slotsReportReadFailure(0, ROM_A);
-    check("a sensor that went missing still has a last good reading", onAir("last good"));
+    check("a sensor that went missing still has a last good reading", onAir("read failed, last "));
     check("still without the age on the air", !onAir("ago"));
 
     // Releasing the slot does throw it away, and that is the whole difference: the
@@ -280,7 +280,7 @@ int main() {
     console[0] = '\0';  // only the console: the slot keeps what it was just left with
     slotsReportReadFailure(0, ROM_B);
     check("a released slot has no history to report",
-          strcmp(lastMirrored(), "slot 0 (2800000BDEADBEEF): read failed, never read since boot") == 0);
+          strcmp(lastMirrored(), "slot 0 (BEEF): read failed, never read yet") == 0);
     check("and so no age to print", !printed("ago"));
 
     // Per slot, like everything else here: releasing one slot leaves the next alone.
@@ -289,21 +289,21 @@ int main() {
     slotsNoteReading(1, ROM_B, 30.0f, false);
     slotsForgetSlot(0);
     slotsReportReadFailure(1, ROM_B);
-    check("the neighbouring slot keeps its own history", onAir("last good"));
+    check("the neighbouring slot keeps its own history", onAir("read failed, last "));
 
     // What the hardware has done is forgotten only on a reboot.
     reset();
     slotsNoteReading(0, ROM_A, 21.5f, false);
     slotsBegin();
     slotsReportReadFailure(0, ROM_A);
-    check("after slotsBegin() there is nothing to remember", onAir("never read since boot"));
+    check("after slotsBegin() there is nothing to remember", onAir("never read yet"));
 
     // One slot reading tells the next one nothing.
     reset();
     slotsNoteReading(1, ROM_B, 21.5f, false);
     slotsReportReadFailure(0, ROM_A);
     check("history is per slot",
-          strcmp(lastMirrored(), "slot 0 (28FF641E1234ABCD): read failed, never read since boot") == 0);
+          strcmp(lastMirrored(), "slot 0 (ABCD): read failed, never read yet") == 0);
   }
 
   printf("how an age reads\n");

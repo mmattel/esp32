@@ -464,6 +464,8 @@ void scanSensors() {
       DS18B20Bus::romToChars(found[f], rom);
       if (slot < 0) {
         header();
+        // The whole ROM code here: this sensor has no slot, so nothing else names it.
+        // mirror-len: %s<=16
         logEvent("  %s ignored, all %u slots taken", rom, (unsigned)MAX_DS18B20_SENSORS);
         continue;
       }
@@ -496,7 +498,8 @@ void scanSensors() {
     if (report) {
       header();
       DS18B20Bus::romToChars(slotRom[i], rom);
-      logEvent("  slot %u (%s) is configured but missing", (unsigned)i, rom);
+      // mirror-len: %s<=4 - romTail(), see slots.h
+      logEvent("  slot %u (%s) is configured but missing", (unsigned)i, romTail(rom));
     }
   }
 
@@ -1408,10 +1411,11 @@ void releaseMissingSlots() {
       // a sensor that has gone quiet.
       zbTemp[i]->setSensorId(sensorId(i).c_str());
     }
-    // 58 characters with a 16-digit ROM code and a one-digit slot, inside the
-    // MIRROR_TEXT_LEN of 64, so the line reaches the coordinator whole. One line per
-    // slot: which sensor was given up on cannot be reconstructed afterwards.
-    logEvent("slot %u (%s) released, ready for a new sensor", (unsigned)i, rom);
+    // One line per slot: which sensor was given up on cannot be reconstructed
+    // afterwards. The full ROM code went to the console with the scan; the mirror
+    // gets its tail, which keeps the line inside MIRROR_TEXT_LEN.
+    // mirror-len: %s<=4 - romTail(), see slots.h
+    logEvent("slot %u (%s) released, ready for a new sensor", (unsigned)i, romTail(rom));
     released++;
   }
 

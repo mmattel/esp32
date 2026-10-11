@@ -109,7 +109,8 @@ void slotsNoteReading(uint8_t slot, const char *rom, float celsius, bool powerOn
     return;
   }
   porReported[slot] = true;
-  logEvent("slot %u (%s): 85.00 C is the power-on default", (unsigned)slot, rom);
+  // mirror-len: %s<=4 - romTail(), see slots.h
+  logEvent("slot %u (%s): 85.00 C is the power-on default", (unsigned)slot, romTail(rom));
   Serial.printf("  check the supply and the wiring" CONSOLE_EOL);
 }
 
@@ -119,12 +120,14 @@ void slotsReportReadFailure(uint8_t slot, const char *rom) {
   // ago is a contact or a supply that is going. The age of the last good reading is
   // a console detail, because it changes on every attempt and would otherwise defeat
   // the mirror's deadband - every failed read would cost a report.
+  // mirror-len: %s<=4 - romTail(), see slots.h
   if (isnan(lastGoodC[slot])) {
-    logEvent("slot %u (%s): read failed, never read since boot", (unsigned)slot, rom);
+    logEvent("slot %u (%s): read failed, never read yet", (unsigned)slot, romTail(rom));
     return;
   }
 
-  logEvent("slot %u (%s): read failed, last good %.*f C", (unsigned)slot, rom, TEMP_PUBLISH_DECIMALS,
+  // mirror-len: %s<=4
+  logEvent("slot %u (%s): read failed, last %.*f C", (unsigned)slot, romTail(rom), TEMP_PUBLISH_DECIMALS,
            lastGoodC[slot]);
   char age[AGE_TEXT_CHARS];
   ageText(millis() - lastGoodMs[slot], age, sizeof(age));

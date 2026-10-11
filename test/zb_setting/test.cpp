@@ -28,12 +28,16 @@ bool zbReport(uint8_t srcEndpoint, uint16_t clusterId, uint16_t attrId) {
 // hands the same line to the console mirror endpoint (see zb_mirror.cpp). There is
 // no endpoint here, so this is the printing half of it - which is all these tests
 // need, and it keeps zb_setting.cpp free of anything Zigbee to link against.
+//
+// The last line is kept, so the wording can be checked against what the mirror can
+// carry.
+static char lastLogged[160] = "";
 void logEvent(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
-  vprintf(fmt, args);
+  vsnprintf(lastLogged, sizeof(lastLogged), fmt, args);
   va_end(args);
-  printf("\n");
+  printf("%s\n", lastLogged);
 }
 
 // Every settings endpoint also puts FW_VERSION in its Basic cluster, because a
@@ -274,6 +278,40 @@ int main() {
   check("clamped at the bottom of the range", cw.value(), TEMP_CORRECTION_MIN_C);
   check("the clamp is persisted", s.getFloat(NVS_KEY_CORRECTION, NAN), TEMP_CORRECTION_MIN_C);
   check("and mirrored back", cw._ep.output, TEMP_CORRECTION_MIN_C);
+
+  // The line announcing a write goes to the console mirror, which carries
+  // MIRROR_TEXT_LEN characters, so it names the endpoint rather than the setting.
+  printf("the line that announces a write\n");
+  {
+    char want[64];
+    snprintf(want, sizeof(want), "EP %u set to -5.00 (asked -20.00)", (unsigned)cw._ep.getEndpoint());
+    bool ok = strcmp(lastLogged, want) == 0;
+    printf("  a clamped write gives the request -> %s\n", ok ? "yes (ok)" : "no (FAIL)");
+    if (!ok) fails++;
+
+    target = &cw;
+    cw._ep.injectWrite(-4.75f);
+    cw.applyPending(s);
+    snprintf(want, sizeof(want), "EP %u set to -4.75, was -5.00", (unsigned)cw._ep.getEndpoint());
+    ok = strcmp(lastLogged, want) == 0;
+    printf("  a write taken as sent gives the old value -> %s\n", ok ? "yes (ok)" : "no (FAIL)");
+    if (!ok) fails++;
+
+    // The widest values any setting in either sketch can hold: WaterFlow's total
+    // start value, seven digits with a step of 0.001, at endpoint 12.
+    ZbSetting big(12, "tstart", "Total start value (L)", 0.0f, 0.0f, 9999999.0f, 0.001f, ESP_ZB_ZCL_AI_TIME_RELATIVE);
+    Preferences t;
+    big.load(t);
+    big.addEndpoint(onWritten);
+    target = &big;
+    big._ep.injectWrite(99999999.0f);  // past the top: clamped, so the longer "(asked ...)" form
+    big.applyPending(t);
+    size_t len = strlen(lastLogged);
+    ok = len <= MIRROR_TEXT_LEN;
+    printf("  at seven-digit values it still fits the mirror: %zu <= %u -> %s\n", len, (unsigned)MIRROR_TEXT_LEN,
+           ok ? "yes (ok)" : "no (FAIL)");
+    if (!ok) fails++;
+  }
 
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails != 0;

@@ -16,6 +16,10 @@
 // "mirror-len: checked in code" in a comment within the five lines above the call,
 // and is listed but not failed.
 //
+// Where the text a %s inserts has a known bound - a ROM code's tail, a whole ROM
+// code - the marker "mirror-len: %s<=N" in the same place says so, and every %s
+// in that call counts N characters. The line is then checked like any other.
+//
 // A format with a %s cannot be bounded from the source - the text comes from
 // elsewhere. Those are listed with their length without the strings, and fail only
 // when even that is too long. The mirror's run-time note covers the rest.
@@ -59,7 +63,7 @@ struct Estimate {
   bool hasString = false;  // a %s, whose length the source cannot tell
 };
 
-static Estimate estimate(const std::string &fmt) {
+static Estimate estimate(const std::string &fmt, int stringWidth = -1) {
   Estimate e;
   for (size_t i = 0; i < fmt.size(); i++) {
     if (fmt[i] != '%') {
@@ -82,7 +86,9 @@ static Estimate estimate(const std::string &fmt) {
     int width = m[1].matched && m[1].str() != "*" ? std::atoi(m[1].str().c_str()) : 0;
     int precision = m[2].matched ? (m[2].str() == "*" ? 2 : std::atoi(m[2].str().c_str())) : -1;
     char conv = m[4].str()[0];
-    if (conv == 's') {
+    if (conv == 's' && stringWidth >= 0) {
+      e.length += width > stringWidth ? width : stringWidth;
+    } else if (conv == 's') {
       e.hasString = true;
     } else {
       int w = conversionWidth(m[3].str(), conv, precision);
@@ -110,6 +116,7 @@ struct Call {
   int line;
   std::string fmt;
   bool checkedInCode;  // the marker is in the five lines above the call
+  int stringWidth;     // from "mirror-len: %s<=N" above the call, or -1
 };
 
 // Every logEvent("...") in a file, adjacent literals joined as the compiler joins
@@ -140,8 +147,15 @@ static std::vector<Call> findCalls(const fs::path &path) {
         from = 0;
       }
     }
-    bool marked = src.substr(from, it->position() - from).find("mirror-len: checked in code") != std::string::npos;
-    calls.push_back({path.filename().string(), line, fmt, marked});
+    std::string above = src.substr(from, it->position() - from);
+    bool marked = above.find("mirror-len: checked in code") != std::string::npos;
+    int stringWidth = -1;
+    static const std::regex hint(R"re(mirror-len: %s<=(\d+))re");
+    std::smatch h;
+    if (std::regex_search(above, h, hint)) {
+      stringWidth = std::atoi(h[1].str().c_str());
+    }
+    calls.push_back({path.filename().string(), line, fmt, marked, stringWidth});
   }
   return calls;
 }
@@ -176,6 +190,13 @@ int main() {
     {"100%% done", 9, false},
     {"%s from Zigbee", 12, true},
   };
+  // And with a bound on the inserted text.
+  {
+    Estimate e = estimate("slot %u (%s) gone", 4);
+    bool ok = e.length == 5 + 3 + 2 + 4 + 6 && !e.hasString;
+    printf("  %-40s %3d    %s\n", "slot %u (%s) gone   [%s<=4]", e.length, ok ? "ok" : "FAIL");
+    if (!ok) fails++;
+  }
   for (auto &k : known) {
     Estimate e = estimate(k.fmt);
     bool ok = e.length == k.length && e.hasString == k.hasString;
@@ -206,7 +227,7 @@ int main() {
           continue;  // logEvent() itself, or a call with no literal format
         }
         checked++;
-        Estimate e = estimate(c.fmt);
+        Estimate e = estimate(c.fmt, c.stringWidth);
         // Leading spaces are not carried: the mirror drops a console indent.
         size_t indent = c.fmt.find_first_not_of(' ');
         int len = e.length - (int)(indent == std::string::npos ? 0 : indent);
