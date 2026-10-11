@@ -68,12 +68,22 @@ void slotsReportSummary(const uint64_t *rom, const bool *present) {
   //
   // 42 characters at three slots, against the MIRROR_TEXT_LEN of 48 that the mirror
   // carries - so it goes out whole rather than cut, which is what the wording is
-  // chosen for. It is 38 plus one digit per number, so two-digit counts still fit.
-  // It read "temp sensors (3 slots): 3 on the bus, ..." (61 characters) until
+  // chosen for. It is SLOT_SUMMARY_FIXED_CHARS (38) plus one digit per number; the
+  // static_assert below the function checks the widest case. It read "temp sensors (3 slots): 3 on the bus, ..." (61 characters) until
   // v3.1.4 brought MIRROR_TEXT_LEN down to what the stack accepts - see config.h.
   logEvent("%u slots: %u on bus, %u missing, %u never seen", (unsigned)MAX_DS18B20_SENSORS,
            (unsigned)onBus, (unsigned)missing, (unsigned)neverSeen);
 }
+
+// None of the four numbers can be larger than the slot count, so this is the
+// longest the summary can ever get: every number as wide as the slot count. At the
+// ceiling of 16 slots that is 46 characters, inside a MIRROR_TEXT_LEN of 48. A
+// larger slot count or a longer wording that would get the line cut fails here.
+static constexpr size_t decimalDigits(unsigned n) {
+  return n < 10 ? 1 : 1 + decimalDigits(n / 10);
+}
+static_assert(SLOT_SUMMARY_FIXED_CHARS + 4 * decimalDigits(MAX_DS18B20_SENSORS) <= MIRROR_TEXT_LEN,
+              "the slot summary can outgrow the mirrored line at this slot count - shorten the wording");
 
 void slotsForgetSummary() {
   lastOnBus = lastMissing = lastNeverSeen = 0xFF;

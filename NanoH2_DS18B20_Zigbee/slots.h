@@ -39,6 +39,12 @@ void slotsBegin();
 // sketch's slot arrays, MAX_DS18B20_SENSORS long.
 void slotsReportSummary(const uint64_t *rom, const bool *present);
 
+// The fixed part of the summary line, every character of it except the four
+// numbers. slots.cpp checks at compile time that the line still fits the mirror with
+// every number at its widest, and the host test checks that this is the wording's
+// real length - so a rewording has to update it, and then has to fit.
+static constexpr size_t SLOT_SUMMARY_FIXED_CHARS = 38;
+
 // Forget what was last reported, so the next slotsReportSummary() says it again
 // whether or not anything moved. Called on a join: the line that went out before
 // the radio was up reached nobody.

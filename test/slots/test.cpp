@@ -160,7 +160,7 @@ int main() {
     // coordinator. A build of more than 9 slots spends one more character on each
     // count that reaches two digits.
     size_t len = strlen(lastMirrored());
-    check("38 characters plus one digit per number", len == 38 + 4);
+    check("SLOT_SUMMARY_FIXED_CHARS plus one digit per number", len == SLOT_SUMMARY_FIXED_CHARS + 4);
     check("within MIRROR_TEXT_LEN, so it goes out whole", len <= MIRROR_TEXT_LEN);
   }
 
