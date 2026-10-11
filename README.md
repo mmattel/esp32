@@ -36,5 +36,10 @@ seconds as proof that data gets through. The cost is one rejoin.
 ```
 tools/serial-capture.sh                    # first /dev/ttyACM*
 tools/serial-capture.sh --reset            # restart the board, capture from boot
+tools/serial-capture.sh --wait             # cold boot: start, then power the board on
 tools/serial-capture.sh /dev/ttyACM1
 ```
+
+`--wait` is for a cold boot: start the script with the board off, then power it on.
+The script waits for the port to appear and captures from the first line, banner
+included. The board waits up to 2 s for a host before it starts printing.

@@ -4,12 +4,16 @@
 # the console live. Every line is shown on screen and written to the file, with a
 # timestamp, so the log can be matched against the Zigbee2MQTT log afterwards.
 #
-# Usage: tools/serial-capture.sh [--reset] [port]   (default: the first /dev/ttyACM*)
+# Usage: tools/serial-capture.sh [--reset | --wait] [port]   (default: the first /dev/ttyACM*)
 # Stop with Ctrl+C. Logs go to ~/nanoh2-logs/.
 #
 #   --reset  restarts the board just before the capture starts, so the boot log
 #            (banner with the version, the EP list, the join, the first readings)
 #            arrives within seconds - proof that data gets through. Costs a rejoin.
+#   --wait   for a cold boot: start this first, then power the board on. Waits for
+#            its serial port to appear and captures from the first line. The board
+#            waits up to 2 s for a host to open the port (SERIAL_WAIT_MS), which is
+#            long enough for this to catch the banner.
 #
 # The firmware is quiet between events: with force push off and temperatures inside
 # the deadband, minutes can pass without a line. So while nothing arrives, a status
@@ -28,23 +32,49 @@ LOG_DIR="$HOME/nanoh2-logs"
 IDLE_NOTICE_S=${IDLE_NOTICE_S:-60}
 
 reset=0
+wait=0
 port=""
 for arg in "$@"; do
   case "$arg" in
     --reset) reset=1 ;;
+    --wait) wait=1 ;;
     -h | --help)
-      sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,/^$/p' "$0" | sed '/^$/d; s/^# \{0,1\}//'
       exit 0
       ;;
     *) port="$arg" ;;
   esac
 done
 
-if [[ -z "$port" ]]; then
-  port=$(ls /dev/ttyACM* 2>/dev/null | head -n 1 || true)
+if ((reset && wait)); then
+  echo "--reset and --wait exclude each other: --wait is for a board that is still off" >&2
+  exit 1
 fi
-if [[ -z "$port" || ! -e "$port" ]]; then
-  echo "No serial port found - is the NanoH2 plugged in?" >&2
+
+# The port the board shows up as: the one asked for, else the first /dev/ttyACM*.
+find_port() {
+  if [[ -n "$port" ]]; then
+    [[ -e "$port" ]] && echo "$port"
+  else
+    ls /dev/ttyACM* 2>/dev/null | head -n 1 || true
+  fi
+}
+
+waitStart=""
+if ((wait)) && [[ -z "$(find_port)" ]]; then
+  waitStart=$(date --iso-8601=seconds)
+  echo "Waiting for ${port:-a /dev/ttyACM* port} - power the board on now (Ctrl+C to give up)"
+  while [[ -z "$(find_port)" ]]; do
+    sleep 0.05
+  done
+  # The device node exists a moment before its permissions are set; opening it in
+  # that moment fails. A tenth of a second is well inside the board's 2 s host wait.
+  sleep 0.1
+fi
+
+port=$(find_port)
+if [[ -z "$port" ]]; then
+  echo "No serial port found - is the NanoH2 plugged in? (--wait waits for it)" >&2
   exit 1
 fi
 
@@ -81,6 +111,11 @@ log="$LOG_DIR/nanoh2-$(date +%Y%m%d-%H%M%S).log"
 # The host clock and zone go first, so the timestamps below can be lined up with
 # the Zigbee2MQTT log even if the two machines' clocks disagree.
 echo "# capture start $(date --iso-8601=seconds) on $(hostname), port $port" >"$log"
+if [[ -n "$waitStart" ]]; then
+  # When the wait began, so the time to the port appearing - the board powering up
+  # and enumerating - can be read off the log as well.
+  echo "# waited for the port from $waitStart (--wait)" >>"$log"
+fi
 
 if ((reset)); then
   if [[ -z "$ESPTOOL" ]]; then
@@ -130,5 +165,5 @@ status=0
 "$CLI" --config-file "$HOME/.arduinoIDE/arduino-cli.yaml" monitor -p "$port" \
   --config baudrate=115200 --timestamp --quiet | tee -a "$log" || status=$?
 
-lines=$(($(wc -l <"$log") - 1))
+lines=$(grep -vc '^#' "$log" || true)  # what the board sent, without the script's own # lines
 echo "Capture ended (exit $status), $lines line(s) in $log" >&2
