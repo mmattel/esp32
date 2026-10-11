@@ -23,8 +23,9 @@ cd test && make
 console to `~/nanoh2-logs/`, with a timestamp on every line. Use it when the device
 has to stay where it is, on its real parent router, with a notebook beside it and
 no network. The timestamps let the log be lined up with the Zigbee2MQTT log
-afterwards. It uses the arduino-cli bundled with the Arduino IDE flatpak. Close the
-IDE's Serial Monitor first, since only one program can hold the port.
+afterwards. It uses the arduino-cli bundled with the Arduino IDE flatpak. It refuses to start
+while another program has the port open, typically the IDE's Serial Monitor, and
+lists what holds it.
 
 ```
 tools/serial-capture.sh            # first /dev/ttyACM*

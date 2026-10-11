@@ -7,7 +7,8 @@
 # Usage: tools/serial-capture.sh [port]      (default: the first /dev/ttyACM*)
 # Stop with Ctrl+C. Logs go to ~/nanoh2-logs/.
 #
-# Close the Arduino IDE's Serial Monitor first: only one program can hold the port.
+# Refuses to start while another program has the port open - the Arduino IDE's
+# Serial Monitor, typically - and lists what holds it.
 # Uses the arduino-cli bundled with the Arduino IDE flatpak.
 
 set -euo pipefail
@@ -21,6 +22,31 @@ if [[ -z "$port" ]]; then
 fi
 if [[ -z "$port" || ! -e "$port" ]]; then
   echo "No serial port found - is the NanoH2 plugged in?" >&2
+  exit 1
+fi
+
+# Something else holding the port - the IDE's Serial Monitor, an upload still
+# running, a second capture - would either keep this one from opening it or share
+# the incoming bytes with it, and then both logs have holes. So look first: every
+# open file of every process of this user is a link under /proc/<pid>/fd, the
+# flatpak IDE's included, since its sandbox shares /dev with the host. Resolved
+# with readlink -f, so a /dev/serial/by-id/... name is matched as the device it
+# points to.
+target=$(readlink -f "$port")
+holders=()
+for fd in /proc/[0-9]*/fd/*; do
+  [[ "$(readlink "$fd" 2>/dev/null)" == "$target" ]] || continue
+  pid=${fd#/proc/}
+  pid=${pid%%/*}
+  [[ " ${holders[*]} " == *" $pid "* ]] || holders+=("$pid")
+done
+if ((${#holders[@]} > 0)); then
+  echo "$port is already open in another program:" >&2
+  for pid in "${holders[@]}"; do
+    cmd=$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | cut -c1-100)
+    echo "  PID $pid: ${cmd:-?}" >&2
+  done
+  echo "Close the Arduino IDE's Serial Monitor (or whatever is listed) and run this again." >&2
   exit 1
 fi
 
