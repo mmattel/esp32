@@ -1848,9 +1848,7 @@ reports, last 300 s: 34 sent, 0 refused
 
 Whether an accepted report arrived is not counted. v3.1.2 to v3.2.0 tried, through
 the stack's send status callback. It never fired for a single report ("34 sent, 0
-delivered" in the field), and registering it from the main task as the stack
-started was the likely trigger of a crash. Whether reports arrive is visible in
-Z2M.
+delivered" in the field). Whether reports arrive is visible in Z2M.
 
 ### When the Endpoint List Changes
 

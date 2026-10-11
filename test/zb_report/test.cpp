@@ -39,9 +39,7 @@ void esp_zb_zcl_update_reporting_info(esp_zb_zcl_reporting_info_t *report_info) 
   lastReportingInfo = *report_info;
   reportingInfoLocksHeld = locksHeld;
 }
-// Must never be called: registering it from the main task, unlocked, as the stack
-// starts was the likely trigger of a vPortExitCritical assert, and it never fired
-// for a report anyway - see zbReportBegin().
+// Must never be called: it never fired for a report - see zbReportBegin().
 void esp_zb_zcl_command_send_status_handler_register(esp_zb_zcl_command_send_status_callback_t) {
   sendStatusRegistered = true;
 }

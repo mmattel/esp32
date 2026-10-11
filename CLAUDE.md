@@ -148,8 +148,7 @@ whether the stack took each report, prints one line when an attribute starts bei
 refused and one when it recovers, and `zbReportHandle()` prints a summary every
 `REPORT_STATS_INTERVAL_S` ("N sent, M refused"). Do **not** register
 `esp_zb_zcl_command_send_status_handler` (v3.1.2 to v3.2.0 did): it never fired for
-a report, and registering it unlocked from the main task as the stack started was
-the likely trigger of a `vPortExitCritical` assert (2026-10-11).
+a report.
 `esp_zb_aps_data_confirm_handler_register()` is no alternative: per the SDK, the
 application then has to handle every APSDE confirm itself.
 
@@ -158,7 +157,7 @@ application then has to handle every APSDE confirm itself.
 `Zigbee.begin()` has run. The stack's task is running by then, and ZBOSS is not
 thread-safe.
 
-**LQI/RSSI need incoming frames, and come from the radio driver.** With default
+**LQI/RSSI need incoming frames, and come from the parent's answer frame.** With default
 responses off, the device may hear nothing from its parent for minutes.
 `probeParent()` (`zb_link`) sends the parent a ZDO IEEE address request before
 each link read. It's one hop and never goes through the coordinator. The stack
@@ -291,6 +290,7 @@ receives at least one value report, and the refresh forces that first read.
 | Issue | URL | What it affects |
 | --- | --- | --- |
 | arduino-esp32 #12917 | https://github.com/espressif/arduino-esp32/issues/12917 | Uninitialised `manuf_code` in core report helpers; workaround in `ZbMirror::reportText()` |
+| arduino-esp32 #10879 | https://github.com/espressif/arduino-esp32/issues/10879 | Resolved (PR #11792): the same `vPortExitCritical` assert as ours, from an unlocked stack call in the core. A reference for what a missing lock looks like, not a workaround in this code |
 | esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | Silent discard of binding-table-mode reports; fixed by unicast (see above) |
 | OneWire PR #165 | https://github.com/PaulStoffregen/OneWire/pull/165 | ESP32-H2/C2 support in OneWire; until it is merged and released, `ds18b20_bus` replaces the library |
 

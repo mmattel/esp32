@@ -31,7 +31,6 @@ struct LinkQuality {
   // parent entry was found.
   uint8_t rawLqi;
   int8_t rawRssi;
-  uint8_t rawAge;  // the stack's age counter for the entry
   // lqi is measured but rssi is not. Nothing to publish for the RSSI then. Not set
   // by anything at present - the RSSI follows from the LQI - and kept so a source
   // that cannot give both has a way to say so.

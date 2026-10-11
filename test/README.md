@@ -158,7 +158,16 @@ Covers:
   and a sibling is still found.
 - `probeParent()` sends a ZDO IEEE address request to the parent, about the parent,
   single-device form, with a callback, under the Zigbee lock. It sends nothing
-  while the stack is down.
+  while the stack is down. `probeAnswer()` reports the answer's status and delay,
+  and a new probe forgets the old answer.
+- `rssiFromLqi()` against the stack's own `esp_zb_rssi_to_lqi()` formula: every
+  RSSI from −80 to −30 dBm comes back exactly, the ends as bounds, plus the five
+  LQI/RSSI pairs seen in the field.
+- `linkBegin()` only schedules the indication handler's registration (under the
+  lock), and the stack's task performs it. The handler recognizes the parent's
+  `IEEE_addr_rsp` by sender and cluster, ignores other frames, keeps the first
+  answer per probe, and hands every frame on to the core's own handler.
+- The raw entry values are filled in even for an unmeasured entry.
 - Nothing to report — stack not started, empty table, two unflagged entries, lock
   unavailable — returns `valid=false`, and never leaves the lock held.
 - The fallback: a table with exactly one entry that is not flagged as the parent is
@@ -286,9 +295,9 @@ Covers:
   and the error), none while it lasts, one with the count when it ends. Each
   endpoint has its own spell. A Zigbee lock that cannot be had counts as a refusal,
   reported as a timeout.
-- `zbReportBegin()` registers no send status callback. Registering one unlocked as
-  the stack started was the likely cause of a crash, and it never fired for a
-  report anyway.
+- `zbReportBegin()` registers no send status callback: it never fired for a report.
+- `zbSetReporting()` calls the stack under the Zigbee lock. Without it, this call
+  crashed the stack's task about one boot in nine (fixed in v3.2.6).
 - Two attributes on one endpoint (the mirror's text and counter) keep separate
   spells, so the counter's success doesn't read as the text recovering.
 - The summary: not before `REPORT_STATS_INTERVAL_S`, then exactly the sent and

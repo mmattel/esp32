@@ -52,7 +52,6 @@ LinkQuality readParentLink() {
     link.parentAddr = neighbour.short_addr;
     link.rawLqi = neighbour.lqi;
     link.rawRssi = neighbour.rssi;
-    link.rawAge = neighbour.age;
     if (!measured(neighbour)) {
       link.unmeasured = true;
       continue;
@@ -70,7 +69,6 @@ LinkQuality readParentLink() {
     link.parentAddr = only.short_addr;
     link.rawLqi = only.lqi;
     link.rawRssi = only.rssi;
-    link.rawAge = only.age;
     if (measured(only)) {
       link.valid = true;
       link.assumed = true;

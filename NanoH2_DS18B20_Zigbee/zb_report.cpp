@@ -137,10 +137,8 @@ void zbSetReporting(uint8_t endpoint, uint16_t clusterId, uint16_t attrId, uint1
 }
 
 // No send status callback: v3.1.2 registered esp_zb_zcl_command_send_status_handler
-// to count deliveries, it never fired for a single report (field log of 2026-10-11:
-// "34 sent, 0 delivered, 0 not delivered"), and it was registered from the main
-// task without the Zigbee lock right as the stack started - the likely trigger of
-// the vPortExitCritical assert seen in the same session. The APS-level alternative,
+// to count deliveries, and it never fired for a single report (field log of
+// 2026-10-11: "34 sent, 0 delivered, 0 not delivered"). The APS-level alternative,
 // esp_zb_aps_data_confirm_handler_register(), hands the application the confirm
 // handling for every frame, the stack's own included, which is too much to take on
 // for a counter. Whether a report arrived is answered at the coordinator.
