@@ -4,6 +4,22 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.3
+
+**Fixed: LQI/RSSI after a reboot, for real this time.** The v3.2.2 diagnostics (field log of 2026-10-11, 17:09) showed the third case: the parent answers every request (ZDP status `0x00`, after ~231 ms), but the stack leaves its neighbour entry at LQI 0 / RSSI +127. The neighbour table simply isn't a source of link quality on this device.
+
+The answer callback now reads the radio driver's LQI and RSSI of the most recently received frame (`esp_ieee802154_get_recent_lqi()` / `_rssi()`) the moment the answer arrives, which is the parent's frame. That value is published. The neighbour entry stays as a fallback. The diagnostic line now shows both, until this join's first value is published:
+
+```
+link probe: parent 0x380B answered after 231 ms (ZDP status 0x00); frame LQI 196 RSSI -41; entry LQI 0 RSSI 127 age 112
+```
+
+The v3.2.2 log was also the sixth boot in a row without the crash fixed in 3.2.1.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only.
+
+---
+
 ## 3.2.2
 
 **Diagnostic build.** In the v3.2.1 field logs of 2026-10-11 (16:43 to 16:59, five boots), LQI/RSSI still never appeared: `no measurement in it yet` for 14 minutes, although the parent was asked for a frame every 10 s. There was no crash in any of the five boots, and force push averaged 59.9 s.

@@ -57,3 +57,14 @@ bool probeParent(uint16_t parentAddr);
 // took. The answer is recorded by the stack's task; this reads it. For the console
 // - which of "not sent", "not answered" and "answered but nothing measured" it is.
 bool probeAnswer(uint8_t *status, uint32_t *afterMs);
+
+// LQI and RSSI of the frame that carried the parent's answer to the last
+// probeParent(), read from the radio driver the moment the answer came in. False
+// until a successful answer has arrived since that probe.
+//
+// This is the measurement, not the neighbour entry: on this device the stack leaves
+// the parent's entry at LQI 0 / RSSI +127 however many frames the parent sends (field
+// log of 2026-10-11 17:09: seven answers, status 0x00, entry unchanged). The radio
+// driver keeps both values for the most recent frame it received, and right after the
+// answer that is the parent's frame - an end device hears little else.
+bool probeMeasurement(uint8_t *lqi, int8_t *rssi);

@@ -158,10 +158,15 @@ application then has to handle every APSDE confirm itself.
 `Zigbee.begin()` has run. The stack's task is running by then, and ZBOSS is not
 thread-safe.
 
-**LQI/RSSI need incoming frames.** With default responses off, the device may hear
-nothing from its parent for minutes. `probeParent()` (`zb_link`) sends the parent a
-ZDO IEEE address request before each link read. It's one hop and never goes
-through the coordinator.
+**LQI/RSSI need incoming frames, and come from the radio driver.** With default
+responses off, the device may hear nothing from its parent for minutes.
+`probeParent()` (`zb_link`) sends the parent a ZDO IEEE address request before
+each link read. It's one hop and never goes through the coordinator. The stack
+does **not** update the parent's neighbour entry from those answers: it stays at
+LQI 0 / RSSI +127, as seen on 2026-10-11. So the answer callback reads
+`esp_ieee802154_get_recent_lqi/rssi()` (the last received frame, which is the
+parent's answer), and those values are published. Don't rely on the neighbour
+table for link quality on this device.
 
 **A report carries at most 50 characters of string.** `esp_zb_zcl_report_attr_cmd_req()`
 refuses a bigger one with `ESP_ERR_INVALID_SIZE`. The rule, read from the SDK's

@@ -56,6 +56,14 @@ static esp_zb_zdo_ieee_addr_req_param_t lastProbe;
 static bool probeHadCallback = false;
 static esp_zb_zdo_ieee_addr_callback_t probeCallback = nullptr;
 uint32_t hostMillis = 0;
+static uint8_t radioLqi = 0;
+static int8_t radioRssi = 0;
+uint8_t esp_ieee802154_get_recent_lqi(void) {
+  return radioLqi;
+}
+int8_t esp_ieee802154_get_recent_rssi(void) {
+  return radioRssi;
+}
 void esp_zb_zdo_ieee_addr_req(esp_zb_zdo_ieee_addr_req_param_t *cmd_req, esp_zb_zdo_ieee_addr_callback_t user_cb,
                               void *) {
   probes++;
@@ -220,6 +228,24 @@ int main() {
     hostMillis = 5100;
     probeCallback((esp_zb_zdp_status_t)0x85, nullptr, nullptr);
     check("a timeout comes back as one", probeAnswer(&status, &after) && status == 0x85 && after == 100);
+  }
+
+  printf("the answer's frame is the measurement\n");
+  {
+    uint8_t lqi = 0;
+    int8_t rssi = 0;
+    probeParent(0x380B);
+    check("nothing measured before the answer", !probeMeasurement(&lqi, &rssi));
+    radioLqi = 196;
+    radioRssi = -41;
+    probeCallback((esp_zb_zdp_status_t)0x00, nullptr, nullptr);
+    radioLqi = 50;  // a later frame from someone else must not change it
+    radioRssi = -90;
+    check("the radio's values at the moment of the answer", probeMeasurement(&lqi, &rssi) && lqi == 196 && rssi == -41);
+    probeParent(0x380B);
+    check("a new probe forgets the old measurement", !probeMeasurement(&lqi, &rssi));
+    probeCallback((esp_zb_zdp_status_t)0x85, nullptr, nullptr);
+    check("a timeout measures nothing", !probeMeasurement(&lqi, &rssi));
   }
 
   printf("the raw entry, measured or not\n");

@@ -505,7 +505,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.2
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.3
 Sensor slots: 3
 ```
 
@@ -993,10 +993,16 @@ Worth knowing:
   hearing anything from its parent. After a reboot the value then never appeared
   (field log of 2026-10-11: still `no measurement in it yet` after 8 minutes). So
   before each read, the device sends its parent a ZDO IEEE address request and
-  reads `LINK_PROBE_WAIT_MS` later. The answer is a frame from the parent, which
-  refreshes the measurement. That's one small frame each way over the single hop to
-  the parent, never through the coordinator: once per `LINK_INTERVAL_S`, and while
-  waiting for a first measurement at most every `LINK_PROBE_MIN_GAP_MS`.
+  reads `LINK_PROBE_WAIT_MS` later. That's one small frame each way over the single
+  hop to the parent, never through the coordinator: once per `LINK_INTERVAL_S`, and
+  while waiting for a first measurement at most every `LINK_PROBE_MIN_GAP_MS`.
+- **The values come from the answer's frame, not from the neighbour table.** On
+  this device the stack leaves the parent's neighbour entry at LQI 0 / RSSI +127 no
+  matter how many frames arrive (v3.2.2 diagnostics: seven answers with status
+  `0x00`, entry unchanged). So the moment the answer comes in, the device reads the
+  radio driver's LQI and RSSI of the last received frame
+  (`esp_ieee802154_get_recent_lqi/rssi()`), which is the parent's answer. The
+  neighbour entry is only a fallback.
 - **Both are read once right after a join or rejoin**, and then every
   `LINK_INTERVAL_S`. To walk the board around and compare candidate spots, lower
   that interval for the trip — there is no manual trigger, since the button does
@@ -1173,10 +1179,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.2` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.2.2`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30202`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.2.2` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.3` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.2.3`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30203`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.2.3` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1208,7 +1214,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.2.2"`) and `FW_VERSION_NUMBER` (`30202`) are built from them, so
+`FW_VERSION` (`"3.2.3"`) and `FW_VERSION_NUMBER` (`30203`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1280,7 +1286,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.2
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.3
 Sensor slots: 3
 ```
 

@@ -54,6 +54,10 @@ typedef struct esp_zb_zdo_ieee_addr_req_param_s {
 } esp_zb_zdo_ieee_addr_req_param_t;
 typedef void (*esp_zb_zdo_ieee_addr_callback_t)(esp_zb_zdp_status_t zdo_status, esp_zb_zdo_ieee_addr_rsp_t *resp,
                                                 void *user_ctx);
+// The radio driver's last received frame (esp_ieee802154.h), set by the test.
+uint8_t esp_ieee802154_get_recent_lqi(void);
+int8_t esp_ieee802154_get_recent_rssi(void);
+
 // Defined by the test: records the request.
 void esp_zb_zdo_ieee_addr_req(esp_zb_zdo_ieee_addr_req_param_t *cmd_req, esp_zb_zdo_ieee_addr_callback_t user_cb,
                               void *user_ctx);

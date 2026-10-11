@@ -1,5 +1,6 @@
 #include "zb_link.h"
 #include "Zigbee.h"
+#include "esp_ieee802154.h"
 
 // Whether an entry holds a measurement at all. The stack creates the parent's
 // neighbour entry when the join completes and fills these two fields in from a frame
@@ -94,11 +95,30 @@ static volatile bool probeAnswered = false;
 static volatile uint8_t probeStatus = 0;
 static volatile uint32_t probeAnsweredMs = 0;
 static uint32_t probeSentMs = 0;
+static volatile bool probeMeasured = false;
+static volatile uint8_t probeLqi = 0;
+static volatile int8_t probeRssi = 0;
 
 static void onProbeAnswer(esp_zb_zdp_status_t status, esp_zb_zdo_ieee_addr_rsp_t *, void *) {
+  // First thing, before anything else can arrive: the radio's last frame is the
+  // parent's answer only until the next one comes in.
+  if (status == ESP_ZB_ZDP_STATUS_SUCCESS) {
+    probeLqi = esp_ieee802154_get_recent_lqi();
+    probeRssi = esp_ieee802154_get_recent_rssi();
+    probeMeasured = true;
+  }
   probeStatus = (uint8_t)status;
   probeAnsweredMs = millis();
   probeAnswered = true;
+}
+
+bool probeMeasurement(uint8_t *lqi, int8_t *rssi) {
+  if (!probeMeasured) {
+    return false;
+  }
+  *lqi = probeLqi;
+  *rssi = probeRssi;
+  return true;
 }
 
 bool probeAnswer(uint8_t *status, uint32_t *afterMs) {
@@ -120,6 +140,7 @@ bool probeParent(uint16_t parentAddr) {
     return false;
   }
   probeAnswered = false;
+  probeMeasured = false;  // a measurement belongs to the answer of this probe, not an older one
   probeSentMs = millis();
   esp_zb_zdo_ieee_addr_req_param_t req = {};
   req.dst_nwk_addr = parentAddr;
