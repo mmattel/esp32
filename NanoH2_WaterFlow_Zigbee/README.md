@@ -65,10 +65,12 @@ Several versions exist. Some variants have both TX and RX channels; the
 
 <sub>Image: SparkFun Electronics, from the <a href="https://learn.sparkfun.com/tutorials/bi-directional-logic-level-converter-hookup-guide" target="_blank" rel="noopener noreferrer">Bi-Directional Logic Level Converter Hookup Guide</a>, licensed <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a>.</sub>
 
-- **TX (TXI ↔ TXO) is bidirectional.** It's a MOSFET shifter that works both ways,
-  and it's the only one that shifts from low to high. That's the channel to use.
-- **RX (RXI → RXO) is unidirectional only.** It's a voltage divider that only
-  shifts from high to low (RXI on the 5 V side in, RXO on the 3.3 V side out).
+- **TX (TXI ↔ TXO) is bidirectional.**\
+  It's a MOSFET shifter that works both ways, and it's the only one that shifts
+  from low to high. That's the channel to use.
+- **RX (RXI → RXO) is unidirectional only.**\
+  It's a voltage divider that only shifts from high to low (RXI on the 5 V side
+  in, RXO on the 3.3 V side out).
 
 
 ---
