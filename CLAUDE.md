@@ -106,7 +106,7 @@ Any change to shared logic must be applied to **both** copies:
 | `zb_version.cpp` / `zb_version.h` | Firmware version endpoint |
 | `zb_link_endpoint.cpp` / `zb_link_endpoint.h` | Link quality endpoint base |
 | `zb_link.cpp` / `zb_link.h` | LQI/RSSI measurement |
-| `zb_report.cpp` / `zb_report.h` | Every attribute report (`zbReport()`), reporting entries, delivery tracking |
+| `zb_report.cpp` / `zb_report.h` | Every attribute report (`zbReport()`), reporting entries, refusal tracking and summary |
 | `zb_setting.cpp` / `zb_setting.h` | Writable settings endpoints |
 
 After finishing the DS18B20 side of a change, always check whether the WaterFlow
@@ -255,7 +255,7 @@ The user's coordinator runs Zigbee2MQTT with these identifiers (confirmed
 | Channel | `11` |
 | NanoH2 DS18B20 IEEE | `0x1051dbfffe684d0b` |
 | Z2M device name | `NanoH2-Pool` |
-| Parent router | Terrasse/Pool, short address `0x380B` (LQI 163–209 seen 2026-10-11) |
+| Parent router | Terrasse/Solarpumpe, short address `0x2CD7` (LQI 173–229, −35 to −46 dBm, 2026-10-11/13). Until 2026-10-11 it was Terrasse/Pool, `0x380B`; the device switched during a series of rapid resets and stayed |
 
 These are Z2M's stock defaults — a neighbour's untouched Z2M would look identical in
 a scan. When reading `scan: N network(s) in range` output, treat `0x1A62 | 11` as
