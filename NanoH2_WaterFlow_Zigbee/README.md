@@ -57,6 +57,21 @@ to flash, and set or reset the running counter.
 | [USB-C to 2-pin screw-on adapter](https://de.aliexpress.com/item/1005010757932530.html) | Connects the 5 V supply to the NanoH2 |
 | [Grove HY2.0-4P cable](https://de.aliexpress.com/item/1005007474983293.html) | Included with NanoH2 |
 
+**Note on the logic level converter:**
+Several versions exist. Some variants have both TX and RX channels; the
+"LLC signal channel" in [Wiring](#wiring) is the bidirectional TX side:
+
+<img src="../NanoH2_DS18B20_Zigbee/images/llc-tx-rx-sparkfun.png" width="240" alt="Logic level converter with TX and RX channels: TXI/TXO bidirectional, RXI/RXO from high to low only">
+
+<sub>Image: SparkFun Electronics, from the <a href="https://learn.sparkfun.com/tutorials/bi-directional-logic-level-converter-hookup-guide" target="_blank" rel="noopener noreferrer">Bi-Directional Logic Level Converter Hookup Guide</a>, licensed <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a>.</sub>
+
+- **TX (TXI ⟷ TXO) is bidirectional.**\
+  It's a MOSFET shifter that works both ways, and it's the only one that shifts
+  from low to high. That's the channel to use.
+- **RX (RXI ⟶ RXO) is unidirectional only.**\
+  It's a voltage divider that only shifts from high to low (RXI on the 5 V side
+  in, RXO on the 3.3 V side out).
+
 
 ---
 
