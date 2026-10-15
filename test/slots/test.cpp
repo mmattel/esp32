@@ -341,6 +341,70 @@ int main() {
     check("a buffer too small is cut, not overrun", strlen(tiny) == sizeof(tiny) - 1);
   }
 
+  printf("power-on reset spikes\n");
+  reset();
+  {
+    const float POR = 85.0f - 0.75f;  // the power-on default as published, with a correction
+    check("an ordinary reading is never a spike", !slotsIsPorSpike(0, 10.5f, false));
+    check("the power-on default with nothing to judge by is one", slotsIsPorSpike(0, POR, true));
+    slotsNoteReading(0, ROM_A, 10.5f, false);
+    hostMillis += 10000;
+    check("jumping there from 10.5 C is one", slotsIsPorSpike(0, POR, true));
+    slotsNoteReading(0, ROM_A, POR - 3.0f, false);
+    hostMillis += 10000;
+    check("arriving from 3 C below is a real reading", !slotsIsPorSpike(0, POR, true));
+    hostMillis += (POR_SPIKE_MAX_AGE_S + 1) * 1000UL;
+    check("but not once that reading is too old to judge by", slotsIsPorSpike(0, POR, true));
+
+    // Discarded: the last good reading stays what it was.
+    reset();
+    slotsNoteReading(0, ROM_A, 10.5f, false);
+    slotsNoteSpike(0, ROM_A);
+    check("a spike says so on the console", printed("85.00 C power-on reset discarded, last good 10.5 C"));
+    check("but not on the mirror", mirrorCount == 0);
+    hostMillis += 5000;
+    slotsReportReadFailure(0, ROM_A);
+    check("the last good reading is still the real one", onAir("read failed, last 10.5 C"));
+  }
+
+  printf("spikes counted and reported per window\n");
+  reset();
+  {
+    for (int n = 0; n < POR_SPIKE_REPORT_COUNT; n++) {
+      slotsReportSpikes(0, ROM_A);
+      slotsNoteSpike(0, ROM_A);
+      hostMillis += 10000;
+    }
+    slotsReportSpikes(0, ROM_A);
+    check("nothing before the window closes", mirrorCount == 0);
+    hostMillis = POR_SPIKE_WINDOW_S * 1000UL;  // the window opened at 0
+    slotsReportSpikes(0, ROM_A);
+    char want[64];
+    snprintf(want, sizeof(want), "slot 0 (ABCD): %u spikes in %u s", (unsigned)POR_SPIKE_REPORT_COUNT,
+             (unsigned)POR_SPIKE_WINDOW_S);
+    check("then one line with the count and the window", mirrorCount == 1 && strcmp(lastMirrored(), want) == 0);
+    hostMillis += POR_SPIKE_WINDOW_S * 1000UL;
+    slotsReportSpikes(0, ROM_A);
+    check("and the window starts afresh", mirrorCount == 1);
+
+    // Fewer than the threshold: counted, but not worth a line.
+    reset();
+    slotsNoteSpike(1, ROM_B);
+    hostMillis += POR_SPIKE_WINDOW_S * 1000UL;
+    slotsReportSpikes(1, ROM_B);
+    check("below the threshold the window closes silently", mirrorCount == 0);
+    // Per slot: slot 0's spikes are not slot 1's.
+    slotsNoteSpike(0, ROM_A);
+    slotsNoteSpike(0, ROM_A);
+    slotsNoteSpike(0, ROM_A);
+    hostMillis += POR_SPIKE_WINDOW_S * 1000UL;
+    slotsReportSpikes(1, ROM_B);
+    check("each slot counts its own", mirrorCount == 0);
+    slotsForgetSlot(0);
+    slotsReportSpikes(0, ROM_A);
+    check("a released slot forgets its spikes", mirrorCount == 0);
+  }
+
   printf("\n%s\n", fails ? "FAILURES" : "ALL PASS");
   return fails ? 1 : 0;
 }

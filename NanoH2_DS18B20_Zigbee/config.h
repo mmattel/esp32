@@ -38,7 +38,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 3
 #define FW_VERSION_MINOR 2
-#define FW_VERSION_PATCH 8
+#define FW_VERSION_PATCH 9
 
 // "2.0.0", built from the three numbers above. Two macros because a macro
 // argument is stringified as it was written: the outer one exists so that
@@ -281,6 +281,29 @@ static const LedColor COLOR_BOOT = {0, 30, 30};            // cyan, fast flashin
 // investigating - the console says so with "read retried" - and the answer is
 // usually the pull-up, the cable or the supply.
 #define ONEWIRE_READ_RETRIES 1
+
+// Power-on reset spikes. A DS18B20 that loses its supply for a moment restarts with
+// +85.00 C in its temperature register, and a read before its next conversion
+// returns exactly that, with a good CRC. A contact or a cable that keeps dropping
+// out - moisture, corrosion, a loose terminal - makes a sensor do it again and
+// again: on 2026-10-11 to 15 one slot jumped between ~10 C and 85 C for hours.
+//
+// Such a reading is discarded - not published, and not taken as the slot's last good
+// reading - unless it is plausible: a good reading no older than
+// POR_SPIKE_MAX_AGE_S that was within POR_SPIKE_DELTA_C of it. A sensor that really
+// warms up to 85 C gets there through readings next to it and passes; one that
+// jumps there from 10 C does not. Without a recent good reading there is nothing to
+// judge by, and the reading is discarded too - the next real one follows within a
+// reading interval.
+#define POR_SPIKE_DELTA_C 5.0f
+#define POR_SPIKE_MAX_AGE_S 300
+
+// Discarded spikes are counted per slot in a window that opens with the first one.
+// When it closes with at least POR_SPIKE_REPORT_COUNT of them, the console mirror
+// gets one line - "slot 0 (0094): 7 spikes in 600 s" - so the incident is reported
+// at the coordinator without a line per spike. Each spike also gets a console line.
+#define POR_SPIKE_WINDOW_S 600
+#define POR_SPIKE_REPORT_COUNT 3
 
 // ZCL reporting configuration for the temperature attributes. The deadband
 // above is enforced in software and every publish is reported explicitly, so

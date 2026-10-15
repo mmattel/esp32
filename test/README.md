@@ -86,6 +86,12 @@ sets, so the age of a reading is checked without waiting for it.
 
 Covers:
 
+- Power-on reset spikes (v3.2.9): an 85.00 °C reading is a spike unless a good
+  reading within `POR_SPIKE_DELTA_C` and no older than `POR_SPIKE_MAX_AGE_S`
+  precedes it. A discarded spike leaves the last good reading alone and goes to the
+  console only. Spikes are counted per slot, and a window that closes with at least
+  `POR_SPIKE_REPORT_COUNT` of them earns exactly one mirror line with the count;
+  below that, or for a released slot, it closes silently.
 - The summary counts: every state in one line, the three numbers always adding up
   to the configured slot count, and a slot that answers the bus counted as on it.
 - The summary's **length budget**. It is the one line built from four numbers, and

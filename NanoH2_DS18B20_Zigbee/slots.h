@@ -65,6 +65,21 @@ void slotsForgetSummary();
 // sensor sitting there costs one line rather than one per interval.
 void slotsNoteReading(uint8_t slot, const char *rom, float celsius, bool powerOnReset);
 
+// Whether a reading is a power-on reset spike to discard rather than publish: the
+// power-on default, with no good reading within POR_SPIKE_DELTA_C of it in the last
+// POR_SPIKE_MAX_AGE_S. See POR_SPIKE_DELTA_C in config.h. celsius is the reading as
+// it would be published, correction included, like the last good one it is compared
+// with.
+bool slotsIsPorSpike(uint8_t slot, float celsius, bool powerOnReset);
+
+// Counts a discarded spike in the slot's window, and says so on the console.
+void slotsNoteSpike(uint8_t slot, const char *rom);
+
+// Closes the slot's spike window once POR_SPIKE_WINDOW_S has passed since its first
+// spike, and puts one line on the console mirror if it held at least
+// POR_SPIKE_REPORT_COUNT spikes. Call on every reading of the slot.
+void slotsReportSpikes(uint8_t slot, const char *rom);
+
 // A read that failed every attempt. Says whether the slot ever read at all, which
 // is what separates a sensor that has never worked from one that worked until a
 // moment ago.

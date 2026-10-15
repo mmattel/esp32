@@ -1117,6 +1117,16 @@ void readAndPublish() {
     // a correction does not stop 85.00 C from being the power-on default.
     float celsius = roundReading(r.celsius + correction);
 
+    // A power-on reset spike - 85.00 C out of nowhere, a sensor that lost its supply
+    // for a moment - is discarded: not published, and not the last good reading
+    // either, so the coordinator keeps the real temperature. Counted, and reported
+    // on the mirror when it keeps happening. See POR_SPIKE_DELTA_C in config.h.
+    slotsReportSpikes(i, rom);
+    if (slotsIsPorSpike(i, celsius, r.powerOnReset)) {
+      slotsNoteSpike(i, rom);
+      continue;
+    }
+
     // Records the reading as this slot's last good one, and says so if it is exactly
     // the power-on default - see slots.h. Given the rounded value, so that what a
     // later failure reports as "last good" is the number the coordinator was sent.

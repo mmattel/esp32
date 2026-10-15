@@ -527,7 +527,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.9
 Sensor slots: 3
 ```
 
@@ -1248,10 +1248,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.2.8`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30208`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.2.8` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.9` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.2.9`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30209`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.2.9` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1283,7 +1283,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.2.8"`) and `FW_VERSION_NUMBER` (`30208`) are built from them, so
+`FW_VERSION` (`"3.2.9"`) and `FW_VERSION_NUMBER` (`30209`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1355,7 +1355,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.9
 Sensor slots: 3
 ```
 
@@ -1487,18 +1487,55 @@ temperature register holds after a power-on reset, with a perfectly good CRC —
 it is what a sensor whose supply dips returns, and what any sensor returns if it
 is read before its first conversion finishes. It is also a temperature a sensor
 can legitimately be at, so the driver flags it rather than dropping it
-(`DS18B20Reading::powerOnReset`) and the sketch publishes the value and says what
-it means:
+(`DS18B20Reading::powerOnReset`), and the sketch decides by what came before.
+
+**A jump to 85.00 °C is discarded as a spike.** Since v3.2.9 the reading is
+published only if it's plausible: a good reading no older than
+`POR_SPIKE_MAX_AGE_S` was within `POR_SPIKE_DELTA_C` of it. A sensor that really
+warms up to 85 °C gets there through readings next to it and passes. One that jumps
+there from 10 °C doesn't, so the reading is dropped and the coordinator keeps the
+real temperature. Without a recent good reading there's nothing to judge by, and
+it's dropped too. The next real reading follows within one reading interval. Each
+discarded spike gets a console line:
+
+```
+slot 0 (2850225200000094): 85.00 C power-on reset discarded, last good 10.7 C 10 s ago
+```
+
+Spikes are counted per slot, in a window that opens with the first one. When the
+window closes with at least `POR_SPIKE_REPORT_COUNT` spikes, the console mirror
+gets one line, so the incident is reported at the coordinator without a line per
+spike:
+
+```
+slot 0 (0094): 7 spikes in 600 s
+```
+
+| Setting (`config.h`) | Default | Meaning |
+| --- | --- | --- |
+| `POR_SPIKE_DELTA_C` | 5.0 | how far the last good reading may be from 85 °C for 85.00 °C to count as real |
+| `POR_SPIKE_MAX_AGE_S` | 300 | how old that last good reading may be |
+| `POR_SPIKE_WINDOW_S` | 600 | the counting window, opened by the first spike |
+| `POR_SPIKE_REPORT_COUNT` | 3 | how many spikes in a window earn a mirror line |
+
+A plausible 85.00 °C is published as before, with a note once per spell of it:
 
 ```
 slot 0 (ABCD): 85.00 C is the power-on default
   check the supply and the wiring
 ```
 
-Once per spell of it, not once per interval, and the check is for that exact
-value: 84.9375 °C and 85.0625 °C are one sixteenth of a degree away and are
-treated as real readings. The usual cause is a pull-up or a supply that cannot
-hold the sensor through a conversion — see [supply
+The check is for that exact value: 84.9375 °C and 85.0625 °C are one sixteenth of
+a degree away and are treated as real readings.
+
+**Spikes point at that sensor's own supply path.** A sensor restarts when it
+briefly loses power, and when only one sensor does it while the others on the same
+supply read fine, the cause is its own cable or connection: moisture in the probe
+sleeve or a cable joint, a corroding contact, a loose wire in a terminal. In the
+field (2026-10-12 to 15) one sensor did it in bursts, mostly at night and in the
+morning, which points to condensation. The filter keeps the published values clean.
+The fix is in the wiring. If all sensors do it, look at the pull-up or a supply that
+can't hold the sensors through a conversion — see [supply
 voltage](#supply-voltage--check-this-before-powering-up).
 
 ### Why the First Lines Used to Arrive Mangled
