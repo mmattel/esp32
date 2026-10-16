@@ -33,7 +33,7 @@ $CLI --config-file ~/.arduinoIDE/arduino-cli.yaml compile \
 
 | Item | Value |
 | --- | --- |
-| Core | `m5stack:esp32` 3.3.9 (in `~/.arduino15/packages/m5stack/`) |
+| Core | `m5stack:esp32` 3.3.10 (in `~/.arduino15/packages/m5stack/`). Updated from 3.3.9 on 2026-10-16: same Zigbee library and byte-identical SDK libraries, only the upload command in `platform.txt` changed |
 | Board | `m5stack:esp32:m5stack_nano_h2` |
 | Required options | `ZigbeeMode=ed`, `PartitionScheme=zigbee` (Zigbee 4MB with spiffs) |
 | IDE config | `~/.arduinoIDE/arduino-cli.yaml` |
@@ -288,7 +288,7 @@ receives at least one value report, and the refresh forces that first read.
 ## Core/SDK Assumptions to Re-check After a Core Update
 
 Several fixes rely on **undocumented internals** of the Arduino core
-(m5stack:esp32 3.3.9) and the Espressif Zigbee SDK it bundles. They were read from
+(m5stack:esp32 3.3.10; checked against 3.3.9, unchanged) and the Espressif Zigbee SDK it bundles. They were read from
 the core's sources or from disassembly of the SDK libraries
 (`riscv32-esp-elf-objdump` on `~/.arduino15/packages/m5stack/tools/esp32h2-libs/<ver>/lib/*.a`).
 After a core or board-package update, go through this list:
