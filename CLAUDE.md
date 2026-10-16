@@ -318,6 +318,7 @@ After a core or board-package update, go through this list:
 | arduino-esp32 #10879 | https://github.com/espressif/arduino-esp32/issues/10879 | Resolved (PR #11792): the same `vPortExitCritical` assert as ours, from an unlocked stack call in the core. A reference for what a missing lock looks like, not a workaround in this code |
 | esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | Silent discard of binding-table-mode reports; fixed by unicast (see above) |
 | OneWire PR #165 | https://github.com/PaulStoffregen/OneWire/pull/165 | ESP32-H2/C2 support in OneWire; until it is merged and released, `ds18b20_bus` replaces the library |
+| zigbee2mqtt #33407 | https://github.com/Koenkk/zigbee2mqtt/issues/33407 | Opened by the user 2026-10-16: a re-interview doesn't re-send HA discovery, so HA's device info keeps the old firmware until Z2M is restarted. Both READMEs, "Firmware Version", describe the restart; drop it there once a Z2M release fixes this |
 
 Check these periodically; a resolved issue may allow removing a workaround.
 
