@@ -3,6 +3,11 @@
 #include "config.h"
 #include "console.h"
 
+#if !defined(POR_SPIKE_DELTA_C) || !defined(POR_SPIKE_MAX_AGE_S) || !defined(POR_SPIKE_WINDOW_S) \
+    || !defined(POR_SPIKE_REPORT_COUNT)
+#error "config.h has no power-on reset spike settings - update the whole sketch folder from one commit"
+#endif
+
 // The last reading that came back valid, per slot, and when it did. Deliberately
 // separate from the sketch's lastPublished[]: that one is what the coordinator has,
 // which the deadband can hold well behind the sensor, and its timestamp is the time
@@ -18,6 +23,11 @@ static uint32_t lastGoodMs[DS18B20_SLOT_ARRAY_LEN] = {0};
 // Whether the power-on default has already been reported for this slot.
 static bool porReported[DS18B20_SLOT_ARRAY_LEN] = {false};
 
+// Discarded power-on reset spikes in the slot's current window, and when the window
+// opened. A count of 0 means no window is open.
+static uint16_t spikeCount[DS18B20_SLOT_ARRAY_LEN] = {0};
+static uint32_t spikeWindowMs[DS18B20_SLOT_ARRAY_LEN] = {0};
+
 // What slotsReportSummary() last put on the air. 0xFF is not a reachable count -
 // MAX_DS18B20_SENSORS caps all three - so the first call always reports.
 static uint8_t lastOnBus = 0xFF;
@@ -29,6 +39,7 @@ void slotsBegin() {
     lastGoodC[i] = NAN;
     lastGoodMs[i] = 0;
     porReported[i] = false;
+    spikeCount[i] = 0;
   }
 }
 
@@ -114,20 +125,62 @@ void slotsNoteReading(uint8_t slot, const char *rom, float celsius, bool powerOn
   Serial.printf("  check the supply and the wiring" CONSOLE_EOL);
 }
 
-void slotsReportReadFailure(uint8_t slot, const char *rom) {
+bool slotsIsPorSpike(uint8_t slot, float celsius, bool powerOnReset) {
+  if (!powerOnReset) {
+    return false;
+  }
+  if (isnan(lastGoodC[slot]) || (millis() - lastGoodMs[slot]) > (uint32_t)POR_SPIKE_MAX_AGE_S * 1000UL) {
+    return true;  // nothing recent to judge by
+  }
+  return fabsf(celsius - lastGoodC[slot]) > POR_SPIKE_DELTA_C;
+}
+
+void slotsNoteSpike(uint8_t slot, const char *rom) {
+  if (spikeCount[slot] == 0) {
+    spikeWindowMs[slot] = millis();
+  }
+  if (spikeCount[slot] < UINT16_MAX) {
+    spikeCount[slot]++;
+  }
+  // Console only, one per spike; the mirror gets the count - see slotsReportSpikes().
+  if (isnan(lastGoodC[slot])) {
+    Serial.printf("slot %u (%s): 85.00 C power-on reset discarded, no good reading yet" CONSOLE_EOL,
+                  (unsigned)slot, rom);
+  } else {
+    char age[AGE_TEXT_CHARS];
+    ageText(millis() - lastGoodMs[slot], age, sizeof(age));
+    Serial.printf("slot %u (%s): 85.00 C power-on reset discarded, last good %.*f C %s ago" CONSOLE_EOL,
+                  (unsigned)slot, rom, TEMP_PUBLISH_DECIMALS, lastGoodC[slot], age);
+  }
+}
+
+void slotsReportSpikes(uint8_t slot, const char *rom) {
+  if (spikeCount[slot] == 0 || (millis() - spikeWindowMs[slot]) < (uint32_t)POR_SPIKE_WINDOW_S * 1000UL) {
+    return;
+  }
+  if (spikeCount[slot] >= POR_SPIKE_REPORT_COUNT) {
+    // mirror-len: %s<=4 - romTail(), see slots.h
+    logEvent("slot %u (%s): %u spikes in %u s", (unsigned)slot, romTail(rom), (unsigned)spikeCount[slot],
+             (unsigned)POR_SPIKE_WINDOW_S);
+  }
+  spikeCount[slot] = 0;
+}
+
+void slotsReportReadFailure(uint8_t slot, const char *rom, const char *why) {
   // Which of the two failures this is decides what to do about it: a sensor that has
   // never read since boot is wired wrong or dead, one that read fine until a moment
   // ago is a contact or a supply that is going. The age of the last good reading is
   // a console detail, because it changes on every attempt and would otherwise defeat
-  // the mirror's deadband - every failed read would cost a report.
-  // mirror-len: %s<=4 - romTail(), see slots.h
+  // the mirror's deadband - every failed read would cost a report. The reason takes
+  // the place of the words "read failed": both do not fit the mirror.
+  // mirror-len: %s<=4,10 - romTail(), then DS18B20Bus::FAULT_TEXT_MAX
   if (isnan(lastGoodC[slot])) {
-    logEvent("slot %u (%s): read failed, never read yet", (unsigned)slot, romTail(rom));
+    logEvent("slot %u (%s): %s, never read yet", (unsigned)slot, romTail(rom), why);
     return;
   }
 
-  // mirror-len: %s<=4
-  logEvent("slot %u (%s): read failed, last %.*f C", (unsigned)slot, romTail(rom), TEMP_PUBLISH_DECIMALS,
+  // mirror-len: %s<=4,10
+  logEvent("slot %u (%s): %s, last %.*f C", (unsigned)slot, romTail(rom), why, TEMP_PUBLISH_DECIMALS,
            lastGoodC[slot]);
   char age[AGE_TEXT_CHARS];
   ageText(millis() - lastGoodMs[slot], age, sizeof(age));
@@ -146,4 +199,5 @@ void slotsForgetSlot(uint8_t slot) {
   lastGoodC[slot] = NAN;
   lastGoodMs[slot] = 0;
   porReported[slot] = false;
+  spikeCount[slot] = 0;  // a new sensor starts with a clean record
 }

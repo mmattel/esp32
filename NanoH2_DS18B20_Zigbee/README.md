@@ -527,7 +527,7 @@ The count is the second line of the boot log, so what a build was compiled with 
 visible without reading `config.h`:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.10
 Sensor slots: 3
 ```
 
@@ -1134,7 +1134,7 @@ What is mirrored is what the console calls an event in its own right:
 | `Button: idle now, back in use` | that pin went idle again, so the button is real after all |
 | `Factory reset: clearing NVS and re-pairing` | sent while the network is still there, so the coordinator hears why the device leaves |
 | `Force push interval EP17: 1 -> 2`<br>`Reporting delta EP11: 0.50, asked 0.44` | a coordinator changed the interval, the delta, the [correction](#temperature-correction) or the force push and it moved: old -> new, or the request when it was rounded or clamped |
-| `slot 0 (ABCD): read failed, never read yet`, `slot 1 (BEEF) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
+| `slot 0 (ABCD): bad CRC, never read yet`, `slot 1 (BEEF) is configured but missing` | a sensor stopped answering — the wording says which kind, see [telling an empty slot from a sensor that has failed](#telling-an-empty-slot-from-a-sensor-that-has-failed) |
 | `3 slots: 1 on bus, 1 missing, 1 never seen` | the three counts changed, or a join happened |
 | `slot 0 (ABCD): 85.00 C is the power-on default` | a sensor came back with the value its register holds after a reset |
 | `1-Wire: no device responded to CONVERT T` | nothing on the bus at all |
@@ -1207,7 +1207,7 @@ Worth knowing:
   `Console mirror (EP 14): line above cut to 48 of 63 characters` right under it.
   Fixed wordings are checked before flashing by the `logevent_len` host test.
 - **Mirrored slot lines carry the last four digits of the ROM code**, e.g.
-  `slot 0 (ABCD): read failed, last 21.4 C`. The full 16-digit code doesn't fit
+  `slot 0 (ABCD): bad CRC, last 21.4 C`. The full 16-digit code doesn't fit
   beside the rest in 48 characters. The slot number already names the sensor, and
   the boot log lists every slot with its full code. The one exception is a sensor
   that's ignored because every slot is taken: it has no slot, so its line keeps the
@@ -1248,10 +1248,10 @@ one of them has a serial console attached.
 
 | Where | What it is | Needs |
 | --- | --- | --- |
-| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8` | a console |
-| Basic cluster, SWBuildID (0x4000) | `3.2.8`, on every settings endpoint and on 16 | nothing — read during the interview |
-| endpoint 16, `presentValue` | `30208`, the version as one number that sorts | nothing |
-| endpoint 16, attribute 0xF000 | `3.2.8` again, as a string | the [external converter](#adding-the-external-converter) |
+| the boot banner | `M5Stack NanoH2 - DS18B20 over Zigbee v3.2.10` | a console |
+| Basic cluster, SWBuildID (0x4000) | `3.2.10`, on every settings endpoint and on 16 | nothing — read during the interview |
+| endpoint 16, `presentValue` | `30210`, the version as one number that sorts | nothing |
+| endpoint 16, attribute 0xF000 | `3.2.10` again, as a string | the [external converter](#adding-the-external-converter) |
 
 In Zigbee2MQTT the first of those shows up by itself as **Firmware build ID** on
 the device page, next to the manufacturer and the model. That is the copy worth
@@ -1283,7 +1283,7 @@ All three copies come from the same three numbers in `config.h`:
 #define FW_VERSION_PATCH 0
 ```
 
-`FW_VERSION` (`"3.2.8"`) and `FW_VERSION_NUMBER` (`30208`) are built from them, so
+`FW_VERSION` (`"3.2.10"`) and `FW_VERSION_NUMBER` (`30210`) are built from them, so
 there is one place to bump and no way for the string and the number to disagree —
 which is the whole reason the version is not simply one string any more. What the
 three numbers *mean* is under [Which Build Is Running](#which-build-is-running).
@@ -1355,7 +1355,7 @@ See [Console Mirror](#console-mirror).
 The first line of every boot names the firmware version:
 
 ```
-M5Stack NanoH2 - DS18B20 over Zigbee v3.2.8
+M5Stack NanoH2 - DS18B20 over Zigbee v3.2.10
 Sensor slots: 3
 ```
 
@@ -1414,15 +1414,29 @@ Four states, and what each one prints:
 | --- | --- | --- |
 | never assigned | `slot 2 is unassigned, no sensor has ever claimed it` | no, see below |
 | assigned, not answering the bus scan | `slot 0 (ABCD) is configured but missing` | yes |
-| answering the scan, every attempt bad, none ever good | `slot 0 (ABCD): read failed, never read yet` | yes |
-| answering the scan, every attempt bad, one was good | `slot 0 (ABCD): read failed, last 21.4 C` + `that reading was 7 min ago` | the first line only |
+| answering the scan, every attempt bad, none ever good | `slot 0 (ABCD): <reason>, never read yet` | yes |
+| answering the scan, every attempt bad, one was good | `slot 0 (ABCD): <reason>, last 21.4 C` + `that reading was 7 min ago` | the first line only |
 
 The middle two are the useful pair. A slot only holds a ROM code because a scan
 once found that sensor and wrote the code to NVS, so **`configured but missing`
 is proof the sensor existed** — a slot that was never filled cannot produce that
-line. And `read failed` says the sensor still answers the ROM search, so it is
-powered and addressable, but the scratchpad came back with a bad CRC or an
-impossible value: a marginal contact rather than a missing device.
+line. And a read failure says the sensor still answered the ROM search, so it was
+powered and addressable then, but the read that followed went wrong.
+
+**The reason names what went wrong** (since v3.2.10; before, every case read
+`read failed`). It's the last attempt's, and it takes the place of the words "read
+failed", because both don't fit the 48 characters the mirror carries:
+
+| Reason | What the read saw | Points to |
+| --- | --- | --- |
+| `line low` | the data line was held low before the reset even started | a short to GND, or the pull-up is missing |
+| `no reply` | no presence pulse after the reset | nobody on the line: the bus is cut, or no sensor has power |
+| `no data` | presence pulse, then all ones: nobody drove a read slot | the addressed sensor isn't there or lost its supply mid-transfer, while another one answered the reset |
+| `bad CRC` | a scratchpad that came back corrupted | noise or a marginal contact on a sensor that is there |
+| `bad value` | a good CRC, but outside −55…125 °C | a sensor returning nonsense |
+
+The first two always hit every slot at once, because they are about the shared
+line. One slot alone with `no data` or `bad CRC` is that sensor's own cable.
 
 **Which of those two you get is itself the diagnosis.** A sensor that is gone
 goes missing at the scan; a sensor that is dying answers the scan and fails the
@@ -1438,7 +1452,7 @@ slot: the replacement has a ROM code of its own and cannot claim a slot that is
 still reserved for the dead one. See [replacing a
 sensor](#replacing-a-sensor).
 
-`read failed` means every attempt failed. A bad CRC on one read is the ordinary
+A read failure means every attempt failed. A bad CRC on one read is the ordinary
 result of a noisy edge on a long cable, and the conversion it belongs to is still
 sitting in the sensor's register, so asking again costs about 10 ms and usually
 works — against a slot that would otherwise stay dark until the next rescan, up to
@@ -1487,18 +1501,55 @@ temperature register holds after a power-on reset, with a perfectly good CRC —
 it is what a sensor whose supply dips returns, and what any sensor returns if it
 is read before its first conversion finishes. It is also a temperature a sensor
 can legitimately be at, so the driver flags it rather than dropping it
-(`DS18B20Reading::powerOnReset`) and the sketch publishes the value and says what
-it means:
+(`DS18B20Reading::powerOnReset`), and the sketch decides by what came before.
+
+**A jump to 85.00 °C is discarded as a spike.** Since v3.2.9 the reading is
+published only if it's plausible: a good reading no older than
+`POR_SPIKE_MAX_AGE_S` was within `POR_SPIKE_DELTA_C` of it. A sensor that really
+warms up to 85 °C gets there through readings next to it and passes. One that jumps
+there from 10 °C doesn't, so the reading is dropped and the coordinator keeps the
+real temperature. Without a recent good reading there's nothing to judge by, and
+it's dropped too. The next real reading follows within one reading interval. Each
+discarded spike gets a console line:
+
+```
+slot 0 (2850225200000094): 85.00 C power-on reset discarded, last good 10.7 C 10 s ago
+```
+
+Spikes are counted per slot, in a window that opens with the first one. When the
+window closes with at least `POR_SPIKE_REPORT_COUNT` spikes, the console mirror
+gets one line, so the incident is reported at the coordinator without a line per
+spike:
+
+```
+slot 0 (0094): 7 spikes in 600 s
+```
+
+| Setting (`config.h`) | Default | Meaning |
+| --- | --- | --- |
+| `POR_SPIKE_DELTA_C` | 5.0 | how far the last good reading may be from 85 °C for 85.00 °C to count as real |
+| `POR_SPIKE_MAX_AGE_S` | 300 | how old that last good reading may be |
+| `POR_SPIKE_WINDOW_S` | 600 | the counting window, opened by the first spike |
+| `POR_SPIKE_REPORT_COUNT` | 3 | how many spikes in a window earn a mirror line |
+
+A plausible 85.00 °C is published as before, with a note once per spell of it:
 
 ```
 slot 0 (ABCD): 85.00 C is the power-on default
   check the supply and the wiring
 ```
 
-Once per spell of it, not once per interval, and the check is for that exact
-value: 84.9375 °C and 85.0625 °C are one sixteenth of a degree away and are
-treated as real readings. The usual cause is a pull-up or a supply that cannot
-hold the sensor through a conversion — see [supply
+The check is for that exact value: 84.9375 °C and 85.0625 °C are one sixteenth of
+a degree away and are treated as real readings.
+
+**Spikes point at that sensor's own supply path.** A sensor restarts when it
+briefly loses power, and when only one sensor does it while the others on the same
+supply read fine, the cause is its own cable or connection: moisture in the probe
+sleeve or a cable joint, a corroding contact, a loose wire in a terminal. In the
+field (2026-10-12 to 15) one sensor did it in bursts, mostly at night and in the
+morning, which points to condensation. The filter keeps the published values clean.
+The fix is in the wiring. If all sensors do it, look at the pull-up or a supply that
+can't hold the sensors through a conversion — see [supply
 voltage](#supply-voltage--check-this-before-powering-up).
 
 ### Why the First Lines Used to Arrive Mangled

@@ -4,6 +4,34 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.10
+
+**Changed: a failed read says why.** The field capture of 2026-10-16 had all three sensors failing within seconds of each other, right after a boot scan that found all three, and every line read the same `read failed`. The driver knows more than that, so `read()` now returns the reason, and it replaces the words "read failed" on the console and the mirror (both together don't fit the 48 characters):
+
+- `line low`: the data line was held low before the reset: a short to GND or no pull-up
+- `no reply`: no presence pulse: the bus is cut or no sensor has power
+- `no data`: presence, then all ones: the addressed sensor isn't there, or lost its supply mid-transfer
+- `bad CRC`: a corrupted scratchpad: noise or a marginal contact
+- `bad value`: a good CRC, but outside −55…125 °C
+
+So `slot 0 (0094): read failed, never read yet` now reads e.g. `slot 0 (0094): no reply, never read yet`. The reason is the last attempt's. All ones used to count as a bad CRC; it is now told apart, since there was no data to corrupt. The `onewire` host test checks each reason, including a line held low (a new simulator switch), and that every reason fits the room the line keeps for it. `logevent_len` now takes a bound per `%s` (`mirror-len: %s<=4,10`), which the two read-failed lines need for their ROM tail and their reason.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only. A mirror automation that matched `read failed` has to match the reasons instead, or `, never read yet` / `, last`. WaterFlow is unaffected (it has no 1-Wire), so it stays at 2.2.8.
+
+---
+
+## 3.2.9
+
+**Fixed: 85 °C spikes in Home Assistant.** From 2026-10-12 one sensor (slot 0, "Pool") kept reporting 84.3 °C between its real readings, in bursts mostly at night and in the morning. That's 85.00 °C, the DS18B20's power-on reset value, minus the −0.75 °C correction: the sensor briefly lost its supply, restarted, and was read before its next conversion. The CRC is good, so the read itself succeeds. The firmware recognized it (`85.00 C is the power-on default` on the mirror), but published the value anyway.
+
+Now a power-on reading is published only when it's plausible: a good reading no older than `POR_SPIKE_MAX_AGE_S` (300 s) was within `POR_SPIKE_DELTA_C` (5 °C) of it. Otherwise it's discarded: not published, and not taken as the last good reading. Each discarded spike gets a console line. Spikes are counted per slot in a `POR_SPIKE_WINDOW_S` (600 s) window, and when it closes with at least `POR_SPIKE_REPORT_COUNT` (3), the mirror gets one line: `slot 0 (0094): 7 spikes in 600 s`. All four are `config.h` values. Host tests cover the plausibility rule, its time limit, the counter and the window report.
+
+The cause remains in that sensor's wiring: only one of three sensors on the same supply does it, so its own cable, terminal or probe is losing contact, likely from moisture.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only. WaterFlow is unaffected (it has no 1-Wire), so it stays at 2.2.8.
+
+---
+
 ## 3.2.8
 
 **Added: boot-time check of the stack's LQI formula.** The RSSI has been computed back from the frame's LQI since 3.2.5, using a formula read from the disassembly of `esp_zb_rssi_to_lqi()`. A later SDK could change that formula, and the device would then publish a plausible but wrong RSSI. `linkCheckLqiFormula()` now runs the stack's own function over −81 to −29 dBm once at boot and checks that every value comes back. On a mismatch, the console and mirror get `link: LQI formula changed at … dBm, no RSSI`, and nothing is published for RSSI. LQI is unaffected.
