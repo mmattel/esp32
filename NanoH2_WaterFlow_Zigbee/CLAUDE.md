@@ -217,3 +217,4 @@ them feels stale.
 | --- | --- | --- |
 | arduino-esp32 #12917 | https://github.com/espressif/arduino-esp32/issues/12917 | Uninitialised `manuf_code` in core report helpers; workaround is in `ZbMirror::reportText()` |
 | esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | `esp_zigbee_zcl_command.c:263` assert on char-string reports; root cause not yet confirmed. Binding-table report mode silently fails — fixed in v2.1.0 by unicast to 0x0000 ep 1. The later failure of the mirror text was not this issue but the report size limit (`ESP_ERR_INVALID_SIZE`, 50 characters), fixed in v2.1.4 — see the root CLAUDE.md. |
+| zigbee2mqtt #33407 | https://github.com/Koenkk/zigbee2mqtt/issues/33407 | A re-interview doesn't re-send HA discovery, so HA's device info keeps the old firmware until Z2M is restarted. README "Firmware Version" describes the restart; drop it once a Z2M release fixes this. Opened 2026-10-16 |

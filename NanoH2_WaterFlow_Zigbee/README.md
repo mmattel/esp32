@@ -470,6 +470,16 @@ reflash: open the Z2M device page → **Actions → Re-interview**. The
 `firmware_version` expose on endpoint 16 is the live value that updates within
 ~20 s of every join without any manual step.
 
+**Home Assistant's device info needs a Z2M restart on top.** The **Firmware** line
+in HA's device info block comes from `device.sw_version` in the retained discovery
+messages Z2M publishes for HA (`homeassistant/…/<ieee>/…/config`), and a
+re-interview doesn't re-send those for a device Z2M already knows. So after the
+re-interview, Z2M shows the new version and HA keeps the old one until Z2M is
+restarted. Restarting HA does not help. The `firmware_version` entity is a state
+and is current either way. Upstream:
+[Koenkk/zigbee2mqtt#33407](https://github.com/Koenkk/zigbee2mqtt/issues/33407)
+asks for discovery to be re-sent after a successful interview.
+
 **Versioning rules** (from `config.h`):
 
 | Part | When to bump |

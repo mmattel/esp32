@@ -1268,6 +1268,19 @@ the Z2M device page → **Actions → Re-interview**. The `firmware_version` exp
 endpoint 16 is the live value that updates within ~20 s of every join without any
 manual step.
 
+**Home Assistant's device info needs a Z2M restart on top.** The **Firmware** line
+in HA's device info block doesn't come from the device page. It comes from
+`device.sw_version` in the retained discovery messages Z2M publishes for HA
+(`homeassistant/…/<ieee>/…/config`), and a re-interview doesn't re-send those for
+a device Z2M already knows. After the re-interview, Z2M and `bridge/devices` show
+the new version, and HA keeps the old one (seen 2026-10-16: 3.2.8 after flashing
+3.2.10). Restarting Z2M re-sends discovery, and HA updates within seconds.
+Restarting HA does not help: Z2M answers HA's birth message with states only. The
+diagnostic `firmware_version` entity is a state, so it is current either way.
+Upstream: [Koenkk/zigbee2mqtt#33407](https://github.com/Koenkk/zigbee2mqtt/issues/33407)
+asks for discovery to be re-sent after a successful interview. Once that is in a
+Z2M release, the restart is no longer needed.
+
 Endpoint 16 is for the other use: something that watches the version rather than
 looks at it. `firmware_version_number` is `major × 10000 + minor × 100 + patch`,
 so 1.9.9 is below 2.0.0 and 2.0.1 is above it — an automation can compare that,
@@ -1996,7 +2009,10 @@ automatically for settings endpoints. The procedure that works, in this order:
    Updating the file alone is not enough; Z2M must reload it
    (Settings → Reload external converters also works without a full restart).
 2. **Re-interview the device** on the Z2M device page (Actions → Re-interview).
-   This causes Z2M to re-publish all MQTT discovery topics to HA.
+   This makes Z2M read the device's endpoints again. It does not re-send HA
+   discovery for a device Z2M already knows: the restart in step 1 is what does
+   that (see [Firmware Version](#firmware-version) and
+   [Koenkk/zigbee2mqtt#33407](https://github.com/Koenkk/zigbee2mqtt/issues/33407)).
 3. **Click the refresh icon** next to the new endpoint on the Z2M device page.
    This triggers an immediate value read, which delivers the first report HA
    needs to mark the entity available.
