@@ -166,20 +166,21 @@ void slotsReportSpikes(uint8_t slot, const char *rom) {
   spikeCount[slot] = 0;
 }
 
-void slotsReportReadFailure(uint8_t slot, const char *rom) {
+void slotsReportReadFailure(uint8_t slot, const char *rom, const char *why) {
   // Which of the two failures this is decides what to do about it: a sensor that has
   // never read since boot is wired wrong or dead, one that read fine until a moment
   // ago is a contact or a supply that is going. The age of the last good reading is
   // a console detail, because it changes on every attempt and would otherwise defeat
-  // the mirror's deadband - every failed read would cost a report.
-  // mirror-len: %s<=4 - romTail(), see slots.h
+  // the mirror's deadband - every failed read would cost a report. The reason takes
+  // the place of the words "read failed": both do not fit the mirror.
+  // mirror-len: %s<=4,10 - romTail(), then DS18B20Bus::FAULT_TEXT_MAX
   if (isnan(lastGoodC[slot])) {
-    logEvent("slot %u (%s): read failed, never read yet", (unsigned)slot, romTail(rom));
+    logEvent("slot %u (%s): %s, never read yet", (unsigned)slot, romTail(rom), why);
     return;
   }
 
-  // mirror-len: %s<=4
-  logEvent("slot %u (%s): read failed, last %.*f C", (unsigned)slot, romTail(rom), TEMP_PUBLISH_DECIMALS,
+  // mirror-len: %s<=4,10
+  logEvent("slot %u (%s): %s, last %.*f C", (unsigned)slot, romTail(rom), why, TEMP_PUBLISH_DECIMALS,
            lastGoodC[slot]);
   char age[AGE_TEXT_CHARS];
   ageText(millis() - lastGoodMs[slot], age, sizeof(age));

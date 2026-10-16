@@ -236,9 +236,9 @@ int main() {
   printf("a read that failed every attempt\n");
   reset();
   {
-    slotsReportReadFailure(0, ROM_A);
+    slotsReportReadFailure(0, ROM_A, "bad CRC");
     check("never read since boot, so the wiring is the suspect",
-          strcmp(lastMirrored(), "slot 0 (ABCD): read failed, never read yet") == 0);
+          strcmp(lastMirrored(), "slot 0 (ABCD): bad CRC, never read yet") == 0);
     check("nothing to say about an age", !printed("ago"));
 
     // A slot that was reading until a moment ago is a different fault with a
@@ -247,9 +247,9 @@ int main() {
     hostMillis = 4000;
     slotsNoteReading(0, ROM_A, 21.5f, false);
     hostMillis = 4000 + 95 * 1000UL;
-    slotsReportReadFailure(0, ROM_A);
+    slotsReportReadFailure(0, ROM_A, "bad CRC");
     char want[128];
-    snprintf(want, sizeof(want), "slot 0 (ABCD): read failed, last %.*f C",
+    snprintf(want, sizeof(want), "slot 0 (ABCD): bad CRC, last %.*f C",
              TEMP_PUBLISH_DECIMALS, 21.5f);
     check("says what it last read", strcmp(lastMirrored(), want) == 0);
     check("and how long ago that was", printed("that reading was 1 min ago"));
@@ -260,7 +260,7 @@ int main() {
     // Repeated failures are not deduplicated here: the mirror's own deadband does
     // that, and it is the line that has to stay identical for it to work.
     int before = mirrorCount;
-    slotsReportReadFailure(0, ROM_A);
+    slotsReportReadFailure(0, ROM_A, "bad CRC");
     check("the same failure produces the same line", mirrorCount == before + 1
                                                        && strcmp(mirrored[before], mirrored[before - 1]) == 0);
 
@@ -268,8 +268,8 @@ int main() {
     // reading is still that sensor's and no other's - which is why losing the sensor
     // does not throw it away.
     slotsSensorGone(0);
-    slotsReportReadFailure(0, ROM_A);
-    check("a sensor that went missing still has a last good reading", onAir("read failed, last "));
+    slotsReportReadFailure(0, ROM_A, "bad CRC");
+    check("a sensor that went missing still has a last good reading", onAir(", last "));
     check("still without the age on the air", !onAir("ago"));
 
     // Releasing the slot does throw it away, and that is the whole difference: the
@@ -278,9 +278,9 @@ int main() {
     // would be the one wrong answer available.
     slotsForgetSlot(0);
     console[0] = '\0';  // only the console: the slot keeps what it was just left with
-    slotsReportReadFailure(0, ROM_B);
+    slotsReportReadFailure(0, ROM_B, "no reply");
     check("a released slot has no history to report",
-          strcmp(lastMirrored(), "slot 0 (BEEF): read failed, never read yet") == 0);
+          strcmp(lastMirrored(), "slot 0 (BEEF): no reply, never read yet") == 0);
     check("and so no age to print", !printed("ago"));
 
     // Per slot, like everything else here: releasing one slot leaves the next alone.
@@ -288,22 +288,22 @@ int main() {
     slotsNoteReading(0, ROM_A, 21.5f, false);
     slotsNoteReading(1, ROM_B, 30.0f, false);
     slotsForgetSlot(0);
-    slotsReportReadFailure(1, ROM_B);
-    check("the neighbouring slot keeps its own history", onAir("read failed, last "));
+    slotsReportReadFailure(1, ROM_B, "bad CRC");
+    check("the neighbouring slot keeps its own history", onAir(", last "));
 
     // What the hardware has done is forgotten only on a reboot.
     reset();
     slotsNoteReading(0, ROM_A, 21.5f, false);
     slotsBegin();
-    slotsReportReadFailure(0, ROM_A);
+    slotsReportReadFailure(0, ROM_A, "bad CRC");
     check("after slotsBegin() there is nothing to remember", onAir("never read yet"));
 
     // One slot reading tells the next one nothing.
     reset();
     slotsNoteReading(1, ROM_B, 21.5f, false);
-    slotsReportReadFailure(0, ROM_A);
+    slotsReportReadFailure(0, ROM_A, "bad CRC");
     check("history is per slot",
-          strcmp(lastMirrored(), "slot 0 (ABCD): read failed, never read yet") == 0);
+          strcmp(lastMirrored(), "slot 0 (ABCD): bad CRC, never read yet") == 0);
   }
 
   printf("how an age reads\n");
@@ -363,8 +363,8 @@ int main() {
     check("a spike says so on the console", printed("85.00 C power-on reset discarded, last good 10.5 C"));
     check("but not on the mirror", mirrorCount == 0);
     hostMillis += 5000;
-    slotsReportReadFailure(0, ROM_A);
-    check("the last good reading is still the real one", onAir("read failed, last 10.5 C"));
+    slotsReportReadFailure(0, ROM_A, "bad CRC");
+    check("the last good reading is still the real one", onAir("bad CRC, last 10.5 C"));
   }
 
   printf("spikes counted and reported per window\n");

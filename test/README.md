@@ -57,10 +57,14 @@ Covers:
   reports it rather than dropping it. One sixteenth either side (`0x054F`,
   `0x0551`) is not flagged, which is what makes it an exact-value test rather
   than a threshold.
-- `read()` rejections, one per cause: a corrupted check byte, a value past the
-  sensor's 125 °C with a good check byte, a ROM that is not on the bus (nobody
-  answers MATCH ROM, the read slots return all ones, and `0xFF` × 9 fails the
-  CRC), and an empty bus that fails at the reset.
+- `read()` rejections, one per cause, each with the `fault` it reports: a
+  corrupted check byte (`BAD_CRC`), a value past the sensor's 125 °C with a good
+  check byte (`OUT_OF_RANGE`), a ROM that is not on the bus (nobody answers MATCH
+  ROM and the read slots return all ones: `NO_DATA`, told apart from a bad CRC), an
+  empty bus that fails at the reset (`NO_PRESENCE`), and a line held low before the
+  reset starts, as a short or a missing pull-up does (`LINE_LOW`, from a simulator
+  switch that holds the line). Every `faultText()` fits `FAULT_TEXT_MAX`, the room
+  the read-failed line keeps for it on the mirror.
 - `romToChars()` against `romToString()`: the same 16 digits from both, terminated
   inside `ROM_CHARS`, family code first — the low byte of the packed value — and
   every hex digit exercised in every position, since a gap in the digit table
@@ -332,6 +336,9 @@ doesn't count. Each sketch is checked against the `MIRROR_TEXT_LEN` in its own
 - A format with `%s` can't be bounded from the source. It's listed with its length
   without the inserted text (`+s`) and fails only if that alone is too long. For
   the rest, the mirror notes every cut line on the console at run time.
+- Unless a `mirror-len: %s<=N` marker above the call bounds the inserted text:
+  every `%s` then counts N. `mirror-len: %s<=4,10` bounds them one by one, in
+  order, as the read-failed line does for its ROM tail and its reason.
 
 ## What these tests do not cover
 

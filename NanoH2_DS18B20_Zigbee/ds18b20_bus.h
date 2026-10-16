@@ -26,6 +26,21 @@
 
 #include <Arduino.h>
 
+// Why a read failed, in the order read() finds out. Each points somewhere
+// different on the bus: a line held low is a short or a missing pull-up, no
+// presence pulse is nobody answering at all, all ones is a sensor that answered
+// the reset and then never drove the line (the ROM did not match, or it lost its
+// supply mid-transfer), a bad CRC is noise on a sensor that is otherwise there,
+// and out of range is a scratchpad that passed its CRC and is still nonsense.
+enum class DS18B20Fault : uint8_t {
+  NONE,
+  LINE_LOW,
+  NO_PRESENCE,
+  NO_DATA,
+  BAD_CRC,
+  OUT_OF_RANGE,
+};
+
 struct DS18B20Reading {
   bool valid;
   float celsius;
@@ -36,6 +51,8 @@ struct DS18B20Reading {
   // temperature a sensor can legitimately be at. Hence a flag rather than a
   // rejection: whether it is plausible is the application's call.
   bool powerOnReset;
+  // NONE exactly when valid.
+  DS18B20Fault fault;
 };
 
 class DS18B20Bus {
@@ -64,8 +81,15 @@ public:
   }
 
   // Reads the scratchpad of one device and converts it. Returns valid=false
-  // on a CRC error, a missing device or an out-of-range value.
+  // on a CRC error, a missing device or an out-of-range value, and says which
+  // in fault.
   DS18B20Reading read(uint64_t rom);
+
+  // A fault as a log line names it, at most FAULT_TEXT_MAX characters so that
+  // it fits a mirrored line: "line low", "no reply", "no data", "bad CRC",
+  // "bad value". NONE reads "ok".
+  static const uint8_t FAULT_TEXT_MAX = 10;
+  static const char *faultText(DS18B20Fault fault);
 
   // 16 uppercase hex digits, family code first: "28FF641E1234ABCD".
   //
@@ -97,6 +121,10 @@ private:
   static uint8_t crc8(const uint8_t *data, uint8_t len);
 
   uint8_t _pin;
+
+  // Set by every reset(): whether a failed one found the line already held low,
+  // rather than released and unanswered. Only read() looks at it.
+  bool _lineLow = false;
 
   // Maxim ROM search state.
   uint8_t _searchRom[8] = {0};

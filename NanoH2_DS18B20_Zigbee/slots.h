@@ -80,10 +80,11 @@ void slotsNoteSpike(uint8_t slot, const char *rom);
 // POR_SPIKE_REPORT_COUNT spikes. Call on every reading of the slot.
 void slotsReportSpikes(uint8_t slot, const char *rom);
 
-// A read that failed every attempt. Says whether the slot ever read at all, which
+// A read that failed every attempt, why being the last attempt's reason as
+// DS18B20Bus::faultText() names it. Says whether the slot ever read at all, which
 // is what separates a sensor that has never worked from one that worked until a
 // moment ago.
-void slotsReportReadFailure(uint8_t slot, const char *rom);
+void slotsReportReadFailure(uint8_t slot, const char *rom, const char *why);
 
 // The slot has lost its sensor, whether it failed its reads or stopped answering
 // the bus scan. Clears the power-on-default one-shot, so a sensor that comes back

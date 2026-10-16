@@ -1102,7 +1102,7 @@ void readAndPublish() {
     }
 
     if (!r.valid) {
-      slotsReportReadFailure(i, rom);
+      slotsReportReadFailure(i, rom, DS18B20Bus::faultText(r.fault));
       slotsSensorGone(i);
       slotPresent[i] = false;  // picked up again by the next rescan
       continue;

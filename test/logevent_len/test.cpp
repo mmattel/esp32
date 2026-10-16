@@ -18,7 +18,9 @@
 //
 // Where the text a %s inserts has a known bound - a ROM code's tail, a whole ROM
 // code - the marker "mirror-len: %s<=N" in the same place says so, and every %s
-// in that call counts N characters. The line is then checked like any other.
+// in that call counts N characters. "mirror-len: %s<=N,M,..." bounds them one by
+// one, in the order they appear, the last bound covering any further ones. The
+// line is then checked like any other.
 //
 // A format with a %s cannot be bounded from the source - the text comes from
 // elsewhere. Those are listed with their length without the strings, and fail only
@@ -63,8 +65,9 @@ struct Estimate {
   bool hasString = false;  // a %s, whose length the source cannot tell
 };
 
-static Estimate estimate(const std::string &fmt, int stringWidth = -1) {
+static Estimate estimate(const std::string &fmt, const std::vector<int> &stringWidths = {}) {
   Estimate e;
+  size_t strings = 0;  // %s seen so far, to pick its bound
   for (size_t i = 0; i < fmt.size(); i++) {
     if (fmt[i] != '%') {
       e.length++;
@@ -86,7 +89,9 @@ static Estimate estimate(const std::string &fmt, int stringWidth = -1) {
     int width = m[1].matched && m[1].str() != "*" ? std::atoi(m[1].str().c_str()) : 0;
     int precision = m[2].matched ? (m[2].str() == "*" ? 2 : std::atoi(m[2].str().c_str())) : -1;
     char conv = m[4].str()[0];
-    if (conv == 's' && stringWidth >= 0) {
+    if (conv == 's' && !stringWidths.empty()) {
+      int stringWidth = stringWidths[strings < stringWidths.size() ? strings : stringWidths.size() - 1];
+      strings++;
       e.length += width > stringWidth ? width : stringWidth;
     } else if (conv == 's') {
       e.hasString = true;
@@ -116,7 +121,7 @@ struct Call {
   int line;
   std::string fmt;
   bool checkedInCode;  // the marker is in the five lines above the call
-  int stringWidth;     // from "mirror-len: %s<=N" above the call, or -1
+  std::vector<int> stringWidths;  // from "mirror-len: %s<=N[,M...]" above the call, or empty
 };
 
 // Every logEvent("...") in a file, adjacent literals joined as the compiler joins
@@ -149,13 +154,18 @@ static std::vector<Call> findCalls(const fs::path &path) {
     }
     std::string above = src.substr(from, it->position() - from);
     bool marked = above.find("mirror-len: checked in code") != std::string::npos;
-    int stringWidth = -1;
-    static const std::regex hint(R"re(mirror-len: %s<=(\d+))re");
+    std::vector<int> stringWidths;
+    static const std::regex hint(R"re(mirror-len: %s<=(\d+(?:,\d+)*))re");
     std::smatch h;
     if (std::regex_search(above, h, hint)) {
-      stringWidth = std::atoi(h[1].str().c_str());
+      std::string list = h[1].str();
+      for (size_t at = 0; at < list.size();) {
+        size_t comma = list.find(',', at);
+        stringWidths.push_back(std::atoi(list.substr(at, comma - at).c_str()));
+        at = comma == std::string::npos ? list.size() : comma + 1;
+      }
     }
-    calls.push_back({path.filename().string(), line, fmt, marked, stringWidth});
+    calls.push_back({path.filename().string(), line, fmt, marked, stringWidths});
   }
   return calls;
 }
@@ -192,9 +202,16 @@ int main() {
   };
   // And with a bound on the inserted text.
   {
-    Estimate e = estimate("slot %u (%s) gone", 4);
+    Estimate e = estimate("slot %u (%s) gone", {4});
     bool ok = e.length == 5 + 3 + 2 + 4 + 6 && !e.hasString;
     printf("  %-40s %3d    %s\n", "slot %u (%s) gone   [%s<=4]", e.length, ok ? "ok" : "FAIL");
+    if (!ok) fails++;
+  }
+  // A bound per %s, in order; the last one covers any further ones.
+  {
+    Estimate e = estimate("%s/%s/%s", {4, 10});
+    bool ok = e.length == 4 + 1 + 10 + 1 + 10 && !e.hasString;
+    printf("  %-40s %3d    %s\n", "%s/%s/%s   [%s<=4,10]", e.length, ok ? "ok" : "FAIL");
     if (!ok) fails++;
   }
   for (auto &k : known) {
@@ -227,7 +244,7 @@ int main() {
           continue;  // logEvent() itself, or a call with no literal format
         }
         checked++;
-        Estimate e = estimate(c.fmt, c.stringWidth);
+        Estimate e = estimate(c.fmt, c.stringWidths);
         // Leading spaces are not carried: the mirror drops a console indent.
         size_t indent = c.fmt.find_first_not_of(' ');
         int len = e.length - (int)(indent == std::string::npos ? 0 : indent);

@@ -32,6 +32,7 @@ static int g_line = 1;         // as driven by the master
 static uint32_t g_lastDelay = 0;
 static uint32_t g_lowDuration = 0;
 static bool g_slotPending = false;   // a 6us low slot happened: read or write-1
+static bool g_shorted = false;       // something outside the master holds the line low
 
 static void sim_activateAll() {
   g_active.assign(g_devices.size(), true);
@@ -45,6 +46,7 @@ static void sim_init() {
   g_matchBit = 0; g_selected = -1;
   g_writeBits = 0; g_readBit = 0;
   g_line = 1; g_lastDelay = 0; g_lowDuration = 0; g_slotPending = false;
+  g_shorted = false;
   sim_activateAll();
   g_scratch.assign(g_devices.size(), std::array<uint8_t, 9>{});
 }
@@ -145,6 +147,7 @@ void sim_write(uint8_t, uint8_t level) {
 }
 
 int sim_read(uint8_t) {
+  if (g_shorted) return 0;
   if (g_line == 0) return 0;             // idle-check while master holds low
   if (g_lowDuration >= 400) {            // presence pulse after a reset
     return g_devices.empty() ? 1 : 0;
@@ -219,7 +222,8 @@ static void sim_setScratch(size_t dev, int16_t raw, bool goodCrc = true) {
 // A reading's three fields as one line, so a failure shows what came back rather
 // than only that it was wrong.
 static void showReading(const char *what, const DS18B20Reading &r) {
-  printf("%s: valid=%d celsius=%.4f powerOnReset=%d\n", what, r.valid, r.celsius, r.powerOnReset);
+  printf("%s: valid=%d celsius=%.4f powerOnReset=%d fault=%s\n", what, r.valid, r.celsius, r.powerOnReset,
+         DS18B20Bus::faultText(r.fault));
 }
 
 int main() {
@@ -308,7 +312,7 @@ int main() {
   sim_setScratch(1, 0x0640);             // 100 C, to be told apart from slot 0's
   DS18B20Reading r = rd.read(romA);
   showReading("read() 0x0158 on device A", r);
-  if (!r.valid || r.celsius != 21.5f || r.powerOnReset) fails++;
+  if (!r.valid || r.celsius != 21.5f || r.powerOnReset || r.fault != DS18B20Fault::NONE) fails++;
 
   r = rd.read(romB);
   showReading("read() 0x0640 on device B", r);
@@ -343,29 +347,53 @@ int main() {
   sim_setScratch(0, 0x0158, false);
   r = rd.read(romA);
   showReading("read() with a bad CRC", r);
-  if (r.valid) fails++;
+  if (r.valid || r.fault != DS18B20Fault::BAD_CRC) fails++;
 
   // 12. Out of range: 0x0800 is 128 C, past the DS18B20's 125 C, and its CRC is
   //     good - so this is the range check and nothing else.
   sim_setScratch(0, 0x0800);
   r = rd.read(romA);
   showReading("read() 0x0800 (128 C, out of range)", r);
-  if (r.valid) fails++;
+  if (r.valid || r.fault != DS18B20Fault::OUT_OF_RANGE) fails++;
 
-  // 13. A ROM that is not on the bus: nobody answers MATCH ROM, the read slots
-  //     come back as all ones, and 0xFF x9 fails the CRC. This is what the sketch
-  //     sees from a sensor that was unplugged since the last scan.
+  // 13. A ROM that is not on the bus: nobody answers MATCH ROM and the read slots
+  //     come back as all ones. That fails the CRC as well, but it is told apart:
+  //     no data, not corrupted data. This is what the sketch sees from a sensor
+  //     that was unplugged since the last scan while the others still answer.
   sim_setScratch(0, 0x0158);
   r = rd.read(romA ^ 0xFF00);            // same family code, wrong serial
   showReading("read() of an absent ROM", r);
-  if (r.valid) fails++;
+  if (r.valid || r.fault != DS18B20Fault::NO_DATA) fails++;
 
   // 14. An empty bus fails at the reset, before any scratchpad is involved.
   g_devices.clear(); sim_init();
   DS18B20Bus gone(2);
   r = gone.read(romA);
   showReading("read() on an empty bus", r);
-  if (r.valid) fails++;
+  if (r.valid || r.fault != DS18B20Fault::NO_PRESENCE) fails++;
+
+  // 14b. A line held low before the reset even starts - a short, or no pull-up -
+  //      is not the same as nobody answering, and says so.
+  g_devices = {makeRom(0x11, 0x22, 0x33)}; sim_init();
+  g_shorted = true;
+  DS18B20Bus shorted(2);
+  r = shorted.read(romA);
+  showReading("read() on a line held low", r);
+  if (r.valid || r.fault != DS18B20Fault::LINE_LOW) fails++;
+  g_shorted = false;
+
+  // 14c. Every reason fits the mirrored line, which reserves FAULT_TEXT_MAX
+  //      characters for it (see slotsReportReadFailure()).
+  const DS18B20Fault allFaults[] = {DS18B20Fault::NONE, DS18B20Fault::LINE_LOW, DS18B20Fault::NO_PRESENCE,
+                                    DS18B20Fault::NO_DATA, DS18B20Fault::BAD_CRC, DS18B20Fault::OUT_OF_RANGE};
+  for (DS18B20Fault f : allFaults) {
+    size_t len = strlen(DS18B20Bus::faultText(f));
+    if (len == 0 || len > DS18B20Bus::FAULT_TEXT_MAX) {
+      printf("  faultText(%u) is %zu characters, limit %u\n", (unsigned)f, len,
+             (unsigned)DS18B20Bus::FAULT_TEXT_MAX);
+      fails++;
+    }
+  }
 
   // ---- romToChars() / romToString(): the same 16 digits, two ways ----
   // 15. The buffer form is what every log line uses, so it has to agree with the

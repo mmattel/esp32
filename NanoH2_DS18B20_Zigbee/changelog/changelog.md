@@ -4,6 +4,22 @@ Entries are in reverse order — newest first.
 
 ---
 
+## 3.2.10
+
+**Changed: a failed read says why.** The field capture of 2026-10-16 had all three sensors failing within seconds of each other, right after a boot scan that found all three, and every line read the same `read failed`. The driver knows more than that, so `read()` now returns the reason, and it replaces the words "read failed" on the console and the mirror (both together don't fit the 48 characters):
+
+- `line low`: the data line was held low before the reset: a short to GND or no pull-up
+- `no reply`: no presence pulse: the bus is cut or no sensor has power
+- `no data`: presence, then all ones: the addressed sensor isn't there, or lost its supply mid-transfer
+- `bad CRC`: a corrupted scratchpad: noise or a marginal contact
+- `bad value`: a good CRC, but outside −55…125 °C
+
+So `slot 0 (0094): read failed, never read yet` now reads e.g. `slot 0 (0094): no reply, never read yet`. The reason is the last attempt's. All ones used to count as a bad CRC; it is now told apart, since there was no data to corrupt. The `onewire` host test checks each reason, including a line held low (a new simulator switch), and that every reason fits the room the line keeps for it. `logevent_len` now takes a bound per `%s` (`mirror-len: %s<=4,10`), which the two read-failed lines need for their ROM tail and their reason.
+
+**No factory reset required, no re-pair, converter unchanged.** Flash only. A mirror automation that matched `read failed` has to match the reasons instead, or `, never read yet` / `, last`. WaterFlow is unaffected (it has no 1-Wire), so it stays at 2.2.8.
+
+---
+
 ## 3.2.9
 
 **Fixed: 85 °C spikes in Home Assistant.** From 2026-10-12 one sensor (slot 0, "Pool") kept reporting 84.3 °C between its real readings, in bursts mostly at night and in the morning. That's 85.00 °C, the DS18B20's power-on reset value, minus the −0.75 °C correction: the sensor briefly lost its supply, restarted, and was read before its next conversion. The CRC is good, so the read itself succeeds. The firmware recognized it (`85.00 C is the power-on default` on the mirror), but published the value anyway.

@@ -188,7 +188,8 @@ endpoints and the converter's exposes apply.
   wording short, and run `cd test && make`: `logevent_len` fails on a fixed
   wording that can be cut. Text inserted with `%s` is only noted at run time
   ("line above cut to ..."), unless a `mirror-len: %s<=N` comment above the call
-  bounds it, as the slot lines do for their four-digit ROM tail.
+  bounds it, as the slot lines do for their four-digit ROM tail. `%s<=4,10` bounds
+  each `%s` in order (the read-failed line: ROM tail, then the failure reason).
 - `Serial.printf()` is fine for output that is debug-only and should not be mirrored.
 - Every line ends with `CONSOLE_EOL` (defined in `config.h`). Never append `\r\n`
   or rely on the driver to expand `\n`.

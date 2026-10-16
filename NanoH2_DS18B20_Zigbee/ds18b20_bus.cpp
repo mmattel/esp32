@@ -30,8 +30,10 @@ bool DS18B20Bus::reset() {
   // Wait for the bus to be idle high; a line stuck low means a short or a
   // missing pull-up.
   digitalWrite(_pin, HIGH);
+  _lineLow = false;
   for (uint16_t waited = 0; digitalRead(_pin) == LOW; waited += 10) {
     if (waited >= 1000) {
+      _lineLow = true;
       return false;
     }
     delayMicroseconds(10);
@@ -246,9 +248,10 @@ bool DS18B20Bus::startConversionAll() {
 static const int16_t RAW_POWER_ON_RESET = 0x0550;
 
 DS18B20Reading DS18B20Bus::read(uint64_t rom) {
-  DS18B20Reading out = {false, NAN, false};
+  DS18B20Reading out = {false, NAN, false, DS18B20Fault::NONE};
 
   if (!reset()) {
+    out.fault = _lineLow ? DS18B20Fault::LINE_LOW : DS18B20Fault::NO_PRESENCE;
     return out;
   }
   writeByte(CMD_MATCH_ROM);
@@ -256,17 +259,27 @@ DS18B20Reading DS18B20Bus::read(uint64_t rom) {
   writeByte(CMD_READ_SCRATCHPAD);
 
   uint8_t sp[9];
+  bool allOnes = true;
   for (uint8_t i = 0; i < 9; i++) {
     sp[i] = readByte();
+    allOnes = allOnes && sp[i] == 0xFF;
   }
 
+  // All ones fails the CRC too, but it is a different fault: nobody drove a
+  // single read slot low, so there was no data to be corrupted.
+  if (allOnes) {
+    out.fault = DS18B20Fault::NO_DATA;
+    return out;
+  }
   if (crc8(sp, 8) != sp[8]) {
-    return out;  // also covers an absent sensor, which reads back all 0xFF
+    out.fault = DS18B20Fault::BAD_CRC;
+    return out;
   }
 
   int16_t raw = (int16_t)(((uint16_t)sp[1] << 8) | sp[0]);
   float celsius = raw * 0.0625f;
   if (celsius < -55.0f || celsius > 125.0f) {
+    out.fault = DS18B20Fault::OUT_OF_RANGE;
     return out;
   }
 
@@ -274,6 +287,24 @@ DS18B20Reading DS18B20Bus::read(uint64_t rom) {
   out.celsius = celsius;
   out.powerOnReset = (raw == RAW_POWER_ON_RESET);
   return out;
+}
+
+const char *DS18B20Bus::faultText(DS18B20Fault fault) {
+  switch (fault) {
+    case DS18B20Fault::NONE:
+      return "ok";
+    case DS18B20Fault::LINE_LOW:
+      return "line low";
+    case DS18B20Fault::NO_PRESENCE:
+      return "no reply";
+    case DS18B20Fault::NO_DATA:
+      return "no data";
+    case DS18B20Fault::BAD_CRC:
+      return "bad CRC";
+    case DS18B20Fault::OUT_OF_RANGE:
+      return "bad value";
+  }
+  return "?";
 }
 
 void DS18B20Bus::romToChars(uint64_t rom, char *out) {
