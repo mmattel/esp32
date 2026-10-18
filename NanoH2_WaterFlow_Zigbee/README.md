@@ -23,6 +23,8 @@ to flash, and set or reset the running counter.
    - [Pinning the Channel](#pinning-the-channel)
 7. [Zigbee Endpoints](#zigbee-endpoints)
 8. [Impulses per Litre](#impulses-per-litre)
+   - [Values for Common Sensors](#values-for-common-sensors)
+   - [Calibration Runs With the ZJ-B5](#calibration-runs-with-the-zj-b5)
 9. [Running Total and NVS Writeback](#running-total-and-nvs-writeback)
 10. [Total Start Value](#total-start-value)
 11. [Total Since Last Reset](#total-since-last-reset)
@@ -46,10 +48,22 @@ to flash, and set or reset the running counter.
 
 ## Components and Photos
 
+<table>
+  <tr>
+    <td><img src="images/IMG_1128.jpeg" width="380" alt="NanoH2 with its Grove cable, a logic level converter and a 5 V to 3.3 V step-down module wired in under heat-shrink"></td>
+    <td><img src="images/IMG_1129.jpeg" width="380" alt="ZJ-B5 water flow sensor above the complete assembly in a junction box with cable glands, lid open"></td>
+  </tr>
+  <tr>
+    <td align="center"><em>NanoH2 and its Grove cable, with the logic level converter 3.3 V ↔ 5 V (blue) and the 5 V → 3.3 V step-down (green) wired in and covered in heat-shrink</em></td>
+    <td align="center"><em>ZJ-B5 flow sensor (1–30 L/min) and the complete assembly in a junction box. NanoH2 with green LED (connected), its USB-C supply adapter and the Grove screw-terminal adapter</em></td>
+  </tr>
+</table>
+
 | Component | Notes |
 | --- | --- |
 | [M5Stack NanoH2 (C149)](https://de.aliexpress.com/item/1005010653230229.html) | ESP32-H2, Grove HY2.0-4P connector |
 | [Hall-effect water flow sensor (e.g. YF-S201)](https://de.aliexpress.com/item/1005003748611606.html) | Open-drain NPN output, 5 V powered |
+| ZJ-B5, also sold as YF-B5 | The sensor in the photos: brass body, 1–30 L/min, up to 1.75 MPa (from its label). Same wiring and output as the YF-S201, a different pulse factor: see [Values for Common Sensors](#values-for-common-sensors) |
 | [Step-down converter 5 V → 3.3 V](https://de.aliexpress.com/item/1005006018534566.html) | Provides 3.3 V for the LLC's LV side; the Grove port supplies 5 V only |
 | [Bidirectional logic-level converter 3.3 V ↔ 5 V](https://de.aliexpress.com/item/1005006765742290.html) | Any standard BSS138-based board |
 | [Grove HY2.0 screw-terminal adapter](https://de.aliexpress.com/item/1005007804080645.html) | Breaks out the Grove connector to screw terminals for solid-core sensor wires |
@@ -240,7 +254,7 @@ device.
 | --- | --- | --- | --- | --- | --- |
 | 10 | Write | `impulses_per_litre_10` | — | 0 – 5000, step 0.001 | Calibration constant |
 | 11 | Write | `nvs_writeback_time_s_11` | s | 1 – 20, step 1 | Inactivity timeout before NVS save |
-| 12 | Write | `total_start_value_l_12` | L | 0 – 9 999 999, step 0.001 | Sets and saves running total; resets EP 24 |
+| 12 | Write | `total_start_value_l_12` | L | 0 – 9 999 999, step 0.1 | Sets and saves running total; resets EP 24 |
 | 13 | Read | `parent_link_lqi_13` | — | 0 – 255 | LQI to coordinator/parent |
 | 14 | Read | `parent_link_rssi_14` | dBm | −128 – 0 | RSSI to coordinator/parent |
 | 15 | Read | `mirror_line_count_15` | — | 0 – 65535 | Console event counter |
@@ -248,26 +262,55 @@ device.
 | 16 | Read | `firmware_version_number_16` | — | 0 – 999999 | e.g. 1.0.0 → 10000 |
 | 16 | Read | `firmware_version` | — | text | e.g. "1.0.0" (ext. converter) |
 | 17 | Write | `force_push_min_17` | min | 0 – 120, step 1 | Force-publish all flow values every N min; 0 = disabled |
-| 20 | Read | `flow_rate_l_per_min_20` | L/min | 0 – 9999 | Current flow rate |
-| 21 | Read | `flow_rate_l_per_s_21` | L/s | 0 – 999 | Current flow rate |
-| 22 | Read | `total_consumption_l_22` | L | 0 – 9 999 999 | Cumulative total (NVS-backed) |
-| 23 | Read | `total_consumption_m3_23` | m³ | 0 – 9999.999 | Cumulative total (derived from EP 22) |
-| 24 | Read | `total_since_last_reset_l_24` | L | 0 – 9 999 999 | Since last EP 12 write; RAM only |
+| 20 | Read | `flow_rate_l_per_min_20` | L/min | 0 – 9999, 1 decimal | Current flow rate |
+| 21 | Read | `flow_rate_l_per_s_21` | L/s | 0 – 999, 3 decimals | Current flow rate |
+| 22 | Read | `total_consumption_l_22` | L | 0 – 9 999 999, 1 decimal | Cumulative total (NVS-backed) |
+| 23 | Read | `total_consumption_m3_23` | m³ | 0 – 9999.9999, 4 decimals | Cumulative total (derived from EP 22) |
+| 24 | Read | `total_since_last_reset_l_24` | L | 0 – 9 999 999, 1 decimal | Since last EP 12 write; RAM only |
 
 Endpoints 15 and 16 each carry two exposes: a numeric `presentValue` that
 Z2M maps by itself, and a character-string attribute `0xF000` that requires
 the external converter.
 
+**The decimals are set by the external converter** (since converter 1.6),
+not by the firmware.  The device sends each value as a 32-bit float, which
+can't hold most decimal fractions exactly: 0.4 L arrives as
+0.4000000059604645.  Rounding on the device wouldn't remove those digits, so
+the converter rounds every value as it arrives, with Z2M's `precision`
+option: litres and L/min to 1 decimal, m³ to 4, and L/s to 3.  The device's
+counting is unchanged; only what Z2M and Home Assistant display is rounded.
+
 ---
 
 ## Impulses per Litre
 
-Hall-effect flow sensors like the YF-S201 generate one voltage pulse per
+Hall-effect flow sensors like the ZJ-B5 or the YF-S201 generate one voltage pulse per
 revolution of their internal paddle wheel.  The number of revolutions per
 litre is a sensor-specific constant — the YF-S201 datasheet quotes a
 *frequency* relationship (Hz per L/min), not a direct pulse-per-litre figure,
 and actual sensors vary from batch to batch.  `FLOW_IMPULSES_PER_L_DEFAULT`
-is set to `450`, which is a typical middle-of-range starting point.
+is `384`, measured on a ZJ-B5 under tap pressure (since v2.2.11; see
+[Calibration Runs With the ZJ-B5](#calibration-runs-with-the-zj-b5)).  v2.2.9
+and v2.2.10 used its datasheet figure, `396`, and earlier builds `450`, the
+YF-S201's.  The default only applies to a fresh NVS, after a factory reset
+or on a new board.  A board that already has a value stored keeps it, so
+after flashing over an older build, write the value you want to endpoint
+10.
+
+### Values for Common Sensors
+
+A datasheet gives the pulse formula as `F = k × Q`, with `F` the pulse
+frequency in Hz and `Q` the flow in L/min.  One litre at 1 L/min takes 60 s,
+so the sensor gives `k × 60` pulses per litre, which is the value endpoint 10
+wants.
+
+| Sensor | Pulse formula | Impulses per litre (EP 10) |
+| --- | --- | --- |
+| YF-S201 | F = 7.5 × Q | 450 |
+| ZJ-B5, also sold as YF-B5 | F = 6.6 × Q | 396 (measured: 384, the default) |
+
+These are the datasheet figures.  They're a good first value for step 1 of
+the calibration below, not a replacement for it.
 
 To calibrate:
 
@@ -289,6 +332,60 @@ The flow rates (EP 20, EP 21) are computed from the pulses counted in the
 last 1-second sample window divided by `impulses_per_litre`.  They are zero
 whenever no pulses arrive in a window, so they reflect instantaneous flow
 rather than a smoothed average.
+
+### Calibration Runs With the ZJ-B5
+
+> [!NOTE]
+> This is a home-made "calibration" with household scales and a bucket. It
+> does not meet any professional calibration standard, and the figures below
+> are a guideline only.  They are not a certified measurement, and neither
+> are the totals the device reports with them.
+
+Two runs on 2026-10-18, both against water measured by weight (1 kg = 1 L;
+at 20 °C the difference is 0.2 %, below the scales' tolerance).  The
+firmware counts the pulses of each second on the console (`flow:` lines),
+captured with `tools/serial-capture.sh --reset`.  The value is taken from
+the pulse count, so it doesn't depend on what endpoint 10 held during the
+run.
+
+**Run 1, gravity feed.**  10 L in a watering can.  The can's own weight
+(tare) and 4 kg of water were first weighed on a precise kitchen scale, then
+the can was filled to exactly 10 kg on a bathroom scale.  The water was
+poured through a funnel into about 50 cm of ordinary garden hose (12 mm
+inner diameter) on the sensor, in one go over about 110 s.
+
+**Run 2, tap pressure.**  The sensor on the tap, the water caught in a
+bucket and weighed: 10.4 kg.  42 s at a steady 95–102 pulses per second.
+An earlier attempt at the same setup was discarded.
+
+| | Run 1: gravity | Run 2: tap pressure |
+| --- | --- | --- |
+| Volume | 10.0 L | 10.4 L |
+| Flow | ~5.5 L/min | ~14.4 L/min (15.5 peak) |
+| Pulses counted | 3396 | 3997 |
+| Shown at 396 imp/L | 8.58 L | 10.09 L |
+| Deviation from 396 | −14.2 % | −3.0 % |
+| Impulses per litre measured | 3396 ÷ 10 = 340 | 3997 ÷ 10.4 = **384** |
+
+**Under pressure, the sensor is within 3 % of its datasheet; fed by gravity,
+it is 14 % short.**  A funnel gives only a few centimetres of head.  The
+sensor then doesn't run full, can take in air, and its paddle wheel turns
+less per litre.  So run 1 says more about the setup than about the sensor,
+and run 2 is the one that matches a real installation.  The water left in
+the hose in run 1, at most about 0.06 L, doesn't explain the difference.
+
+**384 is the default since v2.2.11.**  Two limits remain:
+
+- **Paddle-wheel sensors aren't linear.**  384 was found at about 14 L/min.
+  At much lower flows, such as a tap only slightly open, expect the sensor to
+  read lower.  How much hasn't been measured.
+- **The reference is good to about ±1 %,** roughly ±0.1 kg on the bathroom
+  scale.  384 against 396 is a real difference; 384 against 385 is not.
+
+To check a sensor of your own, repeat run 2: fill a bucket from the tap
+through the installed sensor, weigh it, and divide the pulses by the
+kilograms.  With the console off, use the total instead: new value =
+current value × litres shown ÷ kilograms weighed.
 
 ---
 
@@ -328,6 +425,12 @@ Writing to endpoint 12 (`total_start_value_l`) does three things atomically:
 This lets you set the meter to match a physical meter reading, reset the
 counter to zero for a fresh start, or carry over a total from a previous
 device.
+
+**Every write counts, including the same value again** (since v2.2.10).
+Writing 0 resets the total each time.  Up to v2.2.9, a write that equalled
+the value EP 12 already held was taken for a no-op: writing 0 while EP 12
+still held its default of 0 left the total where it was, without a console
+line.  The console now confirms every write with `Total reset to … L`.
 
 The start value itself is also saved to NVS (key `tstart`) so that Z2M
 continues to show what was last written rather than reverting to the default
@@ -514,7 +617,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v2.2.8 (build 20208)
+NanoH2-WaterFlow v2.2.11 (build 20211)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
@@ -781,11 +884,13 @@ only when pressed, the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
   settings (EP 10–12) are also in NVS but are written only when their value
   changes, not continuously.  This keeps NVS write cycles proportional to
   configuration changes and flow events, not to the sample rate.
-- **The impulses-per-litre default (450) is an approximation.**  The YF-S201
-  datasheet expresses frequency as a function of flow rate, not a fixed
-  pulse-per-litre constant, and the actual value varies across batches.
-  Calibrate against a reference volume before using the totals for billing
-  or precise measurement — see [Impulses per Litre](#impulses-per-litre).
+- **The impulses-per-litre default (384) is an approximation.**  It was
+  measured on one ZJ-B5 at about 14 L/min (see
+  [Calibration Runs With the ZJ-B5](#calibration-runs-with-the-zj-b5)).  The
+  actual value varies across batches and with the flow.  Check your own
+  sensor against a reference volume, see [Impulses per Litre](#impulses-per-litre).
+  Even then, this is a home-made calibration and a guideline only, not a
+  certified meter: don't use the totals for billing.
 - **Not a sleepy end device.**  `setRxOnWhenIdle(true)` keeps the radio on so
   the coordinator can write settings at any time.  Appropriate for a USB- or
   mains-powered installation; a battery build would need a different approach.

@@ -23,8 +23,18 @@ public:
   void load(Preferences &prefs);
 
   // Builds the endpoint and registers it. cb has to forward to note(), which
-  // is the only part of this class that may run outside the main task.
+  // is the only part of this class that may run outside the main task. Call it
+  // from setup(): it takes the calling task as the main task (see note()).
   void addEndpoint(void (*cb)(float));
+
+  // For a setting that is really a command, such as WaterFlow's total start
+  // value: every write the coordinator sends is applied, even one repeating the
+  // value already in effect. Writing 0 there means "reset the total to 0" every
+  // time, not only when the setting held something else. Without this, such a
+  // write is taken for a no-op and the total is silently left alone.
+  void applyEveryWrite() {
+    _everyWrite = true;
+  }
 
   // Called from the Zigbee task on an attribute write: records only.
   // Named for where it comes from, so the line below cannot be read as comparing
@@ -42,7 +52,13 @@ public:
     // without a trace. A mirror-back always carries the value already in effect,
     // and a coordinator writing that same value asks for nothing: applyPending()
     // would find nothing changed and nothing to correct.
-    if (written == _value) {
+    //
+    // Except for a setting that applies every write, where the same value does ask
+    // for something. There the task tells the two apart instead: a mirror-back runs
+    // in the main task, inside publish(), and a write from the coordinator arrives
+    // in the Zigbee task. No flag is held across a publish, so the window described
+    // above doesn't open.
+    if (written == _value && (!_everyWrite || xTaskGetCurrentTaskHandle() == _mainTask)) {
       return;
     }
     _pending = written;
@@ -51,7 +67,8 @@ public:
 
   // Applies a recorded write from the main task: clamps to range and step,
   // persists it, and mirrors the effective value back to the coordinator.
-  // Returns true when the value actually changed.
+  // Returns true when the value actually changed, or, for a setting that
+  // applies every write, whenever a write arrived.
   bool applyPending(Preferences &prefs);
 
   // Pushes the effective value to the coordinator.
@@ -97,4 +114,9 @@ private:
 
   volatile float _pending = 0;
   volatile bool _hasPending = false;
+
+  // See applyEveryWrite(). _mainTask is the task addEndpoint() ran in, which on
+  // the device is the Arduino loop task: setup() and loop() share it.
+  bool _everyWrite = false;
+  TaskHandle_t _mainTask = nullptr;
 };

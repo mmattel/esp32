@@ -54,6 +54,7 @@ void ZbSetting::load(Preferences &prefs) {
 }
 
 void ZbSetting::addEndpoint(void (*cb)(float)) {
+  _mainTask = xTaskGetCurrentTaskHandle();
   _ep.setManufacturerAndModel(ZB_MANUFACTURER, ZB_MODEL);
   // Which firmware this is, in the Basic cluster beside the manufacturer and the
   // model. Here rather than only on EP_VERSION because a coordinator reads Basic
@@ -81,7 +82,10 @@ bool ZbSetting::applyPending(Preferences &prefs) {
 
   float requested = _pending;
   float applied = sanitise(requested);
-  bool changed = fabsf(applied - _value) > (_step > 0 ? _step / 2 : 1e-6f);
+  bool moved = fabsf(applied - _value) > (_step > 0 ? _step / 2 : 1e-6f);
+  // A command-like setting treats every write as one that changed something: it is
+  // logged, stored and reported back, and the caller acts on it.
+  bool changed = moved || _everyWrite;
   // The write did not survive as sent: rounding to the step or clamping to the
   // range moved it. The attribute in the stack still holds what was written, so
   // this is what decides whether it has to be corrected.

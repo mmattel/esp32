@@ -322,6 +322,51 @@ int main() {
     if (!ok) fails++;
   }
 
+  // WaterFlow's total start value is a command: writing 0 means "reset to 0" each
+  // time. Up to WaterFlow v2.2.9 a write equal to the value in effect was dropped
+  // in note(), so 0 on a setting still at its default of 0 reset nothing.
+  printf("a setting that applies every write\n");
+  {
+    Preferences u;
+    ZbSetting ts(12, "tstart", "Total start value (L)", 0.0f, 0.0f, 9999999.0f, 0.001f, ESP_ZB_ZCL_AI_TIME_RELATIVE);
+    ts.load(u);
+    ts.applyEveryWrite();
+    ts.addEndpoint(onWritten);
+    target = &ts;
+    int before = ts._ep.reports;
+    ts._ep.injectWrite(0.0f);  // the value already in effect
+    bool applied = ts.applyPending(u);
+    printf("  0 written while at 0 -> %s\n", applied ? "applied (ok)" : "dropped (FAIL)");
+    if (!applied) fails++;
+    check("and stored", u.getFloat("tstart", NAN), 0.0f);
+    printf("  and reported back -> %s\n", ts._ep.reports > before ? "yes (ok)" : "no (FAIL)");
+    if (ts._ep.reports <= before) fails++;
+    ts._ep.injectWrite(0.0f);  // and once more
+    applied = ts.applyPending(u);
+    printf("  the same write again -> %s\n", applied ? "applied (ok)" : "dropped (FAIL)");
+    if (!applied) fails++;
+
+    // The mirror-back of its own value runs in the main task and must still be
+    // ignored, or every publish would reset the total.
+    ts.publish();
+    printf("  publish() left a pending write -> %s\n", ts._hasPending ? "yes (FAIL)" : "no (ok)");
+    if (ts._hasPending) fails++;
+    applied = ts.applyPending(u);
+    printf("  next loop applies nothing -> %s\n", applied ? "applied (FAIL)" : "nothing (ok)");
+    if (applied) fails++;
+
+    // An ordinary setting keeps ignoring a repeat of the value in effect.
+    ZbSetting od = makeDelta();
+    Preferences v;
+    od.load(v);
+    od.addEndpoint(onWritten);
+    target = &od;
+    od._ep.injectWrite(od.value());
+    applied = od.applyPending(v);
+    printf("  ordinary setting, same value written -> %s\n", applied ? "applied (FAIL)" : "ignored (ok)");
+    if (applied) fails++;
+  }
+
   printf("the line for the boot log's settings block\n");
   {
     // Printed, not checked byte for byte here: the stub's Serial does not keep its

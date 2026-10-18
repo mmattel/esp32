@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------ */
 #define FW_VERSION_MAJOR 2
 #define FW_VERSION_MINOR 2
-#define FW_VERSION_PATCH 8
+#define FW_VERSION_PATCH 11
 
 #define FW_VERSION_STRINGIFY_(x) #x
 #define FW_VERSION_STRINGIFY(x) FW_VERSION_STRINGIFY_(x)
@@ -89,10 +89,12 @@ static const LedColor COLOR_BOOT           = {0, 30, 30};  // cyan, fast flashin
 /* ------------------------------------------------------------------
  * Hall-effect flow sensor
  * ------------------------------------------------------------------ */
-// Impulses per litre: the sensor-specific calibration factor.
-// A YF-S201 is typically 450 Hz/(L/min) at 1 L/min, but the exact value
-// should be verified against a reference volume.
-#define FLOW_IMPULSES_PER_L_DEFAULT  450.0f
+// Impulses per litre: the sensor-specific calibration factor, k x 60 for a
+// datasheet formula F [Hz] = k x Q [L/min]. 384 is a ZJ-B5 / YF-B5 measured
+// under tap pressure at ~14 L/min (2026-10-18, README "Calibration Runs");
+// its datasheet says 396 (F = 6.6 x Q), and a YF-S201 (F = 7.5 x Q) is 450.
+// Only a fresh NVS uses it: a stored value wins.
+#define FLOW_IMPULSES_PER_L_DEFAULT  384.0f
 #define FLOW_IMPULSES_PER_L_MIN      0.0f
 #define FLOW_IMPULSES_PER_L_MAX      5000.0f
 #define FLOW_IMPULSES_PER_L_STEP     0.001f

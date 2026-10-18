@@ -200,6 +200,33 @@ unexplained: with the notebook attached but the port not yet opened, the stack
 only started 8.6 s after power-on instead of ~1.6 s. Probably the console output
 stalls while nobody reads the USB port.
 
+**Seen again on WaterFlow, 2026-10-18, twice in three `--reset` captures**
+(v2.2.9 at 16:11, v2.2.10 at 16:50; the 16:48 one joined in 519 ms), at
+Core Debug Level Info, with the board indoors on parent `0x2EC6`. Both
+failures look the same:
+- From ~1.9 s on, 40 × `Commissioning failed, trying again...` every ~750 ms
+  (the core's 500 ms retry alarm plus the attempt), then `ZigbeeCore begin
+  failed or timeout` at 31.6 s and the sketch's reboot.
+- `Device started up in non factory-reset mode` never appears in the failing
+  boot. In the core (`ZigbeeCore.cpp`, `ESP_ZB_BDB_SIGNAL_DEVICE_FIRST_START` /
+  `_DEVICE_REBOOT`) that means the BDB initialization, the rejoin of the stored
+  network, comes back with an error on every attempt. It is not a slow join:
+  the stack fails at once and keeps failing.
+- The next boot works first time: `Device rebooted` at 2.8 s, `Zigbee.begin()
+  took` ~2.6 s, which is slower than the 0.5 s of a normal boot.
+
+**The error code is lost in the core.** The line is
+`log_w("Commissioning failed, trying again...", esp_err_to_name(err_status))`,
+and the format has no `%s`, so the reason is never printed. That holds for
+m5stack:esp32 3.3.10 and for arduino-esp32 master (checked 2026-10-18), so
+it is a candidate upstream report. The sketch can't catch the signal itself,
+because the core defines `esp_zb_app_signal_handler()`. To see the reason, a
+diagnostic build needs that one line patched locally in the installed core
+(`"Commissioning failed (%s), trying again..."`), and the patch must be
+undone afterwards, since a core update overwrites it anyway. Whether
+`--reset` is the trigger is open: both failures followed one, but so did
+the good boot at 16:48.
+
 **Handlers are registered from the stack's own task.** `linkBegin()` schedules the
 indication handler's registration with `esp_zb_scheduler_alarm()` (under the lock),
 and the stack's task runs it. The core registers its own indication handler once,
