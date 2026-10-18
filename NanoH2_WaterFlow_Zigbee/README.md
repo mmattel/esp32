@@ -24,7 +24,7 @@ to flash, and set or reset the running counter.
 7. [Zigbee Endpoints](#zigbee-endpoints)
 8. [Impulses per Litre](#impulses-per-litre)
    - [Values for Common Sensors](#values-for-common-sensors)
-   - [A Calibration Run With the ZJ-B5](#a-calibration-run-with-the-zj-b5)
+   - [Calibration Runs With the ZJ-B5](#calibration-runs-with-the-zj-b5)
 9. [Running Total and NVS Writeback](#running-total-and-nvs-writeback)
 10. [Total Start Value](#total-start-value)
 11. [Total Since Last Reset](#total-since-last-reset)
@@ -289,11 +289,13 @@ revolution of their internal paddle wheel.  The number of revolutions per
 litre is a sensor-specific constant — the YF-S201 datasheet quotes a
 *frequency* relationship (Hz per L/min), not a direct pulse-per-litre figure,
 and actual sensors vary from batch to batch.  `FLOW_IMPULSES_PER_L_DEFAULT`
-is `396`, the ZJ-B5 / YF-B5 figure (since v2.2.9; before, it was `450`, the
-YF-S201's).  The default only applies to a fresh NVS, after a factory reset
+is `384`, measured on a ZJ-B5 under tap pressure (since v2.2.11; see
+[Calibration Runs With the ZJ-B5](#calibration-runs-with-the-zj-b5)).  v2.2.9
+and v2.2.10 used its datasheet figure, `396`, and earlier builds `450`, the
+YF-S201's.  The default only applies to a fresh NVS, after a factory reset
 or on a new board.  A board that already has a value stored keeps it, so
-after flashing v2.2.9 over an older build, write the value you want to
-endpoint 10.
+after flashing over an older build, write the value you want to endpoint
+10.
 
 ### Values for Common Sensors
 
@@ -305,7 +307,7 @@ wants.
 | Sensor | Pulse formula | Impulses per litre (EP 10) |
 | --- | --- | --- |
 | YF-S201 | F = 7.5 × Q | 450 |
-| ZJ-B5, also sold as YF-B5 | F = 6.6 × Q | 396 (the default) |
+| ZJ-B5, also sold as YF-B5 | F = 6.6 × Q | 396 (measured: 384, the default) |
 
 These are the datasheet figures.  They're a good first value for step 1 of
 the calibration below, not a replacement for it.
@@ -331,45 +333,53 @@ last 1-second sample window divided by `impulses_per_litre`.  They are zero
 whenever no pulses arrive in a window, so they reflect instantaneous flow
 rather than a smoothed average.
 
-### A Calibration Run With the ZJ-B5
+### Calibration Runs With the ZJ-B5
 
-A first run on 2026-10-18, with v2.2.9 and the datasheet value of 396:
+Two runs on 2026-10-18, both against water measured by weight (1 kg = 1 L;
+at 20 °C the difference is 0.2 %, below the scales' tolerance).  The
+firmware counts the pulses of each second on the console (`flow:` lines),
+captured with `tools/serial-capture.sh --reset`.  The value is taken from
+the pulse count, so it doesn't depend on what endpoint 10 held during the
+run.
 
-- **Reference volume:**
-  10 L of water in a watering can.  The can's own weight (tare) and 4 kg of
-  water were first weighed on a precise kitchen scale.  The can was then
-  filled to exactly 10 kg on a bathroom scale.  Expect about ±1 % from that.
-- **Feed:**
-  by gravity, poured through a funnel into about 50 cm of ordinary garden
-  hose (12 mm inner diameter) on the sensor.  No mains pressure.
-- **Capture:**
-  `tools/serial-capture.sh --reset`, then the 10 L poured in one go over
-  about 110 s, which is about 5.5 L/min.  The console's `flow:` lines give the
-  pulses of each second.
+**Run 1, gravity feed.**  10 L in a watering can.  The can's own weight
+(tare) and 4 kg of water were first weighed on a precise kitchen scale, then
+the can was filled to exactly 10 kg on a bathroom scale.  The water was
+poured through a funnel into about 50 cm of ordinary garden hose (12 mm
+inner diameter) on the sensor, in one go over about 110 s.
 
-| | |
-| --- | --- |
-| Pulses counted | 3396, in 110 one-second samples |
-| Shown at 396 imp/L | 3396 ÷ 396 = 8.58 L |
-| Deviation | −14.2 %: 1.4 L short per 10 L |
-| Impulses per litre measured | 3396 ÷ 10 = **339.6, so 340** |
+**Run 2, tap pressure.**  The sensor on the tap, the water caught in a
+bucket and weighed: 10.4 kg.  42 s at a steady 95–102 pulses per second.
+An earlier attempt at the same setup was discarded.
 
-So this sensor gives about 14 % fewer pulses per litre than its datasheet
-says, at least at about 5 L/min.  Two things limit how far that carries:
+| | Run 1: gravity | Run 2: tap pressure |
+| --- | --- | --- |
+| Volume | 10.0 L | 10.4 L |
+| Flow | ~5.5 L/min | ~14.4 L/min (15.5 peak) |
+| Pulses counted | 3396 | 3997 |
+| Shown at 396 imp/L | 8.58 L | 10.09 L |
+| Deviation from 396 | −14.2 % | −3.0 % |
+| Impulses per litre measured | 3396 ÷ 10 = 340 | 3997 ÷ 10.4 = **384** |
 
-- **Gravity feed isn't the real installation.**  A funnel gives only a few
-  centimetres of head.  The sensor may not run completely full and can take
-  in air, and both make it count fewer pulses.  Under mains pressure, the
-  factor may come out closer to 396.  The water left in the hose, at most
-  about 0.06 L, is below the scale's tolerance either way.
-- **Paddle-wheel sensors aren't linear.**  The factor drifts with the flow, so
-  a value found at 5 L/min may be a few percent off at a fully open tap.
+**Under pressure, the sensor is within 3 % of its datasheet; fed by gravity,
+it is 14 % short.**  A funnel gives only a few centimetres of head.  The
+sensor then doesn't run full, can take in air, and its paddle wheel turns
+less per litre.  So run 1 says more about the setup than about the sensor,
+and run 2 is the one that matches a real installation.  The water left in
+the hose in run 1, at most about 0.06 L, doesn't explain the difference.
 
-The default stays at the datasheet's 396 until a run under real conditions
-confirms a measured value.  The next step: set 340 on endpoint 10, then fill a
-bucket from the tap through the installed sensor to about 10 L as shown, and
-weigh it.  At 10 kg, 340 is right.  Otherwise the new value is
-340 × weighed kg ÷ 10.
+**384 is the default since v2.2.11.**  Two limits remain:
+
+- **Paddle-wheel sensors aren't linear.**  384 was found at about 14 L/min.
+  At much lower flows, such as a tap only slightly open, expect the sensor to
+  read lower.  How much hasn't been measured.
+- **The reference is good to about ±1 %,** roughly ±0.1 kg on the bathroom
+  scale.  384 against 396 is a real difference; 384 against 385 is not.
+
+To check a sensor of your own, repeat run 2: fill a bucket from the tap
+through the installed sensor, weigh it, and divide the pulses by the
+kilograms.  With the console off, use the total instead: new value =
+current value × litres shown ÷ kilograms weighed.
 
 ---
 
@@ -601,7 +611,7 @@ dealing with calibration or Zigbee connectivity.  It is independent of
 Every boot prints a header block:
 
 ```
-NanoH2-WaterFlow v2.2.10 (build 20210)
+NanoH2-WaterFlow v2.2.11 (build 20211)
 EP 10 -> Impulses per litre (analog output)
 EP 11 -> NVS writeback time (analog output)
 EP 12 -> Total start value (analog output)
@@ -868,10 +878,10 @@ only when pressed, the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
   settings (EP 10–12) are also in NVS but are written only when their value
   changes, not continuously.  This keeps NVS write cycles proportional to
   configuration changes and flow events, not to the sample rate.
-- **The impulses-per-litre default (396) is an approximation.**  It is the
-  ZJ-B5 / YF-B5 datasheet figure, derived from a frequency formula (see
-  [Values for Common Sensors](#values-for-common-sensors)), and the actual
-  value varies across batches.
+- **The impulses-per-litre default (384) is an approximation.**  It was
+  measured on one ZJ-B5 at about 14 L/min (see
+  [Calibration Runs With the ZJ-B5](#calibration-runs-with-the-zj-b5)).  The
+  actual value varies across batches and with the flow.
   Calibrate against a reference volume before using the totals for billing
   or precise measurement — see [Impulses per Litre](#impulses-per-litre).
 - **Not a sleepy end device.**  `setRxOnWhenIdle(true)` keeps the radio on so

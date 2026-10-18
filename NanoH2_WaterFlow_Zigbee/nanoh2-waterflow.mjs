@@ -25,7 +25,7 @@
 //   1.6  2026-10-18  precision: on the flow values - litres and L/min to 1 decimal
 //                    (EP 12, 20, 22, 24), m³ to 4 (EP 23), L/s to 3 (EP 21). The
 //                    device sends float32, so 0.4 L arrived as 0.4000000059604645.
-//                    EP 12 step 0.1. EP 10 comment: default 396 (ZJ-B5 / YF-B5)
+//                    EP 12 step 0.1. EP 10 comment: default 384 (ZJ-B5 / YF-B5, measured)
 //   1.5  2026-10-10  Add reporting: to console_mirror (EP 15) and firmware_version (EP 16)
 //                    text attributes (attr 0xF000) so Z2M sends configure_reporting for
 //                    the char-string attribute — this creates the SDK's internal reporting
@@ -59,7 +59,7 @@ export default {
         // ----------------------------------------------------------------
 
         // EP 10: impulses per litre - sensor calibration constant.
-        // Firmware default 396 (ZJ-B5 / YF-B5, F = 6.6 x Q); a YF-S201 is ~450.
+        // Firmware default 384 (ZJ-B5 / YF-B5, measured; datasheet 396); a YF-S201 is ~450.
         // Verify against a known reference volume and adjust until the totals agree.
         m.numeric({
             name: 'impulses_per_litre',
