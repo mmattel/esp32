@@ -19,9 +19,13 @@
 //   - sketch folder (this file)
 //   - <z2m-data>/external_converters/nanoh2-waterflow.mjs
 
-// Converter version: 1.5
+// Converter version: 1.6
 //
 // Changelog (newest first):
+//   1.6  2026-10-18  precision: on the flow values - litres and L/min to 1 decimal
+//                    (EP 12, 20, 22, 24), m³ to 4 (EP 23), L/s to 3 (EP 21). The
+//                    device sends float32, so 0.4 L arrived as 0.4000000059604645.
+//                    EP 12 step 0.1. EP 10 comment: default 396 (ZJ-B5 / YF-B5)
 //   1.5  2026-10-10  Add reporting: to console_mirror (EP 15) and firmware_version (EP 16)
 //                    text attributes (attr 0xF000) so Z2M sends configure_reporting for
 //                    the char-string attribute — this creates the SDK's internal reporting
@@ -55,8 +59,8 @@ export default {
         // ----------------------------------------------------------------
 
         // EP 10: impulses per litre - sensor calibration constant.
-        // A YF-S201 type sensor is typically ~450; verify against a known
-        // reference volume and adjust until the totals agree.
+        // Firmware default 396 (ZJ-B5 / YF-B5, F = 6.6 x Q); a YF-S201 is ~450.
+        // Verify against a known reference volume and adjust until the totals agree.
         m.numeric({
             name: 'impulses_per_litre',
             label: 'Impulses per litre',
@@ -96,7 +100,8 @@ export default {
             label: 'Total start value (L)',
             valueMin: 0,
             valueMax: 9999999,
-            valueStep: 0.001,
+            valueStep: 0.1,
+            precision: 1,
             cluster: 'genAnalogOutput',
             attribute: 'presentValue',
             reporting: {min: 'MIN', max: 'MAX', change: 1},
@@ -203,6 +208,7 @@ export default {
             valueMin: 0,
             valueMax: 9999,
             valueStep: 0.001,
+            precision: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
             reporting: {min: 10, max: 3600, change: 1},
@@ -218,6 +224,7 @@ export default {
             valueMin: 0,
             valueMax: 999,
             valueStep: 0.0001,
+            precision: 3,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
             reporting: {min: 10, max: 3600, change: 1},
@@ -233,6 +240,7 @@ export default {
             valueMin: 0,
             valueMax: 9999999,
             valueStep: 0.001,
+            precision: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
             reporting: {min: 10, max: 3600, change: 1},
@@ -246,8 +254,9 @@ export default {
             name: 'total_consumption_m3',
             label: 'Total consumption (m³)',
             valueMin: 0,
-            valueMax: 9999.999,
-            valueStep: 0.000001,
+            valueMax: 9999.9999,
+            valueStep: 0.0001,
+            precision: 4,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
             reporting: {min: 10, max: 3600, change: 1},
@@ -264,6 +273,7 @@ export default {
             valueMin: 0,
             valueMax: 9999999,
             valueStep: 0.001,
+            precision: 1,
             cluster: 'genAnalogInput',
             attribute: 'presentValue',
             reporting: {min: 10, max: 3600, change: 1},

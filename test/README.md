@@ -141,6 +141,12 @@ Covers, across the interval, the delta and the temperature correction:
   write, persistence to NVS, and mirror-back of the effective value after every
   write that changed something — clamped, rounded or taken as sent — while a write
   that changed nothing stays silent.
+- A setting that applies every write (`applyEveryWrite()`, WaterFlow's total
+  start value): 0 written while it holds 0 is applied, stored and reported, and
+  so is the same write again. Its own mirror-back from `publish()` is still
+  ignored, and an ordinary setting still ignores a repeat. The stub tells the two
+  apart the way the device does, by task: `injectWrite()` runs its callback in a
+  simulated Zigbee task, and `publish()` runs in the main task.
 - The negative half of all of that, which only the correction's range reaches:
   rounding away from zero on the low side, a value below the minimum clamped to
   it, 0 left exactly as it is since that is what switches the correction off, and

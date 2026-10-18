@@ -1,7 +1,7 @@
 /**
  * M5Stack NanoH2 (ESP32-H2, SKU C149) - Hall-effect water flow sensor over Zigbee.
  *
- * Measures water flow with a Hall-effect pulse-output sensor (e.g. YF-S201)
+ * Measures water flow with a Hall-effect pulse-output sensor (e.g. ZJ-B5, YF-S201)
  * powered at 5V and connected to Grove G1 (white) through a logic-level
  * converter.  The sensor's square-wave output is counted by an interrupt and
  * converted to flow rates and a running total.
@@ -394,6 +394,9 @@ static void addFlowAnalogInput(LinkAnalog &ep, const char *description,
 void setupEndpoints() {
   cfgImpulsesPerL.addEndpoint(onImpulsesPerLWritten);
   cfgWritebackS.addEndpoint(onWritebackSWritten);
+  // A write to EP 12 is a command - "set the total to this" - so writing 0 again
+  // resets again. Without this, 0 on a setting that already held 0 did nothing.
+  cfgTotalStart.applyEveryWrite();
   cfgTotalStart.addEndpoint(onTotalStartWritten);
   cfgForcePush.addEndpoint(onForcePushWritten);
   Serial.printf("EP %u -> impulses per litre" CONSOLE_EOL

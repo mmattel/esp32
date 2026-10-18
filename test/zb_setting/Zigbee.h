@@ -28,10 +28,13 @@ public:
     return true;
   }
   // A write from the coordinator, in the order the stack does it: the attribute
-  // holds the written value by the time the callback runs.
+  // holds the written value by the time the callback runs, which runs in the
+  // stack's own task.
   void injectWrite(float v) {
     output = v;
+    stubCurrentTask = STUB_ZIGBEE_TASK;
     if (changed) { changed(v); }
+    stubCurrentTask = STUB_MAIN_TASK;
   }
   void (*changed)(float) = nullptr;
   // No reportAnalogOutput(): the core's reports through the binding table, and the
