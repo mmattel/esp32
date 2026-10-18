@@ -63,7 +63,7 @@ to flash, and set or reset the running counter.
 | --- | --- |
 | [M5Stack NanoH2 (C149)](https://de.aliexpress.com/item/1005010653230229.html) | ESP32-H2, Grove HY2.0-4P connector |
 | [Hall-effect water flow sensor (e.g. YF-S201)](https://de.aliexpress.com/item/1005003748611606.html) | Open-drain NPN output, 5 V powered |
-| ZJ-B5, also sold as YF-B5 | The sensor in the photos: brass body, 1–30 L/min, up to 1.75 MPa (from its label). Same wiring and output as the YF-S201, a different pulse factor: see [Values for Common Sensors](#values-for-common-sensors) |
+| [ZJ-B5, also sold as YF-B5](https://de.aliexpress.com/item/1005008110686470.html) | The sensor in the photos: brass body, 1–30 L/min, up to 1.75 MPa (from its label). Same wiring and output as the YF-S201, a different pulse factor: see [Values for Common Sensors](#values-for-common-sensors) |
 | [Step-down converter 5 V → 3.3 V](https://de.aliexpress.com/item/1005006018534566.html) | Provides 3.3 V for the LLC's LV side; the Grove port supplies 5 V only |
 | [Bidirectional logic-level converter 3.3 V ↔ 5 V](https://de.aliexpress.com/item/1005006765742290.html) | Any standard BSS138-based board |
 | [Grove HY2.0 screw-terminal adapter](https://de.aliexpress.com/item/1005007804080645.html) | Breaks out the Grove connector to screw terminals for solid-core sensor wires |
