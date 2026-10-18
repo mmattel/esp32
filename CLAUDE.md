@@ -218,8 +218,8 @@ failures look the same:
 **The error code is lost in the core.** The line is
 `log_w("Commissioning failed, trying again...", esp_err_to_name(err_status))`,
 and the format has no `%s`, so the reason is never printed. That holds for
-m5stack:esp32 3.3.10 and for arduino-esp32 master (checked 2026-10-18), so
-it is a candidate upstream report. The sketch can't catch the signal itself,
+m5stack:esp32 3.3.10 and for arduino-esp32 master (checked 2026-10-18).
+Reported as arduino-esp32 #12997, with the one-line fix. The sketch can't catch the signal itself,
 because the core defines `esp_zb_app_signal_handler()`. To see the reason, a
 diagnostic build needs that one line patched locally in the installed core
 (`"Commissioning failed (%s), trying again..."`), and the patch must be
@@ -344,6 +344,7 @@ After a core or board-package update, go through this list:
 | arduino-esp32 #12917 | https://github.com/espressif/arduino-esp32/issues/12917 | Uninitialised `manuf_code` in core report helpers; workaround in `ZbMirror::reportText()` |
 | arduino-esp32 #10879 | https://github.com/espressif/arduino-esp32/issues/10879 | Resolved (PR #11792): the same `vPortExitCritical` assert as ours, from an unlocked stack call in the core. A reference for what a missing lock looks like, not a workaround in this code |
 | esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | Silent discard of binding-table-mode reports; fixed by unicast (see above) |
+| arduino-esp32 #12997 | https://github.com/espressif/arduino-esp32/issues/12997 | Opened by the user 2026-10-18: the core's "Commissioning failed, trying again..." drops its error status (no `%s`). Once fixed in a release, a capture of the slow first join shows why the rejoin fails |
 | OneWire PR #165 | https://github.com/PaulStoffregen/OneWire/pull/165 | ESP32-H2/C2 support in OneWire; until it is merged and released, `ds18b20_bus` replaces the library |
 | zigbee2mqtt #33407 | https://github.com/Koenkk/zigbee2mqtt/issues/33407 | Opened by the user 2026-10-16: a re-interview doesn't re-send HA discovery, so HA's device info keeps the old firmware until Z2M is restarted. Both READMEs, "Firmware Version", describe the restart; drop it there once a Z2M release fixes this |
 
