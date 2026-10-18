@@ -107,6 +107,55 @@ on board, the LLC and the step-down aren't needed.
   creates a ground loop, which acts like an antenna for electrical noise and
   can destroy the transceivers.
 
+## Supply Voltage and Grounding
+
+Some devices need a **10–30 V** supply. That is the device's own supply, not
+the voltage on the RS485 lines: its interface still uses normal RS485 levels,
+a few volts of difference between A and B. A meter powered at 24 V speaks on
+A/B exactly like one powered at 5 V, so devices with different supplies can
+share one bus. The risks are a wiring mistake and a ground offset.
+
+### 24 V on the Wrong Wire
+
+- An RS485 transceiver only tolerates a limited voltage on A/B, typically
+  around −8 to +13 V absolute maximum (check the MAX13487E datasheet for its
+  figures). 24 V on A, B or the module's VCC most likely destroys it.
+- Many devices bring power and bus out on one terminal block or one 4-wire
+  cable (`+24V`, `GND`, `A`, `B`), which makes them easy to mix up. Check the
+  labels and **measure before connecting the converter**: with the device
+  powered, A and B against GND show a few volts, never 24 V.
+
+### Ground Offset Between Supplies
+
+- RS485 receivers only work while A and B, measured against their **own**
+  GND, stay within about −7 to +12 V (the common-mode range).
+- A device on its own 24 V supply and the NanoH2 on its own 5 V supply may
+  not share the same GND potential, especially with cheap supplies or across
+  a building. A few volts of offset garble the data; more can damage
+  transceivers.
+- **Remedy:** a **signal-ground wire** connecting the GNDs of the devices (a
+  third conductor, or one pair of a 2-pair cable), or **galvanically isolated
+  transceivers**, which need no common ground. Isolated is the clean solution
+  between separate buildings or systems.
+- The **shield** stays earthed at one point only (see [Cabling](#cabling)).
+  Shield and signal ground are two different things.
+
+### Other Devices on the Bus
+
+The same applies to every node: each has its own supply and only sees bus
+levels. 5 V, 12 V and 24 V devices on one bus is normal. What matters is a
+common reference (signal ground) or isolated transceivers, not any device's
+supply voltage.
+
+### Powering the Gateway From the Device's Supply
+
+If the device needs 10–30 V anyway, the NanoH2 can run from the same supply:
+24 V into a step-down converter to 5 V, then into the NanoH2's USB-C adapter,
+as in the other builds. Both sides then share one GND, so there is no ground
+offset, and one supply does for both. Pick a converter that covers the input
+voltage (for example "6–36 V in, 5 V out") and delivers enough current; the
+NanoH2 needs well under 0.5 A.
+
 ## Which Data a Node Can Send
 
 The bus itself doesn't tell. RS485 only defines the electrical side: two
