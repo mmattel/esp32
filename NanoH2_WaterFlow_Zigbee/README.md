@@ -335,6 +335,12 @@ rather than a smoothed average.
 
 ### Calibration Runs With the ZJ-B5
 
+> [!NOTE]
+> This is a home-made "calibration" with household scales and a bucket. It
+> does not meet any professional calibration standard, and the figures below
+> are a guideline only.  They are not a certified measurement, and neither
+> are the totals the device reports with them.
+
 Two runs on 2026-10-18, both against water measured by weight (1 kg = 1 L;
 at 20 °C the difference is 0.2 %, below the scales' tolerance).  The
 firmware counts the pulses of each second on the console (`flow:` lines),
@@ -881,9 +887,10 @@ only when pressed, the polarity is inverted: flip `BUTTON_ACTIVE_HIGH`.
 - **The impulses-per-litre default (384) is an approximation.**  It was
   measured on one ZJ-B5 at about 14 L/min (see
   [Calibration Runs With the ZJ-B5](#calibration-runs-with-the-zj-b5)).  The
-  actual value varies across batches and with the flow.
-  Calibrate against a reference volume before using the totals for billing
-  or precise measurement — see [Impulses per Litre](#impulses-per-litre).
+  actual value varies across batches and with the flow.  Check your own
+  sensor against a reference volume, see [Impulses per Litre](#impulses-per-litre).
+  Even then, this is a home-made calibration and a guideline only, not a
+  certified meter: don't use the totals for billing.
 - **Not a sleepy end device.**  `setRxOnWhenIdle(true)` keeps the radio on so
   the coordinator can write settings at any time.  Appropriate for a USB- or
   mains-powered installation; a battery build would need a different approach.
