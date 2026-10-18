@@ -45,3 +45,64 @@ on board, the LLC and the step-down aren't needed.
   point**, usually at the host or master controller end. Grounding both ends
   creates a ground loop, which acts like an antenna for electrical noise and
   can destroy the transceivers.
+
+## Which Data a Node Can Send
+
+The bus itself doesn't tell. RS485 only defines the electrical side: two
+wires, voltage levels, half-duplex. What travels over it is set by a
+protocol on top, by far most often **Modbus RTU**. Modbus has no way for a
+device to describe itself: what a node delivers is in its **register map**,
+from the manufacturer's documentation.
+
+### How Modbus RTU Works
+
+- **Only answers when asked:** one master (the NanoH2) and nodes (slaves)
+  with an address from 1 to 247. A node only replies to a request addressed to
+  it.
+- **Function codes for reading:** `03` holding registers (settings and
+  values), `04` input registers (measured values, read-only), `01` and `02`
+  single bits (coils, discrete inputs).
+- **Registers are 16 bits.** A 32-bit value, such as a float or a meter
+  reading, spans two registers, and the word order (which half comes first)
+  differs between manufacturers.
+
+### What the Register Map Tells You
+
+For each value:
+
+| Item | Example (fictitious energy meter) |
+| --- | --- |
+| Register address | `0x0000` |
+| Function code | `04` (input register) |
+| Data type | float32, 2 registers, high word first |
+| Unit / scale factor | V, or "value × 0.1" for an int16 |
+| Meaning | voltage L1 |
+
+Plus the **serial settings**: baud rate, parity and stop bits (for example
+9600 8N1 or 9600 8E1), and the default node address. Without matching
+settings there is no answer at all.
+
+### When There's No Documentation
+
+1. **Ask the manufacturer or search:** "\<model\> Modbus register map" or
+   "Modbus protocol PDF". Many devices have a separate protocol document next
+   to the manual.
+2. **Community configurations:** ready-made register maps for popular devices,
+   for example in evcc, Home Assistant `modbus:` configurations or Tasmota
+   templates. Energy meters like the Eastron SDM series are well covered.
+3. **Device identification:** some devices answer function `43/14` (Read
+   Device Identification) with manufacturer and model. That says which device
+   it is, not which values it has.
+4. **Self-describing standards:** a few device classes do describe
+   themselves, for example **SunSpec** on many PV inverters: the supported
+   models can be read from a fixed start register.
+5. **Sniffing:** if the device already talks to another controller, such as a
+   heat-pump display, connect an RS485 adapter in parallel and only listen.
+   The requests and replies show which registers the controller reads.
+6. **Scanning:** reading register ranges one after another works, but gives
+   numbers without meaning that then have to be guessed. **Only ever read,
+   never write:** an unknown write can change a device's settings.
+
+Not every RS485 device speaks Modbus. Others use **M-Bus** (meters, but a
+different electrical layer), **DLMS** (smart meters) or a proprietary
+protocol. The device's documentation says which.
