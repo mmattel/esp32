@@ -3,6 +3,67 @@
 Planning notes for an RS485 project on the M5Stack NanoH2. Nothing is built or
 tested yet; the sketch is an empty placeholder.
 
+## When to Use RS485
+
+RS485 is the go-to choice for **wired, robust connections over long distances
+in noisy environments**, wherever data volumes are small. It has been the
+backbone of industrial and building automation for decades, which is why so
+many devices still offer it.
+
+### Typical Applications
+
+- **Energy meters and smart meters:** electricity meters (Eastron SDM, many
+  DIN-rail meters), heat meters, sometimes water meters, mostly over Modbus RTU.
+- **Photovoltaics and storage:** inverters, battery management systems and
+  wallboxes, often over Modbus to their energy manager or as a local interface.
+- **Heating and ventilation:** heat pumps, ventilation units and boiler
+  controllers, often over Modbus, sometimes with proprietary protocols.
+- **Industry:** PLCs, frequency converters, motor drives, sensors and
+  actuators in machines (Modbus RTU, Profibus DP).
+- **Building automation:** room controllers, valve and fan controls
+  (BACnet MS/TP, Modbus).
+- **Stage, lighting and displays:** **DMX512** for stage lighting is RS485
+  too, as are many LED displays and access-control readers.
+
+### When It's the Right Choice
+
+- **Long distances:** up to about **1200 m** at low baud rates, far beyond TTL
+  serial (a few metres) or I²C (centimetres).
+- **Electrical noise:** the differential signal (A minus B) on twisted pair
+  cancels out interference from motors, pumps, inverters and mains cables.
+- **Several devices on one cable:** up to 32 standard loads per segment, or
+  more with modern low-load transceivers.
+- **Reliability without radio:** cellars, metal cabinets, concrete or buried
+  cables, or where wireless isn't wanted.
+- **The device simply has it:** often the deciding reason. If a heat pump or
+  meter only offers Modbus RTU, RS485 is the way in.
+
+### When Not to Use It
+
+- **High data rates:** typically 9600–115200 baud, at most a few Mbit/s on
+  short lines. For video, large files or streaming, use Ethernet.
+- **Several devices that talk on their own:** RS485 has no built-in
+  arbitration. Modbus solves this with one master polling the others, which
+  means waiting time and no instant events. Use CAN when nodes must send on
+  their own (vehicles, battery systems), or Ethernet or radio.
+- **Star-shaped cabling:** RS485 wants a **line** (daisy chain) with short
+  stubs. A star with long branches causes reflections, and termination becomes
+  guesswork.
+- **Nothing to connect to:** if the devices speak Zigbee, Wi-Fi or Ethernet
+  anyway, an RS485 cable only adds work.
+- **Potential differences without isolation:** between buildings or separate
+  electrical systems, ground potentials can differ by several volts. That
+  calls for **galvanically isolated** transceivers, or fibre.
+- **Battery-powered sensors:** a transceiver and bus termination draw power
+  continuously. For a battery sensor, Zigbee is the better fit.
+
+### For This Project
+
+The NanoH2 as a **gateway**: it reads a meter, heat pump or inverter over RS485
+(Modbus RTU) and sends the values to Zigbee2MQTT over Zigbee. Useful for a
+device that only offers RS485, with the NanoH2 right next to it and the RS485
+line short, inside the cabinet or plant room.
+
 ## Converter: Seeed Studio Grove – RS485
 
 - **Board:** [Seeed Studio Grove – RS485](https://wiki.seeedstudio.com/Grove-RS485/)
