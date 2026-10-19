@@ -176,10 +176,13 @@ explains them in more detail.
 
 | Setting | M5Stack core | Espressif core |
 | --- | --- | --- |
+| Board Manager URL | [`package_m5stack_index.json`](https://static-cdn.m5stack.com/resource/arduino/package_m5stack_index.json) | [`package_esp32_index.json`](https://espressif.github.io/arduino-esp32/package_esp32_index.json) |
 | Board | **M5Stack → M5NanoH2** | **ESP32H2 Dev Module** |
 | Zigbee mode | **Zigbee ED (end device)** | **Zigbee ED (end device)** |
 | Partition Scheme | **Zigbee 4MB with spiffs** | **Zigbee 4MB with spiffs** |
 | USB CDC On Boot | **Enabled** | **Enabled** |
+
+Any other board stops the build with `#error "Built for the M5Stack NanoH2: select the board M5NanoH2 or ESP32H2 Dev Module"`.
 
 Both **Zigbee mode** and **Partition Scheme** default to something else and have
 to be changed by hand:

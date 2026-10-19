@@ -262,12 +262,12 @@ Two cores will build this sketch; either needs a 3.x release for the bundled
 | Partition Scheme | **Zigbee 4MB with spiffs** | **Zigbee 4MB with spiffs** |
 | USB CDC On Boot | **Enabled** | **Enabled** |
 
-Prefer `M5NanoH2` — its variant already carries the right clock (96 MHz) and the
-board's own pin names. Follow [Arduino Board
+Prefer `M5NanoH2`: it is the board's own entry, with its pin names. Both run
+the CPU at 96 MHz. Follow [Arduino Board
 Management](https://docs.m5stack.com/en/arduino/arduino_board) to install that
 core; note it ships M5Stack boards only, so *ESP32H2 Dev Module* is not in the
 same list. The generic board remains a fine fallback, as the sketch names every
-pin itself in `config.h` and uses nothing from the variant.
+pin itself in `config.h` and uses nothing from the variant. Any other board stops the build with `#error "Built for the M5Stack NanoH2: select the board M5NanoH2 or ESP32H2 Dev Module"`.
 
 Whichever board you pick, **Zigbee mode** and **Partition Scheme** default to
 *Disabled* and *Default 4MB with spiffs*, and both have to be changed by hand.

@@ -104,9 +104,9 @@ As a quick check that the on-board button works it is still useful.
 
 Both are the defaults, so unlike the [DS18B20
 sketch](../NanoH2_DS18B20_Zigbee/) nothing has to be changed by hand here.
-Prefer `M5NanoH2` — its variant already carries the right clock (96 MHz) — but
-the generic board works too, since the sketch names every pin itself in
-`config.h`.
+Prefer `M5NanoH2`: it is the board's own entry, with its pin names. Both run
+the CPU at 96 MHz, and the generic board works too, since the sketch names every
+pin itself in `config.h`. Any other board stops the build with `#error "Built for the M5Stack NanoH2: select the board M5NanoH2 or ESP32H2 Dev Module"`.
 
 To enter download mode: hold the on-board `G9` button, *then* plug in USB-C. With
 `PIN_BUTTON 9` that is the same button the sketch reads — see [Using the on-board

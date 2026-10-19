@@ -5,6 +5,16 @@
 
 #include <Arduino.h>
 
+// Pins are defined in this file, never taken from the board variant. Only two
+// boards are known to have this file's pins and the Zigbee options: M5Stack's
+// M5NanoH2 and, as the fallback core, Espressif's generic ESP32H2 Dev Module
+// (root CLAUDE.md, "Fallback: Espressif's own core"). Any other board stops the
+// build here instead of running with the wrong pins. ARDUINO is unset in the
+// host tests, which include this file too.
+#if defined(ARDUINO) && !defined(ARDUINO_M5STACK_NANO_H2) && !defined(ARDUINO_ESP32H2_DEV)
+#error "Built for the M5Stack NanoH2: select the board M5NanoH2 or ESP32H2 Dev Module"
+#endif
+
 /* ------------------------------------------------------------------
  * Firmware version
  *
