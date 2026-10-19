@@ -27,7 +27,7 @@ compile:
 ```sh
 CLI=/var/lib/flatpak/app/cc.arduino.IDE2/current/active/files/arduino-ide/resources/app/lib/backend/resources/arduino-cli
 $CLI --config-file ~/.arduinoIDE/arduino-cli.yaml compile \
-  -b m5stack:esp32:m5stack_nano_h2:ZigbeeMode=ed,PartitionScheme=zigbee \
+  -b m5stack:esp32:m5stack_nano_h2:ZigbeeMode=ed,PartitionScheme=zigbee,CDCOnBoot=cdc \
   --build-path <scratch-dir>/build-<sketch> NanoH2_DS18B20_Zigbee
 ```
 
@@ -35,7 +35,7 @@ $CLI --config-file ~/.arduinoIDE/arduino-cli.yaml compile \
 | --- | --- |
 | Core | `m5stack:esp32` 3.3.10 (in `~/.arduino15/packages/m5stack/`). Updated from 3.3.9 on 2026-10-16: same Zigbee library and byte-identical SDK libraries, only the upload command in `platform.txt` changed |
 | Board | `m5stack:esp32:m5stack_nano_h2` |
-| Required options | `ZigbeeMode=ed`, `PartitionScheme=zigbee` (Zigbee 4MB with spiffs) |
+| Required options | `ZigbeeMode=ed`, `PartitionScheme=zigbee` (Zigbee 4MB with spiffs), `CDCOnBoot=cdc` (USB CDC On Boot = Enabled, as the READMEs ask) |
 | IDE config | `~/.arduinoIDE/arduino-cli.yaml` |
 | Sketchbook | This repo. `directories.user` is a flatpak portal path (`/run/user/1000/doc/…/esp32`) that resolves to `/opt/git/esp32` |
 | Libraries used | Only core libraries (`Zigbee`, `Preferences`). No third-party library |
@@ -47,11 +47,11 @@ release that M5Stack hasn't packaged yet, Espressif's core (board manager URL
 `https://espressif.github.io/arduino-esp32/package_esp32_index.json`, "esp32 by
 Espressif Systems") can build these sketches. It has no NanoH2 entry (checked
 3.3.12, 2026-10-19), but its generic **ESP32H2 Dev Module** matches it: 4MB QIO
-flash at 64 MHz, CDC On Boot disabled by default, and the same `ZigbeeMode=ed`
+flash at 64 MHz, the CPU at 96 MHz, CDC On Boot disabled by default (set it to Enabled, as on the NanoH2), and the same `ZigbeeMode=ed`
 and `PartitionScheme=zigbee` options:
 
 ```sh
--b esp32:esp32:esp32h2:ZigbeeMode=ed,PartitionScheme=zigbee
+-b esp32:esp32:esp32h2:ZigbeeMode=ed,PartitionScheme=zigbee,CDCOnBoot=cdc
 ```
 
 The NanoH2 variant only adds pin names (`PIN_RGB_LED`, `TX`/`RX`, `SDA`/`SCL`),
