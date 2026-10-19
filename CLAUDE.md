@@ -218,12 +218,19 @@ failures look the same:
 **The error code is lost in the core.** The line is
 `log_w("Commissioning failed, trying again...", esp_err_to_name(err_status))`,
 and the format has no `%s`, so the reason is never printed. That holds for
-m5stack:esp32 3.3.10 and for arduino-esp32 master (checked 2026-10-18).
-Reported as arduino-esp32 #12997, with the one-line fix. The sketch can't catch the signal itself,
-because the core defines `esp_zb_app_signal_handler()`. To see the reason, a
-diagnostic build needs that one line patched locally in the installed core
-(`"Commissioning failed (%s), trying again..."`), and the patch must be
-undone afterwards, since a core update overwrites it anyway. Whether
+m5stack:esp32 3.3.10, the installed core. Reported as arduino-esp32 #12997;
+the fix (PR #12998, `"Commissioning failed (status: %s), trying again..."`)
+was merged into master on 2026-10-19 and is expected in the release after
+3.3.12. It reaches this project only once M5Stack ships an `m5stack:esp32`
+package built on that release: M5Stack repackages Espressif's core (its
+`package.json` points at espressif/arduino-esp32, and the versions follow
+Espressif's) and has no public source repository of its own; new versions
+show up in its board manager index,
+`https://static-cdn.m5stack.com/resource/arduino/package_m5stack_index.json`.
+The sketch can't catch the signal itself, because the core defines
+`esp_zb_app_signal_handler()`. Until then, a diagnostic build needs that one
+line patched locally in the installed core, and the patch must be undone
+afterwards, since a core update overwrites it anyway. Whether
 `--reset` is the trigger is open: both failures followed one, but so did
 the good boot at 16:48.
 
@@ -344,7 +351,7 @@ After a core or board-package update, go through this list:
 | arduino-esp32 #12917 | https://github.com/espressif/arduino-esp32/issues/12917 | Uninitialised `manuf_code` in core report helpers; workaround in `ZbMirror::reportText()` |
 | arduino-esp32 #10879 | https://github.com/espressif/arduino-esp32/issues/10879 | Resolved (PR #11792): the same `vPortExitCritical` assert as ours, from an unlocked stack call in the core. A reference for what a missing lock looks like, not a workaround in this code |
 | esp-zigbee-sdk #909 | https://github.com/espressif/esp-zigbee-sdk/issues/909 | Silent discard of binding-table-mode reports; fixed by unicast (see above) |
-| arduino-esp32 #12997 | https://github.com/espressif/arduino-esp32/issues/12997 | Opened by the user 2026-10-18: the core's "Commissioning failed, trying again..." drops its error status (no `%s`). Once fixed in a release, a capture of the slow first join shows why the rejoin fails |
+| arduino-esp32 #12997 | https://github.com/espressif/arduino-esp32/issues/12997 | Opened by the user 2026-10-18: the core's "Commissioning failed, trying again..." drops its error status (no `%s`). Fixed by PR #12998, merged into master 2026-10-19 (after 3.3.12). Waiting for an Espressif release and then an `m5stack:esp32` package based on it; after that, a capture of the slow first join shows why the rejoin fails |
 | OneWire PR #165 | https://github.com/PaulStoffregen/OneWire/pull/165 | ESP32-H2/C2 support in OneWire; until it is merged and released, `ds18b20_bus` replaces the library |
 | zigbee2mqtt #33407 | https://github.com/Koenkk/zigbee2mqtt/issues/33407 | Opened by the user 2026-10-16: a re-interview doesn't re-send HA discovery, so HA's device info keeps the old firmware until Z2M is restarted. Both READMEs, "Firmware Version", describe the restart; drop it there once a Z2M release fixes this |
 
