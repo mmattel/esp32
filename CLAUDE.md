@@ -40,6 +40,26 @@ $CLI --config-file ~/.arduinoIDE/arduino-cli.yaml compile \
 | Sketchbook | This repo. `directories.user` is a flatpak portal path (`/run/user/1000/doc/…/esp32`) that resolves to `/opt/git/esp32` |
 | Libraries used | Only core libraries (`Zigbee`, `Preferences`). No third-party library |
 
+**Fallback: Espressif's own core.** M5Stack repackages Espressif's core (its
+`package.json` points at espressif/arduino-esp32) and publishes new versions
+later, only through its board manager index. When a fix is in an Espressif
+release that M5Stack hasn't packaged yet, Espressif's core (board manager URL
+`https://espressif.github.io/arduino-esp32/package_esp32_index.json`, "esp32 by
+Espressif Systems") can build these sketches. It has no NanoH2 entry (checked
+3.3.12, 2026-10-19), but its generic **ESP32H2 Dev Module** matches it: 4MB QIO
+flash at 64 MHz, CDC On Boot disabled by default, and the same `ZigbeeMode=ed`
+and `PartitionScheme=zigbee` options:
+
+```sh
+-b esp32:esp32:esp32h2:ZigbeeMode=ed,PartitionScheme=zigbee
+```
+
+The NanoH2 variant only adds pin names (`PIN_RGB_LED`, `TX`/`RX`, `SDA`/`SCL`),
+and the sketches define their own pins in `config.h`. With the same partition
+scheme, NVS and the stored network should survive the switch; not yet tested
+on the board. A switch is a real SDK update: go through "Core/SDK Assumptions
+to Re-check After a Core Update" first.
+
 **No third-party library is used, and none should be added for 1-Wire.** The usual
 OneWire library (2.3.8, the latest release, also in `libraries/`) has not been updated
 for the newer ESP32 variants and does not compile for the ESP32-H2. Its direct-GPIO
