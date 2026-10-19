@@ -55,7 +55,12 @@ and `PartitionScheme=zigbee` options:
 ```
 
 The NanoH2 variant only adds pin names (`PIN_RGB_LED`, `TX`/`RX`, `SDA`/`SCL`),
-and the sketches define their own pins in `config.h`. With the same partition
+and the sketches define their own pins in `config.h`. Keep it that way: new
+code takes pins from `config.h` and passes them explicitly (`Serial1.begin(…, rx,
+tx)`, `Wire.begin(sda, scl)`), because the variant's `SDA`/`SCL` and `LED_BUILTIN`
+differ between the two boards and can't be redefined. Each `config.h` stops the
+build with `#error` on any board other than these two. All three sketches compiled
+on Espressif 3.3.12 without errors (2026-10-19). With the same partition
 scheme, NVS and the stored network should survive the switch; not yet tested
 on the board. A switch is a real SDK update: go through "Core/SDK Assumptions
 to Re-check After a Core Update" first.
